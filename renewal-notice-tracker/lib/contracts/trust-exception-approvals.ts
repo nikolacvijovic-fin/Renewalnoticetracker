@@ -4,6 +4,13 @@ import { createAuditLog } from "@/lib/audit";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 import { getEvidenceConfidenceFromContractMetadata } from "@/lib/contracts/evidence-confidence";
+import { recordEnterpriseAuditEvent } from "@/lib/enterprise-audit/audit-recorder";
+import {
+  getAdminContractMetadataForTrustApproval,
+  insertAdminTrustExceptionApproval,
+  listAdminTrustExceptionApprovals,
+  revokeAdminTrustExceptionApproval
+} from "@/lib/contracts/repositories/admin-trust-exception-approvals-repository";
 
 export const TRUST_EXCEPTION_APPROVAL_TYPES = [
   "low_confidence_evidence",
@@ -107,6 +114,19 @@ export async function getActiveTrustExceptionApproval(
   },
   options?: TrustExceptionApprovalOptions
 ) {
+  if (!options?.client) {
+    const { data, error } = await listAdminTrustExceptionApprovals({
+      organizationId: input.organizationId,
+      contractId: input.contractId,
+      approvalType: input.approvalType,
+      limit: 25
+    });
+    if (error) throw error;
+    return ((data ?? []) as TrustExceptionApproval[]).find((approval) =>
+      isTrustExceptionApprovalActive(approval, options?.now)
+    ) ?? null;
+  }
+
   const client = getClient(options);
   let query = client
     .from("contract_trust_exception_approvals")
@@ -135,6 +155,16 @@ export async function listContractTrustExceptionApprovals(
   },
   options?: TrustExceptionApprovalOptions
 ) {
+  if (!options?.client) {
+    const { data, error } = await listAdminTrustExceptionApprovals({
+      organizationId: input.organizationId,
+      contractId: input.contractId,
+      limit: 50
+    });
+    if (error) throw error;
+    return (data ?? []) as TrustExceptionApproval[];
+  }
+
   const client = getClient(options);
   const { data, error } = await client
     .from("contract_trust_exception_approvals")
@@ -163,11 +193,21 @@ export async function createTrustExceptionApproval(
     throw new TrustExceptionApprovalAuthorizationError(input.context.role);
   }
 
-  const client = getClient(options);
-  const metadata = await getContractMetadataForApproval(client, {
+  const client = options?.client ?? null;
+  const metadata = client
+    ? await getContractMetadataForApproval(client, {
+        contractId: input.contractId,
+        organizationId: input.context.organizationId
+      })
+    : await getAdminContractMetadataForTrustApproval({
     contractId: input.contractId,
     organizationId: input.context.organizationId
-  });
+      }).then(({ data, error }) =>
+        normalizeContractMetadataForApproval(data, error, {
+          contractId: input.contractId,
+          organizationId: input.context.organizationId
+        })
+      );
   const evidenceConfidenceAtApproval = getEvidenceConfidenceFromContractMetadata(metadata);
 
   const existingActiveApproval = await getActiveTrustExceptionApproval(
@@ -176,7 +216,7 @@ export async function createTrustExceptionApproval(
       contractId: input.contractId,
       approvalType: input.approvalType
     },
-    { client, now: options?.now }
+    { ...(client ? { client } : {}), now: options?.now }
   );
 
   if (existingActiveApproval) {
@@ -195,11 +235,13 @@ export async function createTrustExceptionApproval(
     expires_at: input.expiresAt ?? null
   };
 
-  const { data, error } = await client
-    .from("contract_trust_exception_approvals")
-    .insert(insertPayload)
-    .select("*")
-    .single();
+  const { data, error } = client
+    ? await client
+        .from("contract_trust_exception_approvals")
+        .insert(insertPayload)
+        .select("*")
+        .single()
+    : await insertAdminTrustExceptionApproval(insertPayload);
 
   if (error) throw error;
   const approval = data as TrustExceptionApproval;
@@ -212,6 +254,13 @@ export async function createTrustExceptionApproval(
     entityType: "contract_trust_exception_approval",
     entityId: approval.id,
     details: buildApprovalAuditDetails(approval)
+  });
+  await recordTrustExceptionEnterpriseAudit({
+    organizationId: input.context.organizationId,
+    actorUserId: input.context.user.id,
+    contractId: input.contractId,
+    eventType: TRUST_EXCEPTION_APPROVAL_AUDIT_ACTIONS.created,
+    metadata: buildApprovalAuditDetails(approval)
   });
 
   return approval;
@@ -239,19 +288,27 @@ export async function revokeTrustExceptionApproval(
     throw new TrustExceptionApprovalAuthorizationError(input.context.role);
   }
 
-  const client = getClient(options);
-  const { data, error } = await client
-    .from("contract_trust_exception_approvals")
-    .update({
+  const client = options?.client ?? null;
+  const updatePayload = {
       revoked_at: (options?.now ?? new Date()).toISOString(),
       revoked_by_user_id: input.context.user.id,
       revocation_reason: revocationReason
-    })
-    .eq("organization_id", input.context.organizationId)
-    .eq("contract_id", input.contractId)
-    .eq("id", input.approvalId)
-    .select("*")
-    .single();
+    };
+  const { data, error } = client
+    ? await client
+        .from("contract_trust_exception_approvals")
+        .update(updatePayload)
+        .eq("organization_id", input.context.organizationId)
+        .eq("contract_id", input.contractId)
+        .eq("id", input.approvalId)
+        .select("*")
+        .single()
+    : await revokeAdminTrustExceptionApproval({
+        organizationId: input.context.organizationId,
+        contractId: input.contractId,
+        approvalId: input.approvalId,
+        update: updatePayload
+      });
 
   if (error) throw error;
   const approval = data as TrustExceptionApproval;
@@ -264,6 +321,13 @@ export async function revokeTrustExceptionApproval(
     entityType: "contract_trust_exception_approval",
     entityId: approval.id,
     details: buildApprovalAuditDetails(approval)
+  });
+  await recordTrustExceptionEnterpriseAudit({
+    organizationId: input.context.organizationId,
+    actorUserId: input.context.user.id,
+    contractId: input.contractId,
+    eventType: TRUST_EXCEPTION_APPROVAL_AUDIT_ACTIONS.revoked,
+    metadata: buildApprovalAuditDetails(approval)
   });
 
   return approval;
@@ -288,6 +352,16 @@ export async function auditTrustExceptionApprovalViewed(input: {
     },
     { mode: "best_effort" }
   );
+  await recordTrustExceptionEnterpriseAudit({
+    organizationId: input.context.organizationId,
+    actorUserId: input.context.user.id,
+    contractId: input.contractId,
+    eventType: TRUST_EXCEPTION_APPROVAL_AUDIT_ACTIONS.viewed,
+    metadata: input.approval
+      ? buildApprovalAuditDetails(input.approval)
+      : { contractId: input.contractId, active: false },
+    mode: "best_effort"
+  });
 }
 
 export async function auditTrustExceptionApprovalUsedForTrustedReminderGate(input: {
@@ -297,6 +371,12 @@ export async function auditTrustExceptionApprovalUsedForTrustedReminderGate(inpu
   evidenceConfidence: number;
   now?: Date;
 }) {
+  const details = {
+    ...buildApprovalAuditDetails(input.approval, input.now),
+    currentEvidenceConfidence: clampConfidence(input.evidenceConfidence),
+    activeAtGateEvaluation: isTrustExceptionApprovalActive(input.approval, input.now)
+  };
+
   await createAuditLog(
     {
       organizationId: input.context.organizationId,
@@ -305,14 +385,38 @@ export async function auditTrustExceptionApprovalUsedForTrustedReminderGate(inpu
       action: TRUST_EXCEPTION_APPROVAL_AUDIT_ACTIONS.usedForTrustedReminderGate,
       entityType: "contract_trust_exception_approval",
       entityId: input.approval.id,
-      details: {
-        ...buildApprovalAuditDetails(input.approval, input.now),
-        currentEvidenceConfidence: clampConfidence(input.evidenceConfidence),
-        activeAtGateEvaluation: isTrustExceptionApprovalActive(input.approval, input.now)
-      }
+      details
     },
     { mode: "best_effort" }
   );
+  await recordTrustExceptionEnterpriseAudit({
+    organizationId: input.context.organizationId,
+    actorUserId: input.context.user.id,
+    contractId: input.contractId,
+    eventType: TRUST_EXCEPTION_APPROVAL_AUDIT_ACTIONS.usedForTrustedReminderGate,
+    metadata: details,
+    mode: "best_effort"
+  });
+  await recordEnterpriseAuditEvent({
+    organizationId: input.context.organizationId,
+    actorUserId: input.context.user.id,
+    contractId: input.contractId,
+    eventType: "trusted_reminder_gate.evaluated_with_trust_exception",
+    eventCategory: "trusted_reminder",
+    eventSource: "trusted_reminder_gate",
+    severity: details.activeAtGateEvaluation ? "info" : "warning",
+    metadata: {
+      contractId: input.contractId,
+      failureCodes: [],
+      evidenceConfidence: clampConfidence(input.evidenceConfidence),
+      approvalId: input.approval.id,
+      approvalType: input.approval.approval_type,
+      activeAtEvaluation: details.activeAtGateEvaluation,
+      canActivate: details.activeAtGateEvaluation,
+      blockerSummaries: []
+    },
+    mode: "best_effort"
+  });
 }
 
 export function buildTrustExceptionApprovalGateEvidence(
@@ -369,6 +473,42 @@ async function auditTrustExceptionApprovalDenied(
     },
     { mode: "best_effort" }
   );
+  await recordTrustExceptionEnterpriseAudit({
+    organizationId: input.context.organizationId,
+    actorUserId: input.context.user.id,
+    contractId: input.contractId,
+    eventType: TRUST_EXCEPTION_APPROVAL_AUDIT_ACTIONS.denied,
+    metadata: {
+      contractId: input.contractId,
+      approvalType: input.approvalType,
+      evidenceConfidenceAtApproval: 0,
+      sourceFieldKeys: sanitizeSourceFieldKeys(input.sourceFieldKeys ?? []),
+      active: false,
+      reason
+    },
+    mode: "best_effort"
+  });
+}
+
+async function recordTrustExceptionEnterpriseAudit(input: {
+  organizationId: string;
+  actorUserId: string;
+  contractId: string;
+  eventType: string;
+  metadata: Record<string, unknown>;
+  mode?: "strict" | "best_effort";
+}) {
+  await recordEnterpriseAuditEvent({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    contractId: input.contractId,
+    eventType: input.eventType,
+    eventCategory: "trust_exception",
+    eventSource: "contract_trust_exception_approvals",
+    severity: input.eventType.includes("denied") || input.eventType.includes("revoked") ? "warning" : "info",
+    metadata: input.metadata,
+    mode: input.mode
+  });
 }
 
 async function getContractMetadataForApproval(
@@ -392,10 +532,17 @@ async function getContractMetadataForApproval(
     .eq("id", input.contractId)
     .single();
 
+  return normalizeContractMetadataForApproval(data, error, input);
+}
+
+function normalizeContractMetadataForApproval(
+  data: unknown,
+  error: unknown,
+  input: { organizationId: string; contractId: string }
+) {
   if (error || !data) {
     throw new TrustExceptionApprovalScopeError(input.contractId, input.organizationId);
   }
-
   const metadata = (data as {
     contract_metadata?:
       | {

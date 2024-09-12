@@ -34,7 +34,20 @@ Evidence confidence at approval is server-computed from current contract metadat
 
 ## Authorization
 
-Admins, operators, and reviewers may create or revoke trust exception approvals. Owners may view approval state as part of the contract workflow, but owner role alone does not create approvals.
+Admins, operators, and reviewers may request creation or revocation through trusted server actions. Owners may view approval state as part of the contract workflow, but owner role alone does not create approvals.
+
+Browser/client inserts are not trusted authority. Migration `202607190001_enterprise_trust_authority.sql` removes the direct client insert/update policies and adds a trigger that rejects non-service-role inserts. The shipped TypeScript service computes confidence from tenant-scoped contract metadata and writes through a scoped service-role repository.
+
+## Duplicate Prevention
+
+Only one non-revoked approval can exist for the same `organization_id`, `contract_id`, and `approval_type`.
+
+The enterprise-safe rule is intentionally simple:
+
+- A duplicate non-revoked approval is rejected at the database boundary.
+- Expired approvals are not silently replaced.
+- A prior approval must be explicitly revoked before a replacement can be created.
+- Cross-organization approvals do not conflict because `organization_id` is part of the unique index.
 
 ## Audit
 
@@ -47,6 +60,8 @@ Trust exception approval workflows use privacy-safe audit events:
 - `trust_exception_approval.used_for_trusted_reminder_gate`
 
 Audit metadata includes contract id, approval type, source field keys, evidence confidence at approval, and whether the approval is active. Audit metadata must never include raw contract text, OCR output, provider payloads, storage paths, full notes, secrets, or notice content.
+
+These lifecycle events are now written through `recordEnterpriseAuditEvent()` into `trust_exception_approval_events` in addition to the legacy `audit_logs` compatibility trail where needed. Trusted reminder gate usage with an approval also writes `trusted_reminder_gate_events`.
 
 The requested lifecycle names map to this repo's dot-style audit convention:
 
@@ -63,4 +78,4 @@ When an active approval allows a trusted reminder gate to pass despite low evide
 
 ## SQL Boundary
 
-`contract_trust_exception_approvals` uses RLS for org-scoped reads and review-capable inserts. The database trigger `prevent_contract_trust_exception_approval_mutation()` enforces immutability even if a future route accidentally attempts to update approval content.
+`contract_trust_exception_approvals` uses RLS for org-scoped reads only. Creation and revocation are trusted server/service-role operations. The database trigger `prevent_contract_trust_exception_approval_mutation()` enforces immutability even if a future route accidentally attempts to update approval content.

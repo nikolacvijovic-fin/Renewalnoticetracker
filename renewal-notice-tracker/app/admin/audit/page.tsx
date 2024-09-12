@@ -126,10 +126,16 @@ export default async function AdminEnterpriseAuditPage({
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">
               {category.replaceAll("_", " ")}
             </p>
-            <p className="mt-2 text-2xl font-semibold text-ink">{countsByCategory[category] ?? 0}</p>
+            <p className="mt-2 text-2xl font-semibold text-ink">{countsByCategory.counts[category] ?? 0}</p>
           </a>
         ))}
       </section>
+      {countsByCategory.isPartial ? (
+        <p className="text-sm text-muted">
+          Category counts are partial, based on the latest {countsByCategory.sampleLimit} normalized events. Use the
+          event table and filters for investigation until exact aggregate views are available.
+        </p>
+      ) : null}
 
       <section className="rounded-3xl border border-line bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">

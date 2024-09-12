@@ -32,6 +32,12 @@ export type EnterpriseAuditQueryResult = {
   hasMore: boolean;
 };
 
+export type EnterpriseAuditCountsResult<T extends string> = {
+  counts: Record<T, number>;
+  isPartial: boolean;
+  sampleLimit: number;
+};
+
 const SOURCES: EnterpriseAuditEventSource[] = [
   "audit_logs",
   "contract_audit_events",
@@ -53,6 +59,7 @@ type QueryBuilder = {
   lte(column: string, value: string): QueryBuilder;
   order(column: string, options: { ascending: boolean }): QueryBuilder;
   limit(value: number): Promise<{ data: EnterpriseAuditSourceRow[] | null; error: Error | null }>;
+  maybeSingle(): Promise<{ data: EnterpriseAuditSourceRow | null; error: Error | null }>;
 };
 
 function clampLimit(limit: number | null | undefined) {
@@ -141,13 +148,22 @@ export async function getEnterpriseAuditEvents(
 
 export async function getEnterpriseAuditEventById(input: {
   organizationId: string;
-  eventId: string;
+  normalizedEventId: string;
 }) {
-  const { events } = await getEnterpriseAuditEvents({
-    organizationId: input.organizationId,
-    limit: ENTERPRISE_AUDIT_LIMIT_CAP
-  });
-  return events.find((event) => event.id === input.eventId) ?? null;
+  const [source, rawId] = input.normalizedEventId.split(":", 2);
+  if (!source || !rawId || !SOURCES.includes(source as EnterpriseAuditEventSource)) {
+    return null;
+  }
+
+  const supabase = createServerSupabaseClient() as unknown as UntypedSupabaseClient;
+  const query = supabase.from(source).select("*") as QueryBuilder;
+  const { data, error } = await query
+    .eq("organization_id", input.organizationId)
+    .eq("id", rawId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data ? normalizeEnterpriseAuditEvent(data, source as EnterpriseAuditEventSource) : null;
 }
 
 export async function getContractAuditTimeline(input: {
@@ -179,25 +195,41 @@ export async function getSecuritySensitiveAuditEvents(filters: EnterpriseAuditQu
   return getEnterpriseAuditEvents({ ...filters, securitySensitiveOnly: true });
 }
 
-export async function getAuditEventCountsByCategory(filters: EnterpriseAuditQueryFilters) {
+export async function getAuditEventCountsByCategory(
+  filters: EnterpriseAuditQueryFilters
+): Promise<EnterpriseAuditCountsResult<EnterpriseAuditEventCategory>> {
   const { events } = await getEnterpriseAuditEvents({
     ...filters,
     limit: ENTERPRISE_AUDIT_LIMIT_CAP
   });
-  return events.reduce<Record<EnterpriseAuditEventCategory, number>>((counts, event) => {
-    counts[event.eventCategory] = (counts[event.eventCategory] ?? 0) + 1;
-    return counts;
+  const counts = events.reduce<Record<EnterpriseAuditEventCategory, number>>((nextCounts, event) => {
+    nextCounts[event.eventCategory] = (nextCounts[event.eventCategory] ?? 0) + 1;
+    return nextCounts;
   }, {} as Record<EnterpriseAuditEventCategory, number>);
+
+  return {
+    counts,
+    isPartial: true,
+    sampleLimit: ENTERPRISE_AUDIT_LIMIT_CAP
+  };
 }
 
-export async function getAuditEventCountsByActor(filters: EnterpriseAuditQueryFilters) {
+export async function getAuditEventCountsByActor(
+  filters: EnterpriseAuditQueryFilters
+): Promise<EnterpriseAuditCountsResult<string>> {
   const { events } = await getEnterpriseAuditEvents({
     ...filters,
     limit: ENTERPRISE_AUDIT_LIMIT_CAP
   });
-  return events.reduce<Record<string, number>>((counts, event) => {
+  const counts = events.reduce<Record<string, number>>((nextCounts, event) => {
     const actor = event.actorUserId ?? "system";
-    counts[actor] = (counts[actor] ?? 0) + 1;
-    return counts;
+    nextCounts[actor] = (nextCounts[actor] ?? 0) + 1;
+    return nextCounts;
   }, {});
+
+  return {
+    counts,
+    isPartial: true,
+    sampleLimit: ENTERPRISE_AUDIT_LIMIT_CAP
+  };
 }

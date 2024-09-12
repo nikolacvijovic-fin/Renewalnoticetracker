@@ -3,9 +3,14 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createAuditLog = vi.fn();
+const recordEnterpriseAuditEvent = vi.fn();
 
 vi.mock("@/lib/audit", () => ({
   createAuditLog
+}));
+
+vi.mock("@/lib/enterprise-audit/audit-recorder", () => ({
+  recordEnterpriseAuditEvent
 }));
 
 type FakeApproval = {
@@ -144,6 +149,7 @@ function createFakeClient({
 describe("trust exception approvals", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    recordEnterpriseAuditEvent.mockResolvedValue({ ok: true, source: "trust_exception_approval_events" });
   });
 
   it("uses only active organization-scoped approvals", async () => {
@@ -209,6 +215,19 @@ describe("trust exception approvals", () => {
           approvalType: "manual_without_evidence",
           evidenceConfidenceAtApproval: 0.72,
           sourceFieldKeys: ["notice_deadline_date"]
+        })
+      })
+    );
+    expect(recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        actorUserId: "reviewer-1",
+        contractId: "contract-1",
+        eventType: "trust_exception_approval.created",
+        eventCategory: "trust_exception",
+        eventSource: "contract_trust_exception_approvals",
+        metadata: expect.objectContaining({
+          evidenceConfidenceAtApproval: 0.72
         })
       })
     );
@@ -279,6 +298,13 @@ describe("trust exception approvals", () => {
       }),
       { mode: "best_effort" }
     );
+    expect(recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "trust_exception_approval.denied",
+        eventCategory: "trust_exception",
+        mode: "best_effort"
+      })
+    );
   });
 
   it("denies owner approval attempts and audits the denial safely", async () => {
@@ -303,6 +329,12 @@ describe("trust exception approvals", () => {
         })
       }),
       { mode: "best_effort" }
+    );
+    expect(recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "trust_exception_approval.revoked",
+        eventCategory: "trust_exception"
+      })
     );
   });
 
@@ -440,6 +472,14 @@ describe("trust exception approvals", () => {
         })
       }),
       { mode: "best_effort" }
+    );
+    expect(recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "trusted_reminder_gate.evaluated_with_trust_exception",
+        eventCategory: "trusted_reminder",
+        eventSource: "trusted_reminder_gate",
+        mode: "best_effort"
+      })
     );
   });
 });

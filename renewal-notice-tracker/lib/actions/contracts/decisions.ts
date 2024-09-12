@@ -12,6 +12,7 @@ import { requireScopedContract } from "@/lib/contracts/kernel-queries";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { renewalDecisionSchema } from "@/lib/validation/contract";
 import { RENEWAL_CYCLE_STATUSES } from "@/lib/constants";
+import { recordEnterpriseAuditEvent } from "@/lib/enterprise-audit/audit-recorder";
 
 function assertCycleStatus(value: string): asserts value is (typeof RENEWAL_CYCLE_STATUSES)[number] {
   if (!RENEWAL_CYCLE_STATUSES.includes(value as (typeof RENEWAL_CYCLE_STATUSES)[number])) {
@@ -69,6 +70,23 @@ export async function createRenewalDecisionAction(contractId: string, formData: 
     entityType: "renewal_decision",
     entityId: data.id,
     details: payload
+  });
+  await recordEnterpriseAuditEvent({
+    organizationId,
+    actorUserId: user.id,
+    contractId,
+    eventType: "renewal_decision.created",
+    eventCategory: "renewal_decision",
+    eventSource: "renewal_decisions",
+    severity: "info",
+    metadata: {
+      renewalDecisionId: data.id,
+      status: payload.status,
+      decisionDate: payload.decision_date ?? null,
+      nextStepCount: payload.next_steps.length
+    },
+    idempotencyKey: `renewal_decision.created:${data.id}`,
+    mode: "best_effort"
   });
 
   await trackServerAnalyticsEvent({
@@ -168,6 +186,18 @@ export async function updateRenewalCycleAction(contractId: string, formData: For
     entityType: "contract",
     entityId: contractId,
     details: { cycle_status: requestedStatus }
+  });
+  await recordEnterpriseAuditEvent({
+    organizationId,
+    actorUserId: user.id,
+    contractId,
+    eventType: "renewal_cycle.updated",
+    eventCategory: "renewal_decision",
+    eventSource: "renewal_cycle",
+    severity: requestedStatus === "closed" ? "info" : "warning",
+    metadata: { cycleStatus: requestedStatus },
+    idempotencyKey: `renewal_cycle.updated:${contractId}:${requestedStatus}:${Date.now()}`,
+    mode: "best_effort"
   });
 
   revalidatePath(`/dashboard/contracts/${contractId}`);

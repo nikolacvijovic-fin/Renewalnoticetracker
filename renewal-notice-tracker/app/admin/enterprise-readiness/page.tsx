@@ -1,11 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { requireInternalRole } from "@/lib/internal-access";
-import { getEnterpriseAuditEvents } from "@/lib/enterprise-audit/audit-queries";
-import { getAppConfig } from "@/lib/config";
-import {
-  buildEnterpriseReadinessInputFromAuditEvents,
-  computeEnterpriseReadinessScore
-} from "@/lib/enterprise-readiness/enterprise-readiness-score";
+import { computeEnterpriseReadinessScore } from "@/lib/enterprise-readiness/enterprise-readiness-score";
+import { getEnterpriseReadinessEvidence } from "@/lib/enterprise-readiness/enterprise-readiness-evidence";
 
 function statusTone(status: string) {
   if (status === "enterprise_ready") return "success" as const;
@@ -38,18 +34,8 @@ export default async function AdminEnterpriseReadinessPage({
     );
   }
 
-  const config = getAppConfig();
-  const { events } = await getEnterpriseAuditEvents({ organizationId, limit: 250 });
-  const scoreInput = buildEnterpriseReadinessInputFromAuditEvents({
-    events,
-    trustApprovalImmutabilityPresent: true,
-    serverComputedEvidenceConfidencePresent: true,
-    strictRlsChecksPresent: true,
-    reminderDeliveryReliabilitySignalsPresent: true,
-    monitoringAlertingStatusPresent: config.operations.monitoringEventSink.length > 0,
-    addOnSigningConfigured: Boolean(config.addOns.internalSigningSecret)
-  });
-  const result = computeEnterpriseReadinessScore(scoreInput);
+  const evidenceResult = await getEnterpriseReadinessEvidence(organizationId);
+  const result = computeEnterpriseReadinessScore(evidenceResult.scoreInput);
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 p-8">
@@ -105,6 +91,25 @@ export default async function AdminEnterpriseReadinessPage({
               <li key={control}>{control.replaceAll("_", " ")}</li>
             ))}
           </ul>
+        </div>
+      </section>
+      <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+        <h2 className="font-semibold text-ink">Evidence sources</h2>
+        <div className="mt-4 grid gap-3">
+          {evidenceResult.evidence.map((item) => (
+            <div key={item.controlId} className="rounded-2xl border border-line p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-ink">{item.controlId.replaceAll("_", " ")}</p>
+                  <p className="mt-1 text-sm text-muted">{item.summary}</p>
+                  <p className="mt-1 text-xs text-muted">Source: {item.source} | Checked {item.checkedAt}</p>
+                </div>
+                <Badge tone={item.status === "passed" ? "success" : item.status === "warning" ? "warning" : "critical"}>
+                  {item.status}
+                </Badge>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
     </main>

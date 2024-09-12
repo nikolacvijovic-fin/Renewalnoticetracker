@@ -15,6 +15,16 @@ The enterprise audit model currently normalizes these sources:
 
 The canonical runtime model lives in `lib/enterprise-audit/audit-event-model.ts`. Query helpers live in `lib/enterprise-audit/audit-queries.ts`.
 
+Authoritative event writes go through `lib/enterprise-audit/audit-recorder.ts`. Domain code should not insert directly into enterprise event tables.
+
+Recorder routing:
+
+- `trusted_reminder` -> `trusted_reminder_gate_events`
+- `trust_exception` -> `trust_exception_approval_events`
+- `renewal_decision` -> `renewal_decision_events`
+- contract/evidence/import/system events -> `contract_audit_events`
+- auth/billing/admin compatibility events -> `audit_logs`
+
 ## Categories
 
 Normalized events use these categories:
@@ -85,6 +95,8 @@ Enterprise audit queries are intentionally conservative:
 - Hard cap is 250 events.
 - Contract timelines filter by `organizationId` and `contractId`.
 - Specialized filters are applied after normalization so trust/security labels are consistent.
+- Normalized event lookup uses `source:id` and queries the exact source table with `organization_id`.
+- Category and actor count helpers are currently marked partial because they derive from a capped normalized sample. Admin UI labels these counts honestly until exact aggregate views/RPCs are added.
 
 ## Admin Surfaces
 
@@ -109,7 +121,7 @@ Rules:
 
 ## Enterprise Readiness
 
-`lib/enterprise-readiness/enterprise-readiness-score.ts` computes a conservative readiness score from shipped controls and audit evidence.
+`lib/enterprise-readiness/enterprise-readiness-evidence.ts` collects runtime evidence for readiness controls. `lib/enterprise-readiness/enterprise-readiness-score.ts` computes a conservative score from that collected evidence.
 
 Critical controls include:
 
@@ -132,10 +144,22 @@ Maturity warnings include:
 
 The readiness score must not claim full enterprise readiness while critical controls are missing.
 
+Unknown or unverified controls are treated as failed or warning evidence. Admin pages must not pass caller-supplied optimistic booleans directly into the score.
+
+## Trust Approval Authority
+
+Trust exception approval authority is enforced in two layers:
+
+- Trusted TypeScript service code computes `evidence_confidence_at_approval` from current contract metadata.
+- Migration `202607190001_enterprise_trust_authority.sql` removes direct client insert/update authority and enforces one non-revoked approval per organization, contract, and approval type.
+
+The approval table remains readable to scoped organization members, but create/revoke authority is server/service-role only.
+
 ## Remaining Gaps
 
 - Customer-facing enterprise audit portal is not shipped.
 - Audit export has a service scaffold but no broad customer download route.
+- Exact category/actor audit count aggregates should be implemented with SQL views or RPCs before presenting totals as complete.
 - SSO/SCIM remains provider-integration future work.
 - Backup/restore evidence is represented in readiness but should be wired to real drill evidence before enterprise claims.
 - Long-term alerting should connect audit/readiness events to the monitoring sink and incident runbooks.
