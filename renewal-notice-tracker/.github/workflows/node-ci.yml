@@ -1,0 +1,31 @@
+name: Node CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - name: Trust-sensitive permission and control-plane gate
+        run: npm run test:trust-sensitive
+      - name: Billing control-plane gate
+        run: npm run test:billing-control-plane
+      - name: Permission-boundary gate
+        run: npm run test:permission-boundaries
+      - name: Data integrity and review-reminder regeneration gate
+        run: npm run test:data-integrity
+      - name: Internal ops scope and rescue-console gate
+        run: npm run test:ops-readiness

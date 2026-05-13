@@ -1,0 +1,20 @@
+import "@testing-library/jest-dom/vitest";
+
+process.env.NEXT_PUBLIC_APP_URL ??= "http://localhost:3000";
+process.env.NEXT_PUBLIC_SUPABASE_URL ??= "http://localhost:54321";
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= "test-anon-key";
+process.env.SUPABASE_SERVICE_ROLE_KEY ??= "test-service-key";
+process.env.SUPABASE_STORAGE_BUCKET ??= "contract-files";
+process.env.OPENAI_API_KEY ??= "test-openai-key";
+process.env.RESEND_API_KEY ??= "test-resend-key";
+process.env.RESEND_FROM_EMAIL ??= "notifications@noticecontrol.com";
+process.env.RESEND_WEBHOOK_SIGNING_SECRET ??= "test-resend-webhook-secret";
+process.env.NOTICECONTROL_REPLY_TO_EMAIL ??= "support@noticecontrol.com";
+process.env.NOTICECONTROL_SENDING_DOMAIN ??= "noticecontrol.com";
+process.env.CRON_SHARED_SECRET ??= "test-cron-secret";
+process.env.INTERNAL_HEALTH_SECRET ??= "test-health-secret";
+process.env.PADDLE_API_KEY ??= "test-paddle-key";
+process.env.PADDLE_WEBHOOK_SECRET ??= "test-paddle-secret";
+process.env.PADDLE_ENVIRONMENT ??= "sandbox";
+process.env.PADDLE_STARTER_PRICE_ID ??= "price_starter";
+process.env.PADDLE_GROWTH_PRICE_ID ??= "price_growth";
