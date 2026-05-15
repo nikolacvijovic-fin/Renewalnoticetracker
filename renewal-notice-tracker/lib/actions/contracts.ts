@@ -51,7 +51,11 @@ import {
 import {
   applyTemplateNoticeDeadline
 } from "@/lib/contracts/templates";
-import { normalizeImportRows, parseImportFile, validateImportRows } from "@/lib/contracts/import";
+import {
+  assessImportRows,
+  type ImportRowResult,
+  parseImportFile
+} from "@/lib/contracts/import";
 import {
   getReminderActivationState,
   type ReminderActivationState
@@ -105,13 +109,16 @@ function fallbackMetadata(
   };
 }
 
-function serializeImportErrorReport(
-  rowErrors: Array<{ row: number; error: string; field?: string }>
-) {
-  return rowErrors.map((error) => ({
-    row: error.row,
-    error: error.error,
-    ...(error.field ? { field: error.field } : {})
+function serializeImportRowReport(rowResults: ImportRowResult[]) {
+  return rowResults.map((result) => ({
+    row: result.row,
+    status: result.status,
+    field: result.field ?? null,
+    contract_title: result.contract_title,
+    counterparty_name: result.counterparty_name,
+    owner_email: result.owner_email,
+    error: result.errors.join(" | "),
+    warnings: result.warnings
   }));
 }
 
@@ -1830,8 +1837,6 @@ export async function importContractsAction(formData: FormData) {
 
   const buffer = Buffer.from(await file.arrayBuffer());
   const parsedRows = parseImportFile(file.name, buffer);
-  const validationErrors = validateImportRows(parsedRows);
-  const rows = normalizeImportRows(parsedRows);
 
   await trackServerAnalyticsEvent({
     organizationId,
@@ -1841,7 +1846,7 @@ export async function importContractsAction(formData: FormData) {
     idempotencyKey: `import_started:${organizationId}:${file.name}:${file.size}`,
     properties: {
       file_name: file.name,
-      row_count: rows.length
+      row_count: parsedRows.length
     }
   });
 
@@ -1850,8 +1855,8 @@ export async function importContractsAction(formData: FormData) {
     actorUserId: user.id,
     billingSnapshot,
     featurePath: "/dashboard/contracts/new",
-    context: { source: "import_contracts_action", row_count: rows.length },
-    additionalContracts: Math.max(rows.length, 1)
+    context: { source: "import_contracts_action", row_count: parsedRows.length },
+    additionalContracts: Math.max(parsedRows.length, 1)
   });
   const admin = createAdminSupabaseClient();
   const members = await getOrganizationMembers(organizationId);
@@ -1860,6 +1865,71 @@ export async function importContractsAction(formData: FormData) {
       .filter((member) => member.user?.notification_email)
       .map((member) => [member.user?.notification_email?.toLowerCase() ?? "", member.user_id] as const)
   );
+  const knownOwnerEmails = new Set(ownerByEmail.keys());
+  const { data: existingContracts, error: existingContractsError } = await admin
+    .from("contracts")
+    .select(
+      `
+      contract_metadata (
+        contract_title,
+        counterparty_name,
+        notice_deadline_date,
+        renewal_date,
+        expiration_date
+      )
+    `
+    )
+    .eq("organization_id", organizationId);
+
+  if (existingContractsError) throw existingContractsError;
+
+  const existingDuplicateKeys = new Set(
+    ((existingContracts ?? []) as Array<{
+      contract_metadata:
+        | {
+            contract_title: string | null;
+            counterparty_name: string | null;
+            notice_deadline_date: string | null;
+            renewal_date: string | null;
+            expiration_date: string | null;
+          }
+        | Array<{
+            contract_title: string | null;
+            counterparty_name: string | null;
+            notice_deadline_date: string | null;
+            renewal_date: string | null;
+            expiration_date: string | null;
+          }>
+        | null;
+    }>)
+      .map((contract) =>
+        Array.isArray(contract.contract_metadata)
+          ? contract.contract_metadata[0]
+          : contract.contract_metadata
+      )
+      .flatMap((metadata) => {
+        if (
+          !metadata?.contract_title ||
+          !metadata.counterparty_name ||
+          (!metadata.notice_deadline_date && !metadata.renewal_date && !metadata.expiration_date)
+        ) {
+          return [];
+        }
+        return [
+          [
+            metadata.contract_title.trim().toLowerCase(),
+            metadata.counterparty_name.trim().toLowerCase(),
+            metadata.notice_deadline_date ?? "",
+            metadata.renewal_date ?? "",
+            metadata.expiration_date ?? ""
+          ].join("|")
+        ];
+      })
+  );
+  const assessment = assessImportRows(parsedRows, {
+    knownOwnerEmails,
+    existingDuplicateKeys
+  });
 
   const { data: importJob } = await admin
     .from("import_jobs")
@@ -1867,28 +1937,21 @@ export async function importContractsAction(formData: FormData) {
       organization_id: organizationId,
       actor_user_id: user.id,
       file_name: file.name,
-      row_count: rows.length,
+      row_count: assessment.summary.totalRows,
       status: "pending"
     })
     .select("id")
     .single();
 
   let importedCount = 0;
-  const rowErrors: Array<{ row: number; error: string; field?: string }> = validationErrors.map(
-    (error) => ({
-      row: error.row,
-      field: error.field,
-      error: error.error
-    })
-  );
+  const rowResults = assessment.results.map((result) => ({ ...result }));
   try {
-    for (const [index, row] of rows.entries()) {
-      if (!row.contract_title) continue;
-      if (validationErrors.some((error) => error.row === index + 2)) continue;
+    for (const result of rowResults) {
+      if (result.status === "failed") continue;
       try {
         const counterpartyId = await findOrCreateCounterparty({
           organizationId,
-          name: row.counterparty_name
+          name: result.normalized.counterparty_name
         });
         const contract = await admin
           .from("contracts")
@@ -1898,8 +1961,10 @@ export async function importContractsAction(formData: FormData) {
             status: "needs_review",
             cycle_status: "open",
             source_type: "manual",
-            owner_user_id: row.owner_email ? ownerByEmail.get(row.owner_email.toLowerCase()) ?? null : null,
-            department: null,
+            owner_user_id: result.normalized.owner_email
+              ? ownerByEmail.get(result.normalized.owner_email) ?? null
+              : null,
+            department: result.normalized.department ?? null,
             status_tag: "active",
             counterparty_id: counterpartyId
           })
@@ -1909,67 +1974,84 @@ export async function importContractsAction(formData: FormData) {
         await admin.from("contract_metadata").insert({
           ...resolvePhase1ReviewAssessment({
             metadata: {
-              contract_title: row.contract_title,
-              counterparty_name: row.counterparty_name ?? null,
+              contract_title: result.normalized.contract_title,
+              counterparty_name: result.normalized.counterparty_name ?? null,
               contract_type: null,
               effective_date: null,
-              renewal_date: row.renewal_date ?? null,
-              expiration_date: row.expiration_date ?? null,
-              auto_renewal: row.auto_renewal,
+              renewal_date: result.normalized.renewal_date ?? null,
+              expiration_date: result.normalized.expiration_date ?? null,
+              auto_renewal: result.normalized.auto_renewal,
               renewal_term: null,
               notice_period_value: null,
               notice_period_unit: null,
-              notice_deadline_date: row.notice_deadline_date ?? null,
-              termination_window: row.termination_window ?? null,
+              notice_deadline_date: result.normalized.notice_deadline_date ?? null,
+              termination_window: result.normalized.termination_window ?? null,
               governing_law: null,
               payment_terms: null,
               extracted_clauses: [],
               field_confidence: {},
               field_source_snippets: {},
               reminder_recommendations: [],
-              reviewer_notes: null,
+              reviewer_notes:
+                result.warnings.length > 0 ? result.warnings.join(" ") : null,
               needs_review: true,
               review_mode: "exception_review",
-              review_reason:
+              review_reason: [
                 "Imported contracts require human review before trusted reminders activate.",
+                ...result.warnings
+              ].join(" "),
               is_manual_without_evidence: true
             },
             sourceType: "manual"
           }).dirtyFlags,
           contract_id: contract.data!.id,
-          contract_title: row.contract_title,
-          counterparty_name: row.counterparty_name ?? null,
+          contract_title: result.normalized.contract_title,
+          counterparty_name: result.normalized.counterparty_name ?? null,
           contract_type: null,
-          renewal_date: row.renewal_date ?? null,
-          expiration_date: row.expiration_date ?? null,
-          notice_deadline_date: row.notice_deadline_date ?? null,
-          termination_window: row.termination_window ?? null,
-          auto_renewal: row.auto_renewal,
+          renewal_date: result.normalized.renewal_date ?? null,
+          expiration_date: result.normalized.expiration_date ?? null,
+          notice_deadline_date: result.normalized.notice_deadline_date ?? null,
+          termination_window: result.normalized.termination_window ?? null,
+          auto_renewal: result.normalized.auto_renewal,
           field_confidence: {},
           field_source_snippets: {},
           extracted_clauses: [],
           reminder_recommendations: [],
           needs_review: true,
           review_mode: "exception_review",
-          review_reason: "Imported contracts require human review before trusted reminders activate."
+          review_reason: [
+            "Imported contracts require human review before trusted reminders activate.",
+            ...result.warnings
+          ].join(" ")
         });
         importedCount += 1;
       } catch (error) {
-        rowErrors.push({
-          row: index + 2,
-          error: error instanceof Error ? error.message : "Import row failed"
-        });
+        result.status = "failed";
+        result.errors.push(error instanceof Error ? error.message : "Import row failed");
       }
     }
+
+    const rescueRowCount = rowResults.filter((result) => result.status !== "imported").length;
+    const importJobStatus =
+      assessment.cleanupTriggers.length > 0
+        ? "needs_cleanup"
+        : rescueRowCount > 0
+          ? "completed_with_errors"
+          : "completed";
+    const importJobMessage =
+      assessment.cleanupTriggers.length > 0
+        ? assessment.cleanupTriggers.join(" ")
+        : rescueRowCount > 0
+          ? `${rescueRowCount} import rows need rescue. Download the row report for details.`
+          : null;
 
     await admin
       .from("import_jobs")
       .update({
         imported_count: importedCount,
-        status: rowErrors.length > 0 ? "completed_with_errors" : "completed",
-        error_message:
-          rowErrors.length > 0 ? `${rowErrors.length} import rows need rescue. Download the error report for details.` : null,
-        error_report_json: rowErrors.length > 0 ? serializeImportErrorReport(rowErrors) : []
+        status: importJobStatus,
+        error_message: importJobMessage,
+        error_report_json: serializeImportRowReport(rowResults)
       })
       .eq("id", importJob?.id ?? "")
       .eq("organization_id", organizationId);
@@ -1980,7 +2062,7 @@ export async function importContractsAction(formData: FormData) {
         imported_count: importedCount,
         status: "failed",
         error_message: error instanceof Error ? error.message : "Import failed",
-        error_report_json: serializeImportErrorReport(rowErrors)
+        error_report_json: serializeImportRowReport(rowResults)
       })
       .eq("id", importJob?.id ?? "")
       .eq("organization_id", organizationId);
@@ -1993,7 +2075,7 @@ export async function importContractsAction(formData: FormData) {
       properties: {
         file_name: file.name,
         imported_count: importedCount,
-        error_count: rowErrors.length
+        error_count: rowResults.filter((result) => result.status === "failed").length
       }
     });
     if (error instanceof CommercialAccessError) {
@@ -2017,9 +2099,10 @@ export async function importContractsAction(formData: FormData) {
     entityId: importJob?.id ?? null,
     details: {
       file_name: file.name,
-      row_count: rows.length,
+      row_count: assessment.summary.totalRows,
       imported_count: importedCount,
-      error_count: rowErrors.length,
+      error_count: rowResults.filter((result) => result.status === "failed").length,
+      cleanup_trigger_count: assessment.cleanupTriggers.length,
       review_queue_created_count: importedCount
     }
   });
@@ -2032,9 +2115,9 @@ export async function importContractsAction(formData: FormData) {
     idempotencyKey: `import_completed:${importJob?.id ?? file.name}`,
     properties: {
       file_name: file.name,
-      row_count: rows.length,
+      row_count: assessment.summary.totalRows,
       imported_count: importedCount,
-      error_count: rowErrors.length
+      error_count: rowResults.filter((result) => result.status === "failed").length
     }
   });
 

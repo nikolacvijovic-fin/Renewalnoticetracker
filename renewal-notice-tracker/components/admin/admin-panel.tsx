@@ -1,6 +1,7 @@
 import { resendNotificationAction, rerunReminderAction } from "@/lib/actions/admin";
 import { Button } from "@/components/ui/button";
 import { ServerActionForm } from "@/components/ui/server-action-form";
+import type { InternalRole } from "@/lib/product/shipping-profile";
 
 export type InternalBillingSummary = {
   providerLabel: string;
@@ -23,10 +24,6 @@ export type InternalPrivacyTraceSummary = {
 };
 
 type Snapshot = {
-  totalContracts: number;
-  totalReminders: number;
-  sentLast7Days: number;
-  sentLast30Days: number;
   failedReminders: number;
   retryPendingReminders: number;
   processingReminders: number;
@@ -86,12 +83,14 @@ type DebugData = {
 };
 
 export function AdminPanel({
+  internalRole,
   organizationId,
   snapshot,
   debug,
   billing,
   privacyTraces
 }: {
+  internalRole: InternalRole;
   organizationId: string;
   snapshot: Snapshot;
   debug: DebugData;
@@ -99,7 +98,10 @@ export function AdminPanel({
   privacyTraces: InternalPrivacyTraceSummary | null;
 }) {
   const importsNeedingRescue = debug.importJobs.filter(
-    (job) => job.status === "failed" || job.status === "completed_with_errors"
+    (job) =>
+      job.status === "failed" ||
+      job.status === "completed_with_errors" ||
+      job.status === "needs_cleanup"
   ).length;
 
   return (
@@ -175,13 +177,19 @@ export function AdminPanel({
                     Attempts: {reminder.attempt_count} • Next retry: {reminder.next_retry_at ?? "none"}
                   </p>
                   <p className="mt-2 text-sm text-slate-600">{reminder.last_error ?? "No error"}</p>
-                  <ServerActionForm serverAction={rerunReminderAction} className="mt-3">
-                    <input type="hidden" name="organization_id" value={organizationId} />
-                    <input type="hidden" name="reminder_id" value={reminder.id} />
-                    <Button type="submit" variant="secondary">
-                      Rerun reminder
-                    </Button>
-                  </ServerActionForm>
+                  {internalRole === "internal_admin" ? (
+                    <ServerActionForm serverAction={rerunReminderAction} className="mt-3">
+                      <input type="hidden" name="organization_id" value={organizationId} />
+                      <input type="hidden" name="reminder_id" value={reminder.id} />
+                      <Button type="submit" variant="secondary">
+                        Rerun reminder
+                      </Button>
+                    </ServerActionForm>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-500">
+                      Reminder reruns require Internal Admin approval.
+                    </p>
+                  )}
                 </div>
               ))
             ) : (

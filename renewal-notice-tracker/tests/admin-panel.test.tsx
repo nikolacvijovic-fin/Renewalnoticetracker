@@ -6,12 +6,9 @@ describe("AdminPanel", () => {
   it("renders only operational sections for internal rescue work", () => {
     render(
       <AdminPanel
+        internalRole="internal_support"
         organizationId="11111111-1111-4111-8111-111111111111"
         snapshot={{
-          totalContracts: 1,
-          totalReminders: 3,
-          sentLast7Days: 1,
-          sentLast30Days: 2,
           failedReminders: 1,
           retryPendingReminders: 1,
           processingReminders: 0,
@@ -117,5 +114,55 @@ describe("AdminPanel", () => {
     expect(screen.queryByText("Operational readiness and capacity")).not.toBeInTheDocument();
     expect(screen.queryByText("Organization health and churn risk")).not.toBeInTheDocument();
     expect(screen.queryByText("Breadth governance")).not.toBeInTheDocument();
+    expect(screen.getByText("Reminder reruns require Internal Admin approval.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rerun reminder" })).not.toBeInTheDocument();
+  });
+
+  it("shows rerun reminder controls only to internal admins", () => {
+    render(
+      <AdminPanel
+        internalRole="internal_admin"
+        organizationId="11111111-1111-4111-8111-111111111111"
+        snapshot={{
+          failedReminders: 1,
+          retryPendingReminders: 1,
+          processingReminders: 0,
+          cancelledReminders: 0,
+          failedNotifications: 0,
+          duplicateSuppressedNotifications: 0,
+          contractsNeedingReview: 0,
+          extractionFailureCount: 0,
+          retryScheduledRuns: 0,
+          terminalFailureRuns: 0,
+          topReminderStatuses: [["retry_pending", 1]]
+        }}
+        debug={{
+          failedReminders: [
+            {
+              id: "rem-1",
+              contract_id: "contract-1",
+              status: "retry_pending",
+              last_error: "SMTP timeout",
+              attempt_count: 2,
+              next_retry_at: "2026-04-30T08:00:00.000Z"
+            }
+          ],
+          notificationLogs: [],
+          extractionFailures: [],
+          reminderRuns: [],
+          importJobs: []
+        }}
+        billing={{
+          providerLabel: "Paddle",
+          planTier: "starter",
+          status: "active",
+          currentPeriodEnd: null,
+          issues: []
+        }}
+        privacyTraces={null}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Rerun reminder" })).toBeInTheDocument();
   });
 });

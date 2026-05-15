@@ -22,10 +22,21 @@ describe("import error report route", () => {
     getScopedImportJobErrorReport.mockResolvedValue({
       id: "job-1",
       file_name: "contracts.xlsx",
-      status: "completed_with_errors",
+      status: "needs_cleanup",
       row_count: 4,
       imported_count: 2,
-      errors: [{ row: 3, field: "notice_deadline_date", error: "Invalid date" }]
+      errors: [
+        {
+          row: 3,
+          status: "failed",
+          contract_title: "Bad Contract",
+          counterparty_name: "Acme",
+          owner_email: null,
+          field: "notice_deadline_date",
+          error: "Invalid date",
+          warnings: []
+        }
+      ]
     });
   });
 
@@ -38,6 +49,9 @@ describe("import error report route", () => {
     expect(getScopedImportJobErrorReport).toHaveBeenCalledWith("job-1", "org-1");
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/csv");
-    await expect(response.text()).resolves.toContain("notice_deadline_date");
+    const body = await response.text();
+    expect(body).toContain("status");
+    expect(body).toContain("failed");
+    expect(body).toContain("notice_deadline_date");
   });
 });

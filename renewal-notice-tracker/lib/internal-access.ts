@@ -47,9 +47,12 @@ export async function requireInternalRole(allowedRoles: InternalRole[]) {
 
 export async function requireInternalActionAccess(
   action: ShippedRuntimeAction,
-  organizationId: string
+  organizationId: string,
+  options?: { allowedRoles?: InternalRole[] }
 ) {
-  const allowedRoles = [...SHIPPED_RUNTIME_ACTION_MATRIX[action].internalRoles];
+  const allowedRoles = options?.allowedRoles
+    ? [...options.allowedRoles]
+    : [...SHIPPED_RUNTIME_ACTION_MATRIX[action].internalRoles];
   const { user, role } = await requireInternalRole(allowedRoles);
   const normalizedOrganizationId = organizationId.trim();
   if (!normalizedOrganizationId) {

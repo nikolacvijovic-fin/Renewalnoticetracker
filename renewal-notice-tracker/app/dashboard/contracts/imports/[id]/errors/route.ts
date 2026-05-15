@@ -18,9 +18,18 @@ export async function GET(
   const { organizationId } = await requireOrganization();
   const report = await getScopedImportJobErrorReport(context.params.id, organizationId);
   const rows = [
-    ["row", "field", "error"].join(","),
+    ["row", "status", "contract_title", "counterparty_name", "owner_email", "field", "error", "warnings"].join(","),
     ...report.errors.map((error) =>
-      [toCsvValue(error.row), toCsvValue(error.field ?? ""), toCsvValue(error.error)].join(",")
+      [
+        toCsvValue(error.row),
+        toCsvValue(error.status),
+        toCsvValue(error.contract_title ?? ""),
+        toCsvValue(error.counterparty_name ?? ""),
+        toCsvValue(error.owner_email ?? ""),
+        toCsvValue(error.field ?? ""),
+        toCsvValue(error.error ?? ""),
+        toCsvValue((error.warnings ?? []).join(" | "))
+      ].join(",")
     )
   ].join("\n");
 

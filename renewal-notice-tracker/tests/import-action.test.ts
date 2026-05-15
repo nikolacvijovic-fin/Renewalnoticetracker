@@ -11,6 +11,7 @@ const getContractTrackingLimitResult = vi.fn();
 const createAuditLog = vi.fn();
 const parseImportFile = vi.fn();
 const reminderInserts: Array<unknown> = [];
+const importJobUpdates: Array<Record<string, unknown>> = [];
 
 const filePrototype = File.prototype as unknown as { arrayBuffer?: () => Promise<ArrayBuffer> };
 if (!filePrototype.arrayBuffer) {
@@ -64,6 +65,7 @@ describe("importContractsAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     reminderInserts.length = 0;
+    importJobUpdates.length = 0;
     requireOrganization.mockResolvedValue({
       user: { id: "user-1", email: "owner@example.com" },
       organizationId: "org-1",
@@ -97,12 +99,15 @@ describe("importContractsAction", () => {
       {
         contract_title: "MSA",
         counterparty_name: "Acme",
+        notice_deadline_date: "2026-12-01",
         renewal_date: "2026-12-31",
         expiration_date: "2026-12-31",
-        notice_deadline_date: "2026-12-01",
         termination_window: "30 days",
+        owner_email: "owner@example.com",
+        department: "Legal",
         auto_renewal_flag: "true",
-        recipient_emails: "owner@example.com"
+        contract_value: "125000",
+        source_file_name: "contracts.xlsx"
       }
     ]);
 
@@ -115,9 +120,27 @@ describe("importContractsAction", () => {
                 single: () => Promise.resolve({ data: { id: "job-1" }, error: null })
               })
             }),
-            update: () => ({
+            update: (payload: Record<string, unknown>) => {
+              importJobUpdates.push(payload);
+              return {
               eq: () => ({
                 eq: () => Promise.resolve({ error: null })
+              })
+              };
+            }
+          };
+        }
+        if (table === "contracts" && !reminderInserts.length) {
+          return {
+            select: () => ({
+              eq: () => Promise.resolve({
+                data: [],
+                error: null
+              })
+            }),
+            insert: () => ({
+              select: () => ({
+                single: () => Promise.resolve({ data: { id: "c-1" }, error: null })
               })
             })
           };
@@ -134,15 +157,6 @@ describe("importContractsAction", () => {
             insert: () => ({
               select: () => ({
                 single: () => Promise.resolve({ data: { id: "cp-1" }, error: null })
-              })
-            })
-          };
-        }
-        if (table === "contracts") {
-          return {
-            insert: () => ({
-              select: () => ({
-                single: () => Promise.resolve({ data: { id: "c-1" }, error: null })
               })
             })
           };
@@ -182,6 +196,51 @@ describe("importContractsAction", () => {
         details: expect.objectContaining({ imported_count: 1, review_queue_created_count: 1 })
       })
     );
+    expect(importJobUpdates.at(-1)).toEqual(
+      expect.objectContaining({
+        status: "completed",
+        imported_count: 1,
+        error_report_json: expect.arrayContaining([
+          expect.objectContaining({ status: "imported", contract_title: "MSA" })
+        ])
+      })
+    );
     expect(reminderInserts).toHaveLength(0);
   }, 15000);
+
+  it("marks partial-success imports as needs_cleanup and still creates review queue rows", async () => {
+    parseImportFile.mockReturnValue([
+      {
+        contract_title: "Owner Missing",
+        counterparty_name: "Acme",
+        renewal_date: "2026-12-31",
+        source_file_name: "contracts.xlsx"
+      },
+      {
+        contract_title: "Bad Dates",
+        counterparty_name: "Beta",
+        notice_deadline_date: "01/02/2026",
+        source_file_name: "contracts.xlsx"
+      }
+    ]);
+
+    const { importContractsAction } = await import("@/lib/actions/contracts");
+    const formData = new FormData();
+    const file = new File(["contract_title"], "contracts.csv", { type: "text/csv" });
+    formData.append("file", file);
+
+    await importContractsAction(formData);
+
+    expect(importJobUpdates.at(-1)).toEqual(
+      expect.objectContaining({
+        status: "needs_cleanup",
+        imported_count: 1,
+        error_report_json: expect.arrayContaining([
+          expect.objectContaining({ row: 2, status: "needs_cleanup" }),
+          expect.objectContaining({ row: 3, status: "failed" })
+        ])
+      })
+    );
+    expect(reminderInserts).toHaveLength(0);
+  });
 });

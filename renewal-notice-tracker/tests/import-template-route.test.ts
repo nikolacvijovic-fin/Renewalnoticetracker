@@ -10,7 +10,7 @@ describe("import template route", () => {
     expect(response.headers.get("content-type")).toContain("text/csv");
     expect(response.headers.get("content-disposition")).toContain("renewal-import-template.csv");
     expect(body).toContain(
-      "contract_title,counterparty_name,notice_deadline_date,renewal_date,expiration_date,termination_window,auto_renewal_flag,owner_email,recipient_emails"
+      "contract_title,counterparty_name,notice_deadline_date,renewal_date,expiration_date,termination_window,owner_email,department,auto_renewal_flag,contract_value,source_file_name"
     );
   });
 });

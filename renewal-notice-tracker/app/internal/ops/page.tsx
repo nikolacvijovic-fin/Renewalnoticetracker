@@ -43,7 +43,7 @@ export default async function InternalOpsPage({
 }: {
   searchParams?: { organizationId?: string };
 }) {
-  await requireInternalRole(["internal_support", "internal_admin"]);
+  const { role } = await requireInternalRole(["internal_support", "internal_admin"]);
   const organizationId = searchParams?.organizationId?.trim() ?? "";
   if (!organizationId) {
     return (
@@ -75,6 +75,7 @@ export default async function InternalOpsPage({
         </p>
       </div>
       <AdminPanel
+        internalRole={role}
         organizationId={organizationId}
         snapshot={{
           ...snapshot,

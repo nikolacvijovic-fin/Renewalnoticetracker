@@ -1,14 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const refreshOperationalSnapshots = vi.fn();
+const refreshInternalRescueSnapshot = vi.fn();
 const createAuditLog = vi.fn();
 
-vi.mock("@/lib/contracts/queries", () => ({
-  refreshOperationalSnapshots
-}));
-
 vi.mock("@/lib/internal/ops-queries", () => ({
-  refreshOperationalSnapshots
+  refreshInternalRescueSnapshot
 }));
 
 vi.mock("@/lib/audit", () => ({
@@ -40,15 +36,19 @@ describe("ops snapshots internal route", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(refreshOperationalSnapshots).not.toHaveBeenCalled();
+    expect(refreshInternalRescueSnapshot).not.toHaveBeenCalled();
   });
 
-  it("refreshes snapshots with header auth and returns an honest summary", async () => {
-    refreshOperationalSnapshots.mockResolvedValue({
-      reused: false,
-      readiness: { overallScore: 70, confidenceScore: 55 },
-      capacity: { overallScore: 66, confidenceScore: 61 },
-      alerts: [{ id: "alert-1" }]
+  it("refreshes rescue-only internal counts with header auth", async () => {
+    refreshInternalRescueSnapshot.mockResolvedValue({
+      failedReminders: 2,
+      retryPendingReminders: 1,
+      failedNotifications: 3,
+      duplicateSuppressedNotifications: 1,
+      extractionFailureCount: 4,
+      retryScheduledRuns: 2,
+      terminalFailureRuns: 1,
+      importsNeedingRescue: 2
     });
 
     const { POST } = await import("@/app/api/internal/ops-snapshots/route");
@@ -67,15 +67,30 @@ describe("ops snapshots internal route", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         ok: true,
-        reused: false,
-        readiness: { score: 70, confidence: 55 },
-        capacity: { score: 66, confidence: 61 },
-        alerts: 1
+        organizationId: "org-1",
+        rescue: {
+          failedReminders: 2,
+          retryPendingReminders: 1,
+          failedNotifications: 3,
+          duplicateSuppressedNotifications: 1,
+          extractionFailureCount: 4,
+          retryScheduledRuns: 2,
+          terminalFailureRuns: 1,
+          importsNeedingRescue: 2
+        }
       })
     );
-    expect(refreshOperationalSnapshots).toHaveBeenCalledWith("org-1", {
-      jobKey: "run-1"
-    });
-    expect(createAuditLog).toHaveBeenCalled();
+    expect(refreshInternalRescueSnapshot).toHaveBeenCalledWith("org-1");
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "internal.ops_snapshots_refreshed",
+        details: expect.objectContaining({
+          rescue_snapshot: expect.objectContaining({
+            failedReminders: 2,
+            importsNeedingRescue: 2
+          })
+        })
+      })
+    );
   });
 });

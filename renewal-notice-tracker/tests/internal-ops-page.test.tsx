@@ -40,12 +40,8 @@ describe("internal ops page", () => {
   });
 
   it("loads only minimal operational datasets for internal ops", async () => {
-    requireInternalRole.mockResolvedValue(undefined);
+    requireInternalRole.mockResolvedValue({ role: "internal_support" });
     getAdminOperationalSnapshot.mockResolvedValue({
-      totalContracts: 1,
-      totalReminders: 1,
-      sentLast7Days: 0,
-      sentLast30Days: 0,
       failedReminders: 0,
       retryPendingReminders: 0,
       processingReminders: 0,
@@ -94,7 +90,7 @@ describe("internal ops page", () => {
     expect(getOrganizationBilling).toHaveBeenCalledWith("org-1");
     expect(getPrivacyOperationsSnapshot).toHaveBeenCalledWith("org-1");
     expect(AdminPanel).toHaveBeenCalledWith(
-      expect.objectContaining({ organizationId: "org-1" }),
+      expect.objectContaining({ organizationId: "org-1", internalRole: "internal_support" }),
       expect.anything()
     );
     expect(screen.getByText("internal-panel")).toBeInTheDocument();

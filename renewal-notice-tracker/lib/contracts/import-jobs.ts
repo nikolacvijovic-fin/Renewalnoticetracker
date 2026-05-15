@@ -1,9 +1,14 @@
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
-export type ImportJobErrorRow = {
+export type ImportJobResultRow = {
   row: number;
-  error: string;
-  field?: string;
+  status: string;
+  contract_title?: string;
+  counterparty_name?: string | null;
+  owner_email?: string | null;
+  error?: string;
+  field?: string | null;
+  warnings?: string[];
 };
 
 export type ImportJobSummary = {
@@ -16,19 +21,28 @@ export type ImportJobSummary = {
   error_count: number;
 };
 
-function parseErrorReport(value: unknown): ImportJobErrorRow[] {
+function parseErrorReport(value: unknown): ImportJobResultRow[] {
   if (Array.isArray(value)) {
-    const parsed: ImportJobErrorRow[] = [];
+    const parsed: ImportJobResultRow[] = [];
     for (const row of value) {
       if (!row || typeof row !== "object") continue;
       const typedRow = row as Record<string, unknown>;
       const parsedRow = Number(typedRow.row);
-      const parsedError = typeof typedRow.error === "string" ? typedRow.error : null;
-      if (!parsedError || Number.isNaN(parsedRow)) continue;
+      const parsedStatus = typeof typedRow.status === "string" ? typedRow.status : null;
+      if (!parsedStatus || Number.isNaN(parsedRow)) continue;
       parsed.push({
         row: parsedRow,
-        error: parsedError,
-        field: typeof typedRow.field === "string" ? typedRow.field : undefined
+        status: parsedStatus,
+        contract_title:
+          typeof typedRow.contract_title === "string" ? typedRow.contract_title : undefined,
+        counterparty_name:
+          typeof typedRow.counterparty_name === "string" ? typedRow.counterparty_name : null,
+        owner_email: typeof typedRow.owner_email === "string" ? typedRow.owner_email : null,
+        error: typeof typedRow.error === "string" ? typedRow.error : undefined,
+        field: typeof typedRow.field === "string" ? typedRow.field : null,
+        warnings: Array.isArray(typedRow.warnings)
+          ? typedRow.warnings.map(String).filter(Boolean)
+          : []
       });
     }
     return parsed;
@@ -57,7 +71,7 @@ export async function getLatestImportJobSummary(organizationId: string): Promise
     row_count: data.row_count,
     imported_count: data.imported_count,
     created_at: data.created_at,
-    error_count: parseErrorReport(data.error_report_json).length
+    error_count: parseErrorReport(data.error_report_json).filter((row) => row.status === "failed").length
   };
 }
 

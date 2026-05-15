@@ -50,7 +50,8 @@ export async function rerunReminderAction(formData: FormData) {
   });
   const { user, organizationId, role } = await requireInternalActionAccess(
     "internal_rescue_actions",
-    payload.organization_id
+    payload.organization_id,
+    { allowedRoles: ["internal_admin"] }
   );
 
   await rerunReminderJob(payload.reminder_id, organizationId);

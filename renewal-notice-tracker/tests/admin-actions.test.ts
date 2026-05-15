@@ -79,6 +79,11 @@ describe("admin actions", () => {
   });
 
   it("binds rerun reminder actions to the active organization", async () => {
+    requireInternalActionAccess.mockResolvedValue({
+      user: { id: "user-1" },
+      organizationId: "org-1",
+      role: "internal_admin"
+    });
     const { rerunReminderAction } = await import("@/lib/actions/admin");
     const formData = new FormData();
     formData.append("reminder_id", "22222222-2222-4222-8222-222222222222");
@@ -90,6 +95,11 @@ describe("admin actions", () => {
       "22222222-2222-4222-8222-222222222222",
       "org-1"
     );
+    expect(requireInternalActionAccess).toHaveBeenCalledWith(
+      "internal_rescue_actions",
+      "11111111-1111-4111-8111-111111111111",
+      { allowedRoles: ["internal_admin"] }
+    );
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: "org-1",
@@ -98,6 +108,17 @@ describe("admin actions", () => {
         action: "admin.reminder_rerun"
       })
     );
+  });
+
+  it("keeps reminder reruns out of internal support hands", async () => {
+    requireInternalActionAccess.mockRejectedValue(new Error("REDIRECT:/dashboard"));
+    const { rerunReminderAction } = await import("@/lib/actions/admin");
+    const formData = new FormData();
+    formData.append("reminder_id", "22222222-2222-4222-8222-222222222222");
+    formData.append("organization_id", "11111111-1111-4111-8111-111111111111");
+
+    await expect(rerunReminderAction(formData)).rejects.toThrow("REDIRECT:/dashboard");
+    expect(rerunReminderJob).not.toHaveBeenCalled();
   });
 
   it("blocks rerun abuse when the caller lacks rescue permissions", async () => {

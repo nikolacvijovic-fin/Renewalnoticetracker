@@ -10,6 +10,7 @@ The internal runtime console must not render:
 - analytics architecture or blueprint presentation
 - GTM or customer-success strategy
 - large security/testing presentation layers
+- ops snapshot payloads that expose readiness, capacity, or score confidence
 
 Those materials may remain as offline reference modules or docs, but they are not allowed to bloat `/internal/ops`.
 

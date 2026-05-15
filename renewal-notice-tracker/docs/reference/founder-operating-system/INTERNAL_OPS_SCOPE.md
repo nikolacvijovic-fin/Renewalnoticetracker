@@ -11,5 +11,6 @@ Allowed runtime content:
 - billing exceptions affecting real customer access
 - export, deletion, backup, and restore traces tied to real runtime support
 - audit-safe rescue actions already implemented in code
+- rescue snapshot refreshes that return only operational counts, never readiness or capacity scores
 
 This runtime UI is intentionally not a strategy dashboard, analytics blueprint, packaging console, or profitability cockpit.

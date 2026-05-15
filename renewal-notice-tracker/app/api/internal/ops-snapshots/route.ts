@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
-import { refreshOperationalSnapshots } from "@/lib/internal/ops-queries";
+import { refreshInternalRescueSnapshot } from "@/lib/internal/ops-queries";
 import { createAuditLog } from "@/lib/audit";
 
 function getIdempotencyState(idempotencyKey: string | null) {
@@ -19,9 +19,7 @@ export async function POST(request: Request) {
   const organizationId = request.headers.get("x-organization-id");
 
   try {
-    const payload = await refreshOperationalSnapshots(organizationId, {
-      jobKey: request.headers.get("x-idempotency-key")
-    });
+    const payload = organizationId ? await refreshInternalRescueSnapshot(organizationId) : null;
     if (organizationId) {
       await createAuditLog({
         organizationId,
@@ -29,9 +27,7 @@ export async function POST(request: Request) {
         entityType: "operations",
         details: {
           idempotency_state: idempotencyState,
-          reused_snapshot_set: payload.reused,
-          readiness_score: payload.readiness.overallScore,
-          capacity_score: payload.capacity.overallScore
+          rescue_snapshot: payload
         }
       });
     }
@@ -39,16 +35,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       ok: true,
       idempotencyState,
-      reused: payload.reused,
-      readiness: {
-        score: payload.readiness.overallScore,
-        confidence: payload.readiness.confidenceScore
-      },
-      capacity: {
-        score: payload.capacity.overallScore,
-        confidence: payload.capacity.confidenceScore
-      },
-      alerts: payload.alerts.length
+      organizationId: organizationId ?? null,
+      rescue: payload
     });
   } catch {
     return NextResponse.json({ error: "Ops snapshot refresh failed." }, { status: 500 });
