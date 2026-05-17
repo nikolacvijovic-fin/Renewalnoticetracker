@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireOrganization } from "@/lib/auth";
 import {
   getContractById,
+  getCounterparties,
   getOrganizationMembers
 } from "@/lib/contracts/kernel-queries";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +25,11 @@ import {
   formatReminderRuntimeStatusLabel,
   formatReminderTypeLabel
 } from "@/lib/contracts/shipped-reminder-policy";
+import {
+  buildRiskQueueRow,
+  getRiskConfidenceLabel
+} from "@/lib/intelligence/risk/dashboard";
+import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
 import { formatDate } from "@/lib/utils";
 
 type ContractPageMetadata = Record<string, unknown> & {
@@ -164,9 +170,10 @@ export default async function ContractDetailPage({
   params: { id: string };
 }) {
   const { organizationId } = await requireOrganization();
-  const [contract, members] = await Promise.all([
+  const [contract, members, counterparties] = await Promise.all([
     getContractById(params.id, organizationId).catch(() => null),
-    getOrganizationMembers(organizationId)
+    getOrganizationMembers(organizationId),
+    getCounterparties(organizationId)
   ]);
 
   if (!contract || !contract.contract_metadata) notFound();
@@ -233,6 +240,48 @@ export default async function ContractDetailPage({
       member.user?.full_name ?? member.user?.notification_email ?? member.user_id
     ])
   );
+  const duplicateCounterpartyIds = new Set(
+    counterparties
+      .filter((counterparty) => counterparty.duplicate_suggestions.length > 0)
+      .map((counterparty) => counterparty.id)
+  );
+  const riskExplanation = buildRiskQueueRow({
+    contractId: contract.id,
+    contractTitle: metadata.contract_title ?? "Untitled contract",
+    counterpartyName: metadata.counterparty_name ?? "Counterparty not set",
+    department: contract.department?.trim() || "Unassigned department",
+    ownerLabel,
+    workflowTrustState: trustState,
+    noticeDeadlineDate: metadata.notice_deadline_date,
+    renewalDate: metadata.renewal_date,
+    expirationDate: metadata.expiration_date,
+    autoRenewalConfirmed: metadata.auto_renewal,
+    contractValueAmount:
+      typeof (metadataRow as { contract_value_amount?: unknown }).contract_value_amount === "number"
+        ? ((metadataRow as { contract_value_amount?: number }).contract_value_amount ?? null)
+        : null,
+    decisionStatus:
+      contract.renewal_decision_status === "renew" ||
+      contract.renewal_decision_status === "terminate" ||
+      contract.renewal_decision_status === "renegotiate" ||
+      contract.renewal_decision_status === "defer" ||
+      contract.renewal_decision_status === "no_action_required"
+        ? contract.renewal_decision_status
+        : "undecided",
+    reminderAcknowledged: (contract.cycle_status ?? "open") !== "awaiting_acknowledgment",
+    weakEvidence: Boolean(metadata.has_weak_evidence),
+    reviewCompleted: !metadata.needs_review,
+    acceptedRiskOverride: Boolean(metadata.accepted_unverified_risk_requested),
+    priceChangeTrigger:
+      typeof (metadataRow as { price_change_trigger?: unknown }).price_change_trigger === "string"
+        ? ((metadataRow as { price_change_trigger?: string | null }).price_change_trigger ?? null)
+        : null,
+    previousDeferWatchlist: contract.renewal_decision_status === "defer",
+    reminderDeliveryFailures: (contract.reminders ?? []).filter((reminder) =>
+      ["retry_pending", "failed_terminal"].includes(reminder.status ?? "")
+    ).length,
+    duplicateCounterpartyUncertainty: duplicateCounterpartyIds.has(contract.counterparty_id ?? "")
+  });
 
   return (
     <ContractDetailShell
@@ -250,6 +299,10 @@ export default async function ContractDetailPage({
             {reviewBlocked ? "Needs review" : "Reviewed"}
           </Badge>
           <Badge>{trustState}</Badge>
+          <RiskExplanationDrawer explanation={riskExplanation} />
+          <Badge tone={riskExplanation.confidenceLevel === "low" ? "warning" : "default"}>
+            {getRiskConfidenceLabel(riskExplanation.confidenceLevel)}
+          </Badge>
           {ocrAssisted ? <Badge tone="warning">OCR-assisted</Badge> : null}
           {metadata.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
         </>
@@ -369,7 +422,9 @@ export default async function ContractDetailPage({
       }
       decisionCyclePanel={
         <div className="grid gap-6 xl:grid-cols-2">
-          <RenewalDecisionForm contractId={contract.id} />
+          <div id="decision-panel">
+            <RenewalDecisionForm contractId={contract.id} />
+          </div>
           <ContractCycleActions
             contractId={contract.id}
             cycleStatus={contract.cycle_status}

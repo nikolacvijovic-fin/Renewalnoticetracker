@@ -15,6 +15,23 @@ function authRedirect(path: string, message: string) {
   redirect(`${path}?message=${encodeURIComponent(message)}`);
 }
 
+async function requireAuthenticatedPasswordUser() {
+  const supabase = createServerSupabaseClient();
+  const {
+    data: { user },
+    error
+  } = await supabase.auth.getUser();
+
+  if (error || !user) {
+    authRedirect(
+      "/auth/update-password",
+      "Use a valid recovery session before updating your password."
+    );
+  }
+
+  return { supabase, user };
+}
+
 export async function signInAction(formData: FormData) {
   const parsed = authEmailSchema.parse({
     email: formData.get("email")
@@ -92,7 +109,7 @@ export async function updatePasswordAction(formData: FormData) {
   const parsed = updatePasswordSchema.parse({
     password: formData.get("password")
   });
-  const supabase = createServerSupabaseClient();
+  const { supabase } = await requireAuthenticatedPasswordUser();
   const { error } = await supabase.auth.updateUser({
     password: parsed.password
   });

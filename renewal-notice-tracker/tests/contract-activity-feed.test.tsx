@@ -4,6 +4,7 @@ import {
   ContractActivityFeed,
   summarizeAuditDetails
 } from "@/components/contracts/contract-activity-feed";
+import { buildAuditDisplaySummary } from "@/lib/audit-display";
 
 describe("ContractActivityFeed", () => {
   it("renders workflow activity without dumping raw JSON", () => {
@@ -22,7 +23,11 @@ describe("ContractActivityFeed", () => {
               cycle_status: "awaiting_decision",
               reminder_regenerated_count: 5,
               superseded_reminder_count: 2,
-              processing_status: "scheduled"
+              processing_status: "scheduled",
+              review_reason: "Clause 4.2 uses a disputed derived date.",
+              provider_payload: { secret: "should-not-render" },
+              raw_extraction_payload: { clause_text: "Never expose this clause" },
+              body_preview: "Private note preview"
             }
           }
         ]}
@@ -37,7 +42,12 @@ describe("ContractActivityFeed", () => {
     expect(screen.getByText("Cycle state: awaiting decision")).toBeInTheDocument();
     expect(screen.getByText("Trusted reminders scheduled")).toBeInTheDocument();
     expect(screen.getByText("Superseded 2 prior reminders")).toBeInTheDocument();
+    expect(screen.getByText("Exception review reason recorded")).toBeInTheDocument();
     expect(screen.queryByText(/"needs_review"/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/should-not-render/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Never expose this clause/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Private note preview/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/disputed derived date/i)).not.toBeInTheDocument();
   });
 
   it("summarizes audit details into operator-readable lines", () => {
@@ -47,5 +57,54 @@ describe("ContractActivityFeed", () => {
         acknowledged_at: "2026-05-01T00:00:00.000Z"
       })
     ).toEqual(["Decision: terminate", "Acknowledgment recorded"]);
+  });
+
+  it("allows richer but still safe detail only for internal roles", () => {
+    const summary = buildAuditDisplaySummary(
+      {
+        id: "log-2",
+        action: "contracts.import_completed",
+        entity_type: "import_job",
+        entity_id: "import-1",
+        actor_user_id: "user-2",
+        created_at: "2026-05-02T00:00:00.000Z",
+        details: {
+          imported_count: 8,
+          row_count: 10,
+          file_name: "contracts.csv",
+          provider_payload: { token: "blocked" }
+        }
+      },
+      {
+        view: "internal",
+        internalRole: "internal_support",
+        actorLabels: { "user-2": "Morgan Support" }
+      }
+    );
+
+    expect(summary.actorLabel).toBe("Morgan Support");
+    expect(summary.objectLabel).toMatch(/Import job/i);
+    expect(summary.detailLines).toContain("File: contracts.csv");
+    expect(summary.detailLines).toContain("Imported 8/10 rows");
+    expect(summary.detailLines.join(" ")).not.toMatch(/blocked/);
+  });
+
+  it("requires an internal role for internal audit detail", () => {
+    expect(() =>
+      buildAuditDisplaySummary(
+        {
+          id: "log-3",
+          action: "contracts.import_completed",
+          entity_type: "import_job",
+          entity_id: "import-2",
+          actor_user_id: "user-3",
+          created_at: "2026-05-03T00:00:00.000Z",
+          details: { imported_count: 1, row_count: 1 }
+        },
+        {
+          view: "internal"
+        }
+      )
+    ).toThrow(/internal audit detail requires an internal role/i);
   });
 });

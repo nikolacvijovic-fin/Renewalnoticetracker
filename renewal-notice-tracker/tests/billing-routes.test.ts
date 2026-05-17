@@ -54,9 +54,6 @@ describe("billing routes", () => {
       billing_email: "billing@example.com",
       billing_provider: "paddle",
       billing_customer_id: "cus_1",
-      stripe_customer_id: null,
-      stripe_subscription_id: null,
-      stripe_price_id: null,
       plan_tier: "starter",
       subscription_status: "active",
       subscription_current_period_end: null
@@ -134,6 +131,42 @@ describe("billing routes", () => {
     expect(createBillingCheckoutSession).not.toHaveBeenCalled();
   });
 
+  it("rejects Stripe checkout overrides before checkout starts", async () => {
+    const { POST } = await import("@/app/api/billing/checkout/route");
+    const response = await POST(
+      new Request("http://localhost/api/billing/checkout?plan=starter&provider=stripe", {
+        method: "POST"
+      })
+    );
+
+    expect(response.status).toBe(400);
+    expect(createBillingCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("redirects manual checkout requests to the support-led billing path and audits them", async () => {
+    const { POST } = await import("@/app/api/billing/checkout/route");
+    const response = await POST(
+      new Request("http://localhost/api/billing/checkout?plan=starter&provider=manual", {
+        method: "POST"
+      })
+    );
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toContain(
+      "/dashboard/settings?billing=contact-support&provider=manual"
+    );
+    expect(createBillingCheckoutSession).not.toHaveBeenCalled();
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "billing.checkout_unavailable",
+        details: expect.objectContaining({
+          provider: "manual",
+          provider_state: "internal_exception"
+        })
+      })
+    );
+  });
+
   it("rejects reviewer billing checkout attempts before any billing lookup", async () => {
     getOrganizationContextOrNull.mockResolvedValue({
       user: { id: "user-2", email: "reviewer@example.com" },
@@ -195,11 +228,8 @@ describe("billing routes", () => {
     getOrganizationBilling.mockResolvedValue({
       id: "org-1",
       billing_email: "billing@example.com",
-      billing_provider: "paypal",
+      billing_provider: "manual",
       billing_customer_id: "cus_1",
-      stripe_customer_id: null,
-      stripe_subscription_id: null,
-      stripe_price_id: null,
       plan_tier: "starter",
       subscription_status: "active",
       subscription_current_period_end: null
@@ -208,10 +238,10 @@ describe("billing routes", () => {
       checkout: { supported: true, message: "ok" },
       management: {
         supported: false,
-        message: "Legacy or manual-invoice billing changes require internal support in shipped-first runtime."
+        message: "Manual invoice exceptions are support-led and are not self-serve in shipped-first runtime."
       }
     });
-    resolveBillingProvider.mockReturnValue("paypal");
+    resolveBillingProvider.mockReturnValue("paddle");
 
     const { POST } = await import("@/app/api/billing/manage/route");
     const response = await POST(
@@ -223,11 +253,15 @@ describe("billing routes", () => {
     expect(createBillingManagementSession).not.toHaveBeenCalled();
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toContain(
-      "/dashboard/settings?billing=contact-support&provider=paypal"
+      "/dashboard/settings?billing=contact-support&provider=manual"
     );
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        action: "billing.management_unavailable"
+        action: "billing.management_unavailable",
+        details: expect.objectContaining({
+          provider: "manual",
+          provider_state: "internal_exception"
+        })
       })
     );
   });

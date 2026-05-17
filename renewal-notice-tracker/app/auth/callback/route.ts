@@ -3,14 +3,10 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { NextRequest } from "next/server";
 import { sanitizeInternalError } from "@/lib/errors";
 import { env } from "@/lib/env";
+import { resolveSafeAppRedirectPath } from "@/lib/auth-guards";
 
 export function resolveSafeAuthRedirect(next: string | null | undefined) {
-  if (!next) return "/dashboard";
-  if (!next.startsWith("/") || next.startsWith("//")) {
-    return "/dashboard";
-  }
-
-  return next;
+  return resolveSafeAppRedirectPath(next, "/dashboard");
 }
 
 export async function GET(request: NextRequest) {

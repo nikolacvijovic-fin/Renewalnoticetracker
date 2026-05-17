@@ -75,12 +75,12 @@ describe("AdminPanel", () => {
           ]
         }}
         billing={{
-          providerLabel: "Manual invoice or legacy migration",
+          providerLabel: "Manual invoice exception or legacy-disabled provider",
           planTier: "growth",
           status: "past_due",
           currentPeriodEnd: "2026-05-01T00:00:00.000Z",
           issues: [
-            "Workspace is on manual invoice or legacy migration billing.",
+            "Workspace is on a manual invoice exception or legacy-disabled billing path.",
             "Subscription status past_due needs support follow-up."
           ]
         }}
@@ -108,7 +108,7 @@ describe("AdminPanel", () => {
     expect(screen.getByRole("heading", { name: "Recent reminder lifecycle events" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Operational traces" })).toBeInTheDocument();
     expect(screen.getByText(/completed_with_errors/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/manual invoice or legacy migration/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/manual invoice exception or legacy-disabled provider/i).length).toBeGreaterThan(0);
 
     expect(screen.queryByText("Unified profitability blueprint")).not.toBeInTheDocument();
     expect(screen.queryByText("Operational readiness and capacity")).not.toBeInTheDocument();

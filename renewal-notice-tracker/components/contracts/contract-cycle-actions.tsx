@@ -23,7 +23,7 @@ export function ContractCycleActions({
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <div className="panel space-y-4 p-6">
+      <div id="acknowledgment-panel" className="panel space-y-4 p-6">
         <h3 className="text-base font-semibold">Acknowledgment</h3>
         <p className="text-sm text-slate-600">
           High-risk reminder acknowledgments must be explicit. Replies to email do not count.
@@ -40,7 +40,7 @@ export function ContractCycleActions({
           </Button>
         </ServerActionForm>
       </div>
-      <div className="panel space-y-4 p-6">
+      <div id="cycle-actions-panel" className="panel space-y-4 p-6">
         <h3 className="text-base font-semibold">Cycle actions</h3>
         <p className="text-sm text-slate-600">
           Cycle state tracks workflow progress only. Decision status remains the business truth.

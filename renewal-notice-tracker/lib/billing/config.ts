@@ -46,6 +46,7 @@ export function getPaddleConfig() {
 
 export function isBillingConfigured(provider: BillingProviderName) {
   try {
+    if (provider === "manual") return true;
     if (provider !== "paddle") return false;
     getPaddleConfig();
     return true;

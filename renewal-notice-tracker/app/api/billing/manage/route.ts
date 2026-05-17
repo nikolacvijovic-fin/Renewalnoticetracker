@@ -11,6 +11,7 @@ import { createBillingManagementSession } from "@/lib/billing/service";
 import type { BillingProviderName } from "@/lib/billing/types";
 import { createAuditLog } from "@/lib/audit";
 import { getBillingProviderCapability, resolveBillingProvider } from "@/lib/billing/provider";
+import { getBillingProviderPolicy, getCustomerBillingProvider } from "@/lib/billing/provider-policy";
 
 export async function POST(request: Request) {
   const auth = await getActiveOrganizationContextOrNull();
@@ -46,16 +47,19 @@ export async function POST(request: Request) {
   const url = new URL(request.url);
   const providerOverride = url.searchParams.get("provider") as BillingProviderName | null;
   const source = url.searchParams.get("source");
-  if (providerOverride && providerOverride !== "paddle") {
+  if (providerOverride === "paypal" || providerOverride === "stripe") {
     return NextResponse.json({ error: "Unsupported billing provider." }, { status: 400 });
   }
   const providerName =
-    billing.billing_provider === "paddle"
-      ? resolveBillingProvider(billing, "paddle")
-      : ((billing.billing_provider as BillingProviderName | null) ?? "paddle");
+    providerOverride === "manual"
+      ? "manual"
+      : billing.billing_provider === "paddle"
+        ? resolveBillingProvider(billing, "paddle")
+        : getCustomerBillingProvider(billing.billing_provider);
   const capability = getBillingProviderCapability(providerName);
 
   if (!capability.management.supported) {
+    const policy = getBillingProviderPolicy(providerName);
     await createAuditLog({
       organizationId,
       actorUserId: user.id,
@@ -63,6 +67,8 @@ export async function POST(request: Request) {
       entityType: "billing",
       details: {
         provider: providerName,
+        provider_state: policy.state,
+        stored_provider: billing.billing_provider ?? null,
         reason: capability.management.message
       }
     });

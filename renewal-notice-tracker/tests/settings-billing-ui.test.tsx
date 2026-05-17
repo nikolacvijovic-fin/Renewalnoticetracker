@@ -74,10 +74,11 @@ describe("settings billing UI", () => {
           plan_tier: "starter",
           subscription_status: "active",
           subscription_current_period_end: null,
-          billing_provider_label: "Manual invoice or legacy migration",
-          billing_provider_name: "paypal",
+          billing_provider_label: "Manual invoice exception",
+          billing_provider_name: "manual",
           management_supported: false,
-          management_message: "Legacy or manual-invoice billing changes require internal support in shipped-first runtime.",
+          management_message:
+            "Manual invoice exceptions are support-led and are not self-serve in shipped-first runtime.",
           trial_started_at: null,
           trial_ends_at: null,
           acquisition_source: null,
@@ -103,7 +104,9 @@ describe("settings billing UI", () => {
 
     expect(screen.queryByRole("button", { name: "Manage billing" })).not.toBeInTheDocument();
     expect(
-      screen.getByText("Legacy or manual-invoice billing changes require internal support in shipped-first runtime.")
+      screen.getByText(
+        "Manual invoice exceptions are support-led and are not self-serve in shipped-first runtime."
+      )
     ).toBeInTheDocument();
     expect(screen.getByText("Workflow defaults")).toBeInTheDocument();
   });

@@ -11,6 +11,7 @@ import {
   getPhase1ReviewMode,
   requiresReviewReason
 } from "@/lib/contracts/phase1-pilot";
+import { INTELLIGENCE_TRUST_LEVELS } from "@/lib/intelligence/shared/types";
 import { splitEmails } from "@/lib/utils";
 import { isValidReminderOffset } from "@/lib/contracts/templates";
 
@@ -29,6 +30,12 @@ export const extractedFieldSchema = z.object({
   termination_window: z.string().nullable().default(null),
   governing_law: z.string().nullable(),
   payment_terms: z.string().nullable(),
+  contract_value_amount: z.number().nullable().default(null),
+  contract_value_currency: z.string().nullable().default(null),
+  contract_value_period: z.string().nullable().default(null),
+  price_change_trigger: z.string().nullable().default(null),
+  payment_trigger: z.string().nullable().default(null),
+  financial_data_trust_status: z.enum(INTELLIGENCE_TRUST_LEVELS).nullable().default(null),
   extracted_clauses: z.array(z.string()).default([]),
   field_confidence: z.record(z.string(), z.number().min(0).max(1)).default({}),
   field_source_snippets: z.record(z.string(), z.string()).default({}),
@@ -115,12 +122,7 @@ export const exportQuerySchema = z.object({
 });
 
 export const counterpartySchema = z.object({
-  name: z.string().min(2),
-  legal_name: z.string().nullable().optional(),
-  contact_email: z.string().email().nullable().optional(),
-  contact_name: z.string().nullable().optional(),
-  website: z.string().url().nullable().optional(),
-  notes: z.string().nullable().optional()
+  name: z.string().min(2)
 });
 
 export const templateSchema = z.object({

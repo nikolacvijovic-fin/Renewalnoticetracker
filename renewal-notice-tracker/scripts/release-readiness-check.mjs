@@ -1,8 +1,12 @@
 import {
   getMissingEmailReleaseInputs,
   getMissingP0BrowserInputs,
-  getMissingReleaseMetadata
+  getMissingReleaseMetadata,
+  getMissingTwoWeekAutonomyChecklist
 } from "./phase1-release-gates.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const missing = getMissingReleaseMetadata(process.env);
 
@@ -33,3 +37,24 @@ if (p0AuthMissing.length > 0) {
 }
 
 console.log("P0 browser-release inputs are present.");
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const autonomyGatePath = path.join(repoRoot, "docs", "TWO_WEEK_AUTONOMY_GATE.md");
+
+if (!fs.existsSync(autonomyGatePath)) {
+  console.error("Missing required release gate doc: docs/TWO_WEEK_AUTONOMY_GATE.md.");
+  process.exit(1);
+}
+
+const autonomyChecklistMissing = getMissingTwoWeekAutonomyChecklist(
+  fs.readFileSync(autonomyGatePath, "utf8")
+);
+
+if (autonomyChecklistMissing.length > 0) {
+  console.error(
+    `Two-week autonomy gate is incomplete. Missing: ${autonomyChecklistMissing.join(", ")}.`
+  );
+  process.exit(1);
+}
+
+console.log("Two-week operator autonomy gate is present.");

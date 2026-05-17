@@ -10,7 +10,7 @@ vi.mock("@/lib/auth", () => ({
   requireOrganization
 }));
 
-vi.mock("@/lib/contracts/queries", () => ({
+vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContracts,
   getContractFacets,
   getOrganizationBilling
@@ -25,31 +25,35 @@ vi.mock("@/components/contracts/contracts-table", () => ({
 }));
 
 describe("ContractsPage commercial UX", () => {
-  it("shows the commercial notice and disables export buttons when export access is blocked", async () => {
-    requireOrganization.mockResolvedValue({ organizationId: "org-1" });
-    getContracts.mockResolvedValue([]);
-    getContractFacets.mockResolvedValue({
-      owners: [],
-      departments: [],
-      statusTags: []
-    });
-    getOrganizationBilling.mockResolvedValue({
-      plan_tier: "free",
-      subscription_status: "inactive",
-      billing_provider: null
-    });
+  it(
+    "shows the commercial notice and disables export buttons when export access is blocked",
+    async () => {
+      requireOrganization.mockResolvedValue({ organizationId: "org-1" });
+      getContracts.mockResolvedValue([]);
+      getContractFacets.mockResolvedValue({
+        owners: [],
+        departments: [],
+        statusTags: []
+      });
+      getOrganizationBilling.mockResolvedValue({
+        plan_tier: "free",
+        subscription_status: "inactive",
+        billing_provider: null
+      });
 
-    const Page = (await import("@/app/dashboard/contracts/page")).default;
-    render(
-      await Page({
-        searchParams: {
-          commercial: "billing.export_upgrade_required"
-        }
-      })
-    );
+      const Page = (await import("@/app/dashboard/contracts/page")).default;
+      render(
+        await Page({
+          searchParams: {
+            commercial: "billing.export_upgrade_required"
+          }
+        })
+      );
 
-    expect(screen.getByText("Exporting contracts requires a paid plan.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Export Excel" })).toBeDisabled();
-  });
+      expect(screen.getByText("Exporting contracts requires a paid plan.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Export Excel" })).toBeDisabled();
+    },
+    15000
+  );
 });

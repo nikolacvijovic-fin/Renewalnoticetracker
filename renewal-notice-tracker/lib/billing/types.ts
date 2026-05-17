@@ -1,6 +1,10 @@
-export const BILLING_PROVIDERS = ["paddle", "paypal", "stripe"] as const;
+export const BILLING_PROVIDERS = ["paddle", "manual", "paypal", "stripe"] as const;
 
 export type BillingProviderName = (typeof BILLING_PROVIDERS)[number];
+export type BillingProviderState =
+  | "active_self_serve"
+  | "internal_exception"
+  | "legacy_disabled";
 
 export type PlanTier = "starter" | "growth";
 

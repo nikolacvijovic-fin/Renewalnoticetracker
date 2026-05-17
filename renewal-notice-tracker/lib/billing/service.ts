@@ -96,7 +96,6 @@ export async function createBillingCheckoutSession(input: {
   billing: {
     billing_provider?: string | null;
     billing_customer_id?: string | null;
-    stripe_customer_id?: string | null;
     billing_email?: string | null;
     name?: string | null;
   };
@@ -105,10 +104,7 @@ export async function createBillingCheckoutSession(input: {
   source?: string | null;
 }) {
   const providerName = resolveBillingProvider(input.billing, input.providerOverride);
-  const existingCustomerId =
-    providerName === "stripe"
-      ? input.billing.stripe_customer_id ?? null
-      : input.billing.billing_customer_id ?? null;
+  const existingCustomerId = input.billing.billing_customer_id ?? null;
 
   const session = await createCheckoutSession({
     organizationId: input.organizationId,
@@ -132,9 +128,6 @@ export async function createBillingCheckoutSession(input: {
 
   if (session.customerId) {
     updatePayload.billing_customer_id = session.customerId;
-    if (providerName === "stripe") {
-      updatePayload.stripe_customer_id = session.customerId;
-    }
   }
 
   await admin.from("organizations").update(updatePayload).eq("id", input.organizationId);
@@ -161,16 +154,12 @@ export async function createBillingManagementSession(input: {
   billing: {
     billing_provider?: string | null;
     billing_customer_id?: string | null;
-    stripe_customer_id?: string | null;
   };
   providerOverride?: BillingProviderName;
   source?: string | null;
 }) {
   const providerName = resolveBillingProvider(input.billing, input.providerOverride);
-  const customerId =
-    providerName === "stripe"
-      ? input.billing.stripe_customer_id ?? null
-      : input.billing.billing_customer_id ?? null;
+  const customerId = input.billing.billing_customer_id ?? null;
 
   const session = await createCustomerManagementSession({
     organizationId: input.organizationId,
@@ -205,21 +194,19 @@ export async function persistBillingWebhookUpdate(result: BillingWebhookResult) 
   let organizationId = result.organizationId ?? null;
 
   if (!organizationId && result.customerId) {
-    const column = result.provider === "stripe" ? "stripe_customer_id" : "billing_customer_id";
     const lookup = await admin
       .from("organizations")
       .select("id")
-      .eq(column, result.customerId)
+      .eq("billing_customer_id", result.customerId)
       .maybeSingle();
     organizationId = lookup.data?.id ?? null;
   }
 
   if (!organizationId && result.subscriptionId) {
-    const column = result.provider === "stripe" ? "stripe_subscription_id" : "billing_subscription_id";
     const lookup = await admin
       .from("organizations")
       .select("id")
-      .eq(column, result.subscriptionId)
+      .eq("billing_subscription_id", result.subscriptionId)
       .maybeSingle();
     organizationId = lookup.data?.id ?? null;
   }
@@ -291,12 +278,6 @@ export async function persistBillingWebhookUpdate(result: BillingWebhookResult) 
 
   if (result.planTier) {
     updatePayload.plan_tier = result.planTier;
-  }
-
-  if (result.provider === "stripe") {
-    if (result.customerId) updatePayload.stripe_customer_id = result.customerId;
-    if (result.subscriptionId) updatePayload.stripe_subscription_id = result.subscriptionId;
-    if (result.planCode) updatePayload.stripe_price_id = result.planCode;
   }
 
   await admin.from("organizations").update(updatePayload).eq("id", organizationId);

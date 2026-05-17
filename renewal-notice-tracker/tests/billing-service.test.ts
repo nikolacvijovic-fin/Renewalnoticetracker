@@ -84,13 +84,13 @@ function createAdminClientStub(input: {
                   if (selection === "id") {
                     return {
                       async maybeSingle() {
-                        if (column === "billing_customer_id" || column === "stripe_customer_id") {
+                        if (column === "billing_customer_id") {
                           return {
                             data: input.customerLookupId ? { id: input.customerLookupId } : null,
                             error: null
                           };
                         }
-                        if (column === "billing_subscription_id" || column === "stripe_subscription_id") {
+                        if (column === "billing_subscription_id") {
                           return {
                             data: input.subscriptionLookupId
                               ? { id: input.subscriptionLookupId }
@@ -153,8 +153,8 @@ describe("billing service webhook persistence", () => {
 
     const { persistBillingWebhookUpdate } = await import("@/lib/billing/service");
     const result = await persistBillingWebhookUpdate({
-      provider: "stripe",
-      eventType: "customer.subscription.updated",
+      provider: "paddle",
+      eventType: "subscription.updated",
       eventKey: "evt_duplicate",
       raw: { id: "evt_duplicate" },
       organizationId: null,

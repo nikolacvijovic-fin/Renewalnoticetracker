@@ -8,6 +8,7 @@ import {
   filterContractsForDashboard,
   type DashboardContractRow
 } from "@/lib/contracts/dashboard";
+import { buildCounterpartyDirectoryRecords } from "@/lib/contracts/counterparty-summaries";
 import {
   buildCapacityAlerts,
   buildCapacitySnapshotSummary,
@@ -52,11 +53,11 @@ export type ContractFacets = {
 export type CounterpartyRecord = {
   id: string;
   name: string;
-  legal_name: string | null;
-  contact_email: string | null;
-  contact_name: string | null;
-  website: string | null;
-  notes: string | null;
+  raw_counterparty_name: string;
+  normalized_counterparty_name: string;
+  contract_count: number;
+  alias_names: string[];
+  duplicate_suggestions: Array<{ id: string; raw_counterparty_name: string; score: number }>;
 };
 
 type ContractMetadataRow = Database["public"]["Tables"]["contract_metadata"]["Row"];
@@ -411,32 +412,12 @@ export async function getOrganizationBilling(organizationId: string) {
   const { data, error } = await supabase
     .from("organizations")
     .select(
-      "id, name, created_at, billing_email, plan_tier, subscription_status, subscription_current_period_end, billing_provider, billing_customer_id, billing_subscription_id, billing_plan_code, billing_price_id, billing_subscription_status, billing_current_period_end, stripe_customer_id, stripe_subscription_id, stripe_price_id, slack_webhook_url, slack_channel, slack_fallback_channel, teams_webhook_url, teams_fallback_channel, trial_started_at, trial_ends_at, acquisition_source, acquisition_campaign"
+      "id, name, created_at, billing_email, plan_tier, subscription_status, subscription_current_period_end, billing_provider, billing_customer_id, billing_subscription_id, billing_plan_code, billing_price_id, billing_subscription_status, billing_current_period_end, slack_webhook_url, slack_channel, slack_fallback_channel, teams_webhook_url, teams_fallback_channel, trial_started_at, trial_ends_at, acquisition_source, acquisition_campaign"
     )
     .eq("id", organizationId)
     .single();
 
   if (error) throw error;
-
-  if (!data.billing_provider && (data.stripe_customer_id || data.stripe_subscription_id)) {
-    data.billing_provider = "stripe";
-  }
-
-  if (!data.billing_customer_id && data.stripe_customer_id) {
-    data.billing_customer_id = data.stripe_customer_id;
-  }
-
-  if (!data.billing_subscription_id && data.stripe_subscription_id) {
-    data.billing_subscription_id = data.stripe_subscription_id;
-  }
-
-  if (!data.billing_price_id && data.stripe_price_id) {
-    data.billing_price_id = data.stripe_price_id;
-  }
-
-  if (!data.billing_plan_code && data.stripe_price_id) {
-    data.billing_plan_code = data.stripe_price_id;
-  }
 
   if (!data.billing_subscription_status && data.subscription_status) {
     data.billing_subscription_status = data.subscription_status;
@@ -773,14 +754,30 @@ export async function getExportRows(organizationId: string): Promise<ExportRow[]
 
 export async function getCounterparties(organizationId: string): Promise<CounterpartyRecord[]> {
   const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("counterparties")
-    .select("*")
-    .eq("organization_id", organizationId)
-    .order("name");
+  const [counterparties, aliases, contracts] = await Promise.all([
+    supabase
+      .from("counterparties")
+      .select("id, name, raw_counterparty_name, normalized_counterparty_name, merged_into_counterparty_id")
+      .eq("organization_id", organizationId)
+      .order("raw_counterparty_name"),
+    supabase
+      .from("counterparty_aliases")
+      .select("counterparty_id, alias_name")
+      .eq("organization_id", organizationId),
+    supabase.from("contracts").select("counterparty_id").eq("organization_id", organizationId)
+  ]);
 
-  if (error) throw error;
-  return data ?? [];
+  if (counterparties.error) throw counterparties.error;
+  if (aliases.error) throw aliases.error;
+  if (contracts.error) throw contracts.error;
+
+  return buildCounterpartyDirectoryRecords({
+    counterparties: (counterparties.data ?? []) as Parameters<
+      typeof buildCounterpartyDirectoryRecords
+    >[0]["counterparties"],
+    aliases: (aliases.data ?? []) as Parameters<typeof buildCounterpartyDirectoryRecords>[0]["aliases"],
+    contracts: (contracts.data ?? []) as Parameters<typeof buildCounterpartyDirectoryRecords>[0]["contracts"]
+  });
 }
 
 export async function getTemplates(organizationId: string) {

@@ -13,5 +13,7 @@ describe("auth callback redirect safety", () => {
     expect(resolveSafeAuthRedirect("https://evil.example")).toBe("/dashboard");
     expect(resolveSafeAuthRedirect("//evil.example")).toBe("/dashboard");
     expect(resolveSafeAuthRedirect("dashboard")).toBe("/dashboard");
+    expect(resolveSafeAuthRedirect("/\\evil")).toBe("/dashboard");
+    expect(resolveSafeAuthRedirect("/dashboard\r\nx-test: injected")).toBe("/dashboard");
   });
 });

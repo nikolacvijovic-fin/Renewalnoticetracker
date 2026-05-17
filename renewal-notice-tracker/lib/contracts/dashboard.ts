@@ -6,6 +6,7 @@ export type DashboardContractRow = {
   status: string;
   cycle_status?: string | null;
   status_tag: string | null;
+  department?: string | null;
   owner_user_id?: string | null;
   owner_name?: string;
   counterparty_id?: string | null;
@@ -19,7 +20,15 @@ export type DashboardContractRow = {
     notice_deadline_date: string | null;
     auto_renewal: boolean | null;
     needs_review: boolean;
-    field_confidence?: number | null;
+    field_confidence?: Record<string, number> | number | null;
+    has_weak_evidence?: boolean | null;
+    accepted_unverified_risk_requested?: boolean | null;
+    contract_value_amount?: number | null;
+    contract_value_currency?: string | null;
+    contract_value_period?: string | null;
+    price_change_trigger?: string | null;
+    payment_trigger?: string | null;
+    financial_data_trust_status?: string | null;
   } | null;
 };
 

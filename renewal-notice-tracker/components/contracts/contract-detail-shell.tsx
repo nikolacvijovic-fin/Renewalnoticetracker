@@ -39,10 +39,18 @@ export function ContractDetailShell({
         </div>
       </div>
 
-      <div aria-label="Top status and action strip">{statusStrip}</div>
-      <div aria-label="P0 review panel">{reviewPanel}</div>
-      <div aria-label="Owner and reminder panel">{ownerReminderPanel}</div>
-      <div aria-label="Decision and cycle panel">{decisionCyclePanel}</div>
+      <section id="top-status-strip" aria-label="Top status and action strip">
+        {statusStrip}
+      </section>
+      <section id="review-panel" aria-label="P0 review panel">
+        {reviewPanel}
+      </section>
+      <section id="owner-reminder-panel" aria-label="Owner and reminder panel">
+        {ownerReminderPanel}
+      </section>
+      <section id="decision-cycle-panel" aria-label="Decision and cycle panel">
+        {decisionCyclePanel}
+      </section>
       <div aria-label="Secondary detail panels">{secondaryPanel}</div>
     </section>
   );

@@ -13,3 +13,13 @@ export function shouldRedirectToAuth(pathname: string, isAuthenticated: boolean)
 export function shouldRedirectAwayFromAuth(pathname: string, isAuthenticated: boolean) {
   return isAuthenticated && pathname === "/auth";
 }
+
+export function resolveSafeAppRedirectPath(
+  next: string | null | undefined,
+  fallback = "/dashboard"
+) {
+  if (!next) return fallback;
+  if (!next.startsWith("/") || next.startsWith("//")) return fallback;
+  if (next.includes("\\") || /[\r\n]/.test(next)) return fallback;
+  return next;
+}

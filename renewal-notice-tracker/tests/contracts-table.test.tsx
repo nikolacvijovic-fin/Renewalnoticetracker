@@ -33,5 +33,7 @@ describe("contracts table", () => {
     expect(screen.getByText("Finance")).toBeInTheDocument();
     expect(screen.getByText("Auto-renewal")).toBeInTheDocument();
     expect(screen.getByText("Conflict Requires Review")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /show risk details for msa/i })).toBeInTheDocument();
+    expect(screen.getByText(/Low confidence/i)).toBeInTheDocument();
   });
 });

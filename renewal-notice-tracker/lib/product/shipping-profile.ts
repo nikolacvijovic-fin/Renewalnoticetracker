@@ -100,6 +100,9 @@ export const SHIPPED_FIRST_SCOPE = {
   ],
   customerNavigation: [
     { href: "/dashboard", label: "Overview" },
+    { href: "/dashboard/risk-queue", label: "Risk Queue" },
+    { href: "/dashboard/financial-intelligence", label: "Financial" },
+    { href: "/dashboard/procurement-analytics", label: "Procurement" },
     { href: "/dashboard/contracts", label: "Contracts" },
     { href: "/dashboard/settings", label: "Settings" },
     { href: "/pricing", label: "Pricing" },

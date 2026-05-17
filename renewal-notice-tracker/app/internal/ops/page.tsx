@@ -10,11 +10,11 @@ import { requireInternalRole } from "@/lib/internal-access";
 function buildBillingSummary(billing: Awaited<ReturnType<typeof getOrganizationBilling>>): InternalBillingSummary {
   const status = billing.billing_subscription_status ?? billing.subscription_status ?? "unknown";
   const providerLabel =
-    billing.billing_provider === "paddle" ? "Paddle" : "Manual invoice or legacy migration";
+    billing.billing_provider === "paddle" ? "Paddle" : "Manual invoice exception or legacy-disabled provider";
   const issues: string[] = [];
 
   if (billing.billing_provider && billing.billing_provider !== "paddle") {
-    issues.push("Workspace is on manual invoice or legacy migration billing.");
+    issues.push("Workspace is on a manual invoice exception or legacy-disabled billing path.");
   }
 
   if (["past_due", "unpaid", "paused", "cancelled", "incomplete"].includes(status)) {

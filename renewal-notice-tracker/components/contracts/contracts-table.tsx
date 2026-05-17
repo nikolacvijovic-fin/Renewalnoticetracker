@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { getPhase1TrustState } from "@/lib/contracts/phase1-pilot";
+import {
+  buildRiskQueueRow,
+  createRiskWorkflowSubjectFromDashboardContract,
+  getRiskConfidenceLabel
+} from "@/lib/intelligence/risk/dashboard";
+import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
 import { formatDate } from "@/lib/utils";
 
 type ContractRow = {
@@ -18,7 +24,7 @@ type ContractRow = {
   } | null;
   department?: string | null;
   owner_name?: string | null;
-  status_tag?: string;
+  status_tag?: string | null;
   renewal_decision_status?: string | null;
   cycle_status?: string | null;
 };
@@ -58,25 +64,44 @@ export function ContractsTable({ contracts }: { contracts: ContractRow[] }) {
                 {formatDate(contract.contract_metadata?.notice_deadline_date)}
               </td>
               <td className="px-4 py-4">
-                <div className="flex flex-wrap gap-2">
-                  <Badge
-                    tone={
-                      contract.contract_metadata?.needs_review || !contract.owner_name || contract.owner_name === "Unassigned"
-                        ? "warning"
-                        : "success"
-                    }
-                  >
-                    {getPhase1TrustState({
-                      owner_user_id:
-                        contract.owner_name && contract.owner_name !== "Unassigned" ? "assigned" : null,
-                      renewal_decision_status: contract.renewal_decision_status ?? "undecided",
-                      cycle_status: contract.cycle_status ?? "open",
-                      contract_metadata: contract.contract_metadata
-                    })}
-                  </Badge>
-                  {contract.status_tag ? <Badge>{contract.status_tag.replace("_", " ")}</Badge> : null}
-                  {contract.contract_metadata?.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
-                </div>
+                {(() => {
+                  const risk = buildRiskQueueRow(
+                    createRiskWorkflowSubjectFromDashboardContract({
+                      ...contract,
+                      status_tag: contract.status_tag ?? null,
+                      owner_name: contract.owner_name ?? undefined
+                    })
+                  );
+
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          tone={
+                            contract.contract_metadata?.needs_review || !contract.owner_name || contract.owner_name === "Unassigned"
+                              ? "warning"
+                              : "success"
+                          }
+                        >
+                          {getPhase1TrustState({
+                            owner_user_id:
+                              contract.owner_name && contract.owner_name !== "Unassigned" ? "assigned" : null,
+                            renewal_decision_status: contract.renewal_decision_status ?? "undecided",
+                            cycle_status: contract.cycle_status ?? "open",
+                            contract_metadata: contract.contract_metadata
+                          })}
+                        </Badge>
+                        <RiskExplanationDrawer explanation={risk} />
+                        <span className="text-xs text-slate-500">
+                          {getRiskConfidenceLabel(risk.confidenceLevel)}
+                        </span>
+                        {contract.status_tag ? <Badge>{contract.status_tag.replace("_", " ")}</Badge> : null}
+                        {contract.contract_metadata?.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
+                      </div>
+                      <p className="text-xs text-slate-500">{risk.reasons[0]?.detail ?? "No active risk reasons."}</p>
+                    </div>
+                  );
+                })()}
               </td>
             </tr>
           ))}

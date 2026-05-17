@@ -7,6 +7,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { SettingsForm } from "@/components/forms/settings-form";
 import { getOrganizationBilling } from "@/lib/contracts/kernel-queries";
 import { getBillingProviderCapability, getBillingProviderLabel } from "@/lib/billing/provider";
+import { getCustomerBillingProvider } from "@/lib/billing/provider-policy";
 import { getCommercialCapabilitySummary, normalizeBillingSnapshot } from "@/lib/billing/entitlements";
 
 export default async function SettingsPage() {
@@ -48,17 +49,13 @@ export default async function SettingsPage() {
         subscription_current_period_end: null,
         billing_provider: null,
         billing_customer_id: null,
-        stripe_customer_id: null,
         trial_started_at: null,
         trial_ends_at: null,
         acquisition_source: null,
         acquisition_campaign: null
       };
 
-  const providerName =
-    billing.billing_provider === "paddle"
-      ? "paddle"
-      : ((billing.billing_provider as "paypal" | "stripe" | null) ?? "paddle");
+  const providerName = getCustomerBillingProvider(billing.billing_provider);
   const providerLabel = getBillingProviderLabel(providerName);
   const providerCapability = getBillingProviderCapability(providerName);
   const billingSnapshot = normalizeBillingSnapshot({

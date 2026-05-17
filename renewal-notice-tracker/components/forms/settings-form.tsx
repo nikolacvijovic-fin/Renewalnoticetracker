@@ -159,7 +159,7 @@ export function SettingsForm({
               </div>
               {billing.management_supported ? (
                 <form
-                  action={`/api/billing/manage?provider=${billing.billing_provider_name}&source=settings_billing`}
+                  action={`/api/billing/manage?provider=paddle&source=settings_billing`}
                   method="post"
                 >
                   <Button type="submit" variant="secondary">

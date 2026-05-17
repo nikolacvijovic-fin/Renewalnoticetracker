@@ -57,9 +57,21 @@ import {
   parseImportFile
 } from "@/lib/contracts/import";
 import {
+  buildCounterpartyIdentity,
+  resolveCounterpartyAlias,
+  suggestDuplicateCounterparties
+} from "@/lib/contracts/counterparty-normalization";
+import {
   getReminderActivationState,
   type ReminderActivationState
 } from "@/lib/contracts/shipped-reminder-policy";
+import {
+  deriveFinancialDataTrustStatus,
+  normalizeFinancialCurrencyCode,
+  normalizeFinancialTrustStatus,
+  normalizeFinancialValuePeriod,
+  type FinancialDataTrustStatus
+} from "@/lib/intelligence/financial/model";
 import {
   canEnterReminderGenerationState,
   initialManualContractStatus,
@@ -100,6 +112,12 @@ function fallbackMetadata(
     termination_window: null,
     governing_law: null,
     payment_terms: null,
+    contract_value_amount: null,
+    contract_value_currency: null,
+    contract_value_period: null,
+    price_change_trigger: null,
+    payment_trigger: null,
+    financial_data_trust_status: "low",
     extracted_clauses: [],
     field_confidence: {},
     field_source_snippets: {},
@@ -145,6 +163,45 @@ function parseBooleanFormValue(value: FormDataEntryValue | null) {
   return value === "true";
 }
 
+function parseNullableStringFormValue(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function parseNullableNumberFormValue(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized.replaceAll(",", ""));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function resolveFinancialMetadataFields(input: {
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  contractValuePeriod?: string | null;
+  priceChangeTrigger?: string | null;
+  paymentTrigger?: string | null;
+  financialDataTrustStatus?: FinancialDataTrustStatus | null;
+  needsReview?: boolean | null;
+}) {
+  const contractValueCurrency = normalizeFinancialCurrencyCode(input.contractValueCurrency);
+  const explicitTrustStatus = normalizeFinancialTrustStatus(input.financialDataTrustStatus);
+
+  return {
+    contract_value_amount: input.contractValueAmount ?? null,
+    contract_value_currency: contractValueCurrency,
+    contract_value_period: normalizeFinancialValuePeriod(input.contractValuePeriod),
+    price_change_trigger: parseNullableStringFormValue(input.priceChangeTrigger ?? null),
+    payment_trigger: parseNullableStringFormValue(input.paymentTrigger ?? null),
+    financial_data_trust_status: deriveFinancialDataTrustStatus({
+      explicitTrustStatus,
+      needsReview: input.needsReview ?? null,
+      contractValueAmount: input.contractValueAmount ?? null,
+      contractValueCurrency
+    })
+  };
+}
+
 function hasAnyP0Value(metadata: {
   notice_deadline_date?: string | null;
   renewal_date?: string | null;
@@ -176,6 +233,12 @@ function resolvePhase1ReviewAssessment(input: {
     field_source_snippets: Record<string, string>;
     reminder_recommendations?: string[];
     reviewer_notes?: string | null;
+    contract_value_amount?: number | null;
+    contract_value_currency?: string | null;
+    contract_value_period?: string | null;
+    price_change_trigger?: string | null;
+    payment_trigger?: string | null;
+    financial_data_trust_status?: FinancialDataTrustStatus | null;
     renewal_term?: string | null;
     notice_period_value?: number | null;
     notice_period_unit?: string | null;
@@ -313,27 +376,67 @@ async function findOrCreateCounterparty(params: {
   name: string | null;
 }) {
   if (!params.name) return null;
+  const identity = buildCounterpartyIdentity(params.name);
+  if (!identity.rawCounterpartyName || !identity.normalizedCounterpartyName) return null;
   const admin = createAdminSupabaseClient();
-  const { data: existing } = await admin
-    .from("counterparties")
-    .select("id, name")
-    .eq("organization_id", params.organizationId)
-    .ilike("name", params.name)
-    .maybeSingle();
+  const [{ data: existingCounterparties, error: counterpartyError }, { data: aliases, error: aliasError }] =
+    await Promise.all([
+      admin
+        .from("counterparties")
+        .select("id, raw_counterparty_name, normalized_counterparty_name, merged_into_counterparty_id")
+        .eq("organization_id", params.organizationId),
+      admin
+        .from("counterparty_aliases")
+        .select("counterparty_id, alias_name, normalized_alias_name")
+        .eq("organization_id", params.organizationId)
+    ]);
 
-  if (existing?.id) return existing.id;
+  if (counterpartyError) throw counterpartyError;
+  if (aliasError) throw aliasError;
+
+  const matchedId = resolveCounterpartyAlias(
+    (existingCounterparties ?? []) as Array<{
+      id: string;
+      raw_counterparty_name: string;
+      normalized_counterparty_name: string;
+      merged_into_counterparty_id: string | null;
+    }>,
+    (aliases ?? []) as Array<{
+      counterparty_id: string;
+      alias_name: string;
+      normalized_alias_name: string;
+    }>,
+    identity.rawCounterpartyName
+  );
+
+  if (matchedId) return matchedId;
 
   const { data, error } = await admin
     .from("counterparties")
     .insert({
       organization_id: params.organizationId,
-      name: params.name
+      name: identity.rawCounterpartyName,
+      raw_counterparty_name: identity.rawCounterpartyName,
+      normalized_counterparty_name: identity.normalizedCounterpartyName
     })
     .select("id")
     .single();
 
   if (error) throw error;
   return data.id as string;
+}
+
+function dedupeCounterpartyAliases(
+  aliases: Array<{ alias_name: string; normalized_alias_name: string }>
+) {
+  const seen = new Set<string>();
+  return aliases.filter((alias) => {
+    if (!alias.normalized_alias_name || seen.has(alias.normalized_alias_name)) {
+      return false;
+    }
+    seen.add(alias.normalized_alias_name);
+    return true;
+  });
 }
 
 async function resolveTemplateNoticeDeadline(params: {
@@ -923,6 +1026,14 @@ export async function createManualContractAction(formData: FormData) {
     termination_window: formData.get("termination_window") || null,
     governing_law: formData.get("governing_law") || null,
     payment_terms: formData.get("payment_terms") || null,
+    contract_value_amount: parseNullableNumberFormValue(formData.get("contract_value_amount")),
+    contract_value_currency: parseNullableStringFormValue(formData.get("contract_value_currency")),
+    contract_value_period: parseNullableStringFormValue(formData.get("contract_value_period")),
+    price_change_trigger: parseNullableStringFormValue(formData.get("price_change_trigger")),
+    payment_trigger: parseNullableStringFormValue(formData.get("payment_trigger")),
+    financial_data_trust_status: parseNullableStringFormValue(
+      formData.get("financial_data_trust_status")
+    ),
     extracted_clauses: [],
     field_confidence: {},
     field_source_snippets: {},
@@ -1024,11 +1135,20 @@ export async function createManualContractAction(formData: FormData) {
       renewal_term: payload.renewal_term,
       notice_period_value: payload.notice_period_value,
       notice_period_unit: payload.notice_period_unit,
-      notice_deadline_date: finalNoticeDeadline,
-      termination_window: payload.termination_window,
-      governing_law: payload.governing_law,
-      payment_terms: payload.payment_terms,
-      extracted_clauses: payload.extracted_clauses,
+    notice_deadline_date: finalNoticeDeadline,
+    termination_window: payload.termination_window,
+    governing_law: payload.governing_law,
+    payment_terms: payload.payment_terms,
+    ...resolveFinancialMetadataFields({
+      contractValueAmount: payload.contract_value_amount,
+      contractValueCurrency: payload.contract_value_currency,
+      contractValuePeriod: payload.contract_value_period,
+      priceChangeTrigger: payload.price_change_trigger,
+      paymentTrigger: payload.payment_trigger,
+      financialDataTrustStatus: payload.financial_data_trust_status,
+      needsReview: payload.needs_review
+    }),
+    extracted_clauses: payload.extracted_clauses,
       field_confidence: payload.field_confidence,
       field_source_snippets: payload.field_source_snippets,
       reminder_recommendations: payload.reminder_recommendations,
@@ -1204,6 +1324,14 @@ export async function updateContractReviewAction(contractId: string, formData: F
     termination_window: formData.get("termination_window") || null,
     governing_law: formData.get("governing_law"),
     payment_terms: formData.get("payment_terms"),
+    contract_value_amount: parseNullableNumberFormValue(formData.get("contract_value_amount")),
+    contract_value_currency: parseNullableStringFormValue(formData.get("contract_value_currency")),
+    contract_value_period: parseNullableStringFormValue(formData.get("contract_value_period")),
+    price_change_trigger: parseNullableStringFormValue(formData.get("price_change_trigger")),
+    payment_trigger: parseNullableStringFormValue(formData.get("payment_trigger")),
+    financial_data_trust_status: parseNullableStringFormValue(
+      formData.get("financial_data_trust_status")
+    ),
     extracted_clauses: JSON.parse(String(formData.get("extracted_clauses") ?? "[]")),
     field_confidence: JSON.parse(String(formData.get("field_confidence") ?? "{}")),
     field_source_snippets: JSON.parse(String(formData.get("field_source_snippets") ?? "{}")),
@@ -1273,6 +1401,15 @@ export async function updateContractReviewAction(contractId: string, formData: F
         termination_window: payload.termination_window,
         governing_law: payload.governing_law,
         payment_terms: payload.payment_terms,
+        ...resolveFinancialMetadataFields({
+          contractValueAmount: payload.contract_value_amount,
+          contractValueCurrency: payload.contract_value_currency,
+          contractValuePeriod: payload.contract_value_period,
+          priceChangeTrigger: payload.price_change_trigger,
+          paymentTrigger: payload.payment_trigger,
+          financialDataTrustStatus: payload.financial_data_trust_status,
+          needsReview: payload.needs_review
+        }),
         extracted_clauses: payload.extracted_clauses,
         field_confidence: payload.field_confidence,
         field_source_snippets: payload.field_source_snippets,
@@ -1357,6 +1494,12 @@ export async function updateContractReviewAction(contractId: string, formData: F
         termination_window: payload.termination_window,
         governing_law: payload.governing_law,
         payment_terms: payload.payment_terms,
+        contract_value_amount: payload.contract_value_amount,
+        contract_value_currency: payload.contract_value_currency,
+        contract_value_period: payload.contract_value_period,
+        price_change_trigger: payload.price_change_trigger,
+        payment_trigger: payload.payment_trigger,
+        financial_data_trust_status: payload.financial_data_trust_status,
         extracted_clauses: payload.extracted_clauses,
         field_confidence: payload.field_confidence,
         field_source_snippets: payload.field_source_snippets,
@@ -1585,18 +1728,34 @@ export async function createReminderAction(contractId: string, formData: FormDat
 export async function createCounterpartyAction(formData: FormData) {
   const { user, organizationId } = await requireOrganization();
   const payload = counterpartySchema.parse({
-    name: formData.get("name"),
-    legal_name: formData.get("legal_name") || null,
-    contact_email: formData.get("contact_email") || null,
-    contact_name: formData.get("contact_name") || null,
-    website: formData.get("website") || null,
-    notes: formData.get("notes") || null
+    name: formData.get("name")
   });
+  const identity = buildCounterpartyIdentity(payload.name);
 
   const supabase = createServerSupabaseClient();
+  const { data: existingCounterparties } = await supabase
+    .from("counterparties")
+    .select("id, raw_counterparty_name, normalized_counterparty_name, merged_into_counterparty_id")
+    .eq("organization_id", organizationId);
+  const duplicateSuggestions = suggestDuplicateCounterparties(
+    (existingCounterparties ?? []) as Array<{
+      id: string;
+      raw_counterparty_name: string;
+      normalized_counterparty_name: string;
+      merged_into_counterparty_id: string | null;
+      contract_count?: number;
+    }>,
+    identity.rawCounterpartyName
+  );
   const { data, error } = await supabase
     .from("counterparties")
-    .insert({ organization_id: organizationId, ...payload })
+    .insert({
+      organization_id: organizationId,
+      ...payload,
+      name: identity.rawCounterpartyName,
+      raw_counterparty_name: identity.rawCounterpartyName,
+      normalized_counterparty_name: identity.normalizedCounterpartyName
+    })
     .select("id")
     .single();
   if (error) throw error;
@@ -1607,10 +1766,118 @@ export async function createCounterpartyAction(formData: FormData) {
     action: "counterparty.created",
     entityType: "counterparty",
     entityId: data.id,
-    details: payload
+    details: {
+      raw_counterparty_name: identity.rawCounterpartyName,
+      normalized_counterparty_name: identity.normalizedCounterpartyName,
+      duplicate_suggestions: duplicateSuggestions.map((suggestion) => ({
+        id: suggestion.id,
+        raw_counterparty_name: suggestion.rawCounterpartyName,
+        score: suggestion.score
+      }))
+    }
   });
 
   revalidatePath("/dashboard/counterparties");
+  revalidatePath("/dashboard/contracts/new");
+}
+
+export async function mergeCounterpartyAction(sourceCounterpartyId: string, targetCounterpartyId: string) {
+  const { user, organizationId } = await requireOrganization();
+  if (sourceCounterpartyId === targetCounterpartyId) {
+    throw new Error("Counterparty merge requires two different counterparties.");
+  }
+
+  const supabase = createServerSupabaseClient();
+  const [{ data: counterparties, error: counterpartyError }, { data: existingAliases, error: aliasError }] =
+    await Promise.all([
+      supabase
+        .from("counterparties")
+        .select("id, organization_id, raw_counterparty_name, normalized_counterparty_name, merged_into_counterparty_id")
+        .eq("organization_id", organizationId)
+        .in("id", [sourceCounterpartyId, targetCounterpartyId]),
+      supabase
+        .from("counterparty_aliases")
+        .select("counterparty_id, alias_name, normalized_alias_name")
+        .eq("organization_id", organizationId)
+        .in("counterparty_id", [sourceCounterpartyId, targetCounterpartyId])
+    ]);
+
+  if (counterpartyError) throw counterpartyError;
+  if (aliasError) throw aliasError;
+
+  const source = (counterparties ?? []).find((row) => row.id === sourceCounterpartyId);
+  const target = (counterparties ?? []).find((row) => row.id === targetCounterpartyId);
+
+  if (!source || !target) {
+    throw new Error("Counterparty not found for active organization.");
+  }
+  if (source.merged_into_counterparty_id) {
+    throw new Error("Source counterparty is already merged.");
+  }
+  if (target.merged_into_counterparty_id) {
+    throw new Error("Target counterparty must be a canonical vendor identity.");
+  }
+
+  await supabase
+    .from("contracts")
+    .update({ counterparty_id: targetCounterpartyId })
+    .eq("organization_id", organizationId)
+    .eq("counterparty_id", sourceCounterpartyId);
+
+  const aliasPayload = dedupeCounterpartyAliases([
+    {
+      alias_name: source.raw_counterparty_name,
+      normalized_alias_name: source.normalized_counterparty_name
+    },
+    ...((existingAliases ?? []) as Array<{
+      counterparty_id: string;
+      alias_name: string;
+      normalized_alias_name: string;
+    }>)
+      .filter((alias) => alias.counterparty_id === sourceCounterpartyId)
+      .map((alias) => ({
+        alias_name: alias.alias_name,
+        normalized_alias_name: alias.normalized_alias_name
+      }))
+  ]).filter(
+    (alias) => alias.normalized_alias_name !== target.normalized_counterparty_name
+  );
+
+  if (aliasPayload.length > 0) {
+    await supabase.from("counterparty_aliases").upsert(
+      aliasPayload.map((alias) => ({
+        organization_id: organizationId,
+        counterparty_id: targetCounterpartyId,
+        alias_name: alias.alias_name,
+        normalized_alias_name: alias.normalized_alias_name
+      })),
+      {
+        onConflict: "counterparty_id,normalized_alias_name",
+        ignoreDuplicates: true
+      }
+    );
+  }
+
+  await supabase
+    .from("counterparties")
+    .update({ merged_into_counterparty_id: targetCounterpartyId })
+    .eq("id", sourceCounterpartyId)
+    .eq("organization_id", organizationId);
+
+  await createAuditLog({
+    organizationId,
+    actorUserId: user.id,
+    action: "counterparty.merged",
+    entityType: "counterparty",
+    entityId: sourceCounterpartyId,
+    details: {
+      merged_into_counterparty_id: targetCounterpartyId,
+      preserved_aliases: aliasPayload.map((alias) => alias.alias_name)
+    }
+  });
+
+  revalidatePath("/dashboard/counterparties");
+  revalidatePath("/dashboard/contracts");
   revalidatePath("/dashboard/contracts/new");
 }
 
@@ -1988,6 +2255,11 @@ export async function importContractsAction(formData: FormData) {
               termination_window: result.normalized.termination_window ?? null,
               governing_law: null,
               payment_terms: null,
+              contract_value_amount: result.normalized.contract_value,
+              contract_value_currency: null,
+              contract_value_period: null,
+              price_change_trigger: null,
+              payment_trigger: null,
               extracted_clauses: [],
               field_confidence: {},
               field_source_snippets: {},
@@ -2013,6 +2285,15 @@ export async function importContractsAction(formData: FormData) {
           notice_deadline_date: result.normalized.notice_deadline_date ?? null,
           termination_window: result.normalized.termination_window ?? null,
           auto_renewal: result.normalized.auto_renewal,
+          ...resolveFinancialMetadataFields({
+            contractValueAmount: result.normalized.contract_value,
+            contractValueCurrency: null,
+            contractValuePeriod: null,
+            priceChangeTrigger: null,
+            paymentTrigger: null,
+            financialDataTrustStatus: "low",
+            needsReview: true
+          }),
           field_confidence: {},
           field_source_snippets: {},
           extracted_clauses: [],

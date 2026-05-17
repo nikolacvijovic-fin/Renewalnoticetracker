@@ -6,6 +6,10 @@ import {
   getContracts,
   getOrganizationBilling
 } from "@/lib/contracts/kernel-queries";
+import {
+  describeFinancialDrilldown,
+  filterContractsForFinancialDrilldown
+} from "@/lib/intelligence/financial/dashboard";
 import { ContractFilters } from "@/components/contracts/contract-filters";
 import { ContractsTable } from "@/components/contracts/contracts-table";
 import { Button } from "@/components/ui/button";
@@ -25,6 +29,13 @@ export default async function ContractsPage({
     department?: string;
     statusTag?: string;
     commercial?: string;
+    financialView?: string;
+    horizonDays?: string;
+    counterpartyName?: string;
+    unassignedOwner?: string;
+    unassignedDepartment?: string;
+    contractIds?: string;
+    procurementView?: string;
   };
 }) {
   const { organizationId } = await requireOrganization();
@@ -48,13 +59,28 @@ export default async function ContractsPage({
   });
   const exportAccess = getFeatureAccessResult(billingSnapshot, "exports");
   const commercialNotice = getCommercialNoticeFromCode(searchParams.commercial);
+  const financialDrilldownDescription = describeFinancialDrilldown(searchParams);
+  const contractIds = new Set(
+    (searchParams.contractIds ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  const procurementDrilldownDescription = describeProcurementDrilldown(searchParams.procurementView);
+  const filteredContracts = filterContractsForFinancialDrilldown(contracts, searchParams).filter(
+    (contract) => contractIds.size === 0 || contractIds.has(contract.id ?? "")
+  );
 
   return (
     <section className="space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Contracts</h1>
-          <p className="mt-2 text-slate-500">Filter by review status, expiring contracts, or auto-renewal behavior.</p>
+          <p className="mt-2 text-slate-500">
+            {procurementDrilldownDescription ??
+              financialDrilldownDescription ??
+              "Filter by review status, expiring contracts, or auto-renewal behavior."}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           {exportAccess.allowed ? (
@@ -94,7 +120,28 @@ export default async function ContractsPage({
           statusTag: searchParams.statusTag ?? ""
         }}
       />
-      <ContractsTable contracts={contracts as never[]} />
+      <ContractsTable contracts={filteredContracts as never[]} />
     </section>
   );
+}
+
+function describeProcurementDrilldown(view: string | undefined) {
+  switch (view) {
+    case "top_vendors_exposure":
+      return "Viewing the underlying contracts for one procurement exposure slice in the active organization.";
+    case "vendor_due_soon":
+      return "Viewing vendor contracts due soon in the active organization.";
+    case "owner_gaps_by_department":
+      return "Viewing contracts that still need owner assignment in the active organization.";
+    case "decision_gaps_by_owner":
+      return "Viewing contracts that still need a renewal decision in the active organization.";
+    case "auto_renewals_needing_decision":
+      return "Viewing auto-renewal contracts that still need a decision in the active organization.";
+    case "duplicate_counterparty_cleanup":
+      return "Viewing contracts tied to one duplicate vendor cleanup slice in the active organization.";
+    case "renewal_outcome_history":
+      return "Viewing contracts behind one renewal outcome slice in the active organization.";
+    default:
+      return null;
+  }
 }

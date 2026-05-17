@@ -12,6 +12,7 @@ const createAuditLog = vi.fn();
 const parseImportFile = vi.fn();
 const reminderInserts: Array<unknown> = [];
 const importJobUpdates: Array<Record<string, unknown>> = [];
+const contractMetadataInserts: Array<Record<string, unknown>> = [];
 
 const filePrototype = File.prototype as unknown as { arrayBuffer?: () => Promise<ArrayBuffer> };
 if (!filePrototype.arrayBuffer) {
@@ -66,6 +67,7 @@ describe("importContractsAction", () => {
     vi.clearAllMocks();
     reminderInserts.length = 0;
     importJobUpdates.length = 0;
+    contractMetadataInserts.length = 0;
     requireOrganization.mockResolvedValue({
       user: { id: "user-1", email: "owner@example.com" },
       organizationId: "org-1",
@@ -148,11 +150,7 @@ describe("importContractsAction", () => {
         if (table === "counterparties") {
           return {
             select: () => ({
-              eq: () => ({
-                ilike: () => ({
-                  maybeSingle: () => Promise.resolve({ data: null, error: null })
-                })
-              })
+              eq: () => Promise.resolve({ data: [], error: null })
             }),
             insert: () => ({
               select: () => ({
@@ -161,9 +159,19 @@ describe("importContractsAction", () => {
             })
           };
         }
+        if (table === "counterparty_aliases") {
+          return {
+            select: () => ({
+              eq: () => Promise.resolve({ data: [], error: null })
+            })
+          };
+        }
         if (table === "contract_metadata") {
           return {
-            insert: () => Promise.resolve({ error: null })
+            insert: (payload: Record<string, unknown>) => {
+              contractMetadataInserts.push(payload);
+              return Promise.resolve({ error: null });
+            }
           };
         }
         if (table === "reminders") {
@@ -203,6 +211,13 @@ describe("importContractsAction", () => {
         error_report_json: expect.arrayContaining([
           expect.objectContaining({ status: "imported", contract_title: "MSA" })
         ])
+      })
+    );
+    expect(contractMetadataInserts.at(-1)).toEqual(
+      expect.objectContaining({
+        contract_value_amount: 125000,
+        contract_value_currency: null,
+        financial_data_trust_status: "low"
       })
     );
     expect(reminderInserts).toHaveLength(0);

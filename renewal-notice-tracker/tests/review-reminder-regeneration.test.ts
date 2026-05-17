@@ -259,6 +259,19 @@ describe("review reminder regeneration", () => {
           };
         }
 
+        if (table === "counterparty_aliases") {
+          return {
+            select: () => ({
+              eq: () => ({
+                ilike: () => ({
+                  maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null })
+                })
+              })
+            }),
+            insert: vi.fn().mockResolvedValue({ error: null })
+          };
+        }
+
         throw new Error(`Unexpected admin table: ${table}`);
       }
     });

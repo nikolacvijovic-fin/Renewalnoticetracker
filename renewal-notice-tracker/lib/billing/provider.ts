@@ -11,6 +11,7 @@ import type {
 } from "@/lib/billing/types";
 import { getBillingDefaultProvider, isBillingConfigured } from "@/lib/billing/config";
 import { paddleProvider } from "@/lib/billing/providers/paddle";
+import { getBillingProviderPolicy } from "@/lib/billing/provider-policy";
 
 export function getBillingProvider(provider: BillingProviderName): BillingProvider {
   if (provider === "paddle") return paddleProvider;
@@ -22,8 +23,6 @@ export function resolveBillingProvider(
     billing_provider?: string | null;
     billing_customer_id?: string | null;
     billing_subscription_id?: string | null;
-    stripe_customer_id?: string | null;
-    stripe_subscription_id?: string | null;
   },
   override?: BillingProviderName
 ): BillingProviderName {
@@ -33,22 +32,21 @@ export function resolveBillingProvider(
 }
 
 export function getBillingProviderLabel(provider: BillingProviderName) {
-  if (provider === "paddle") return "Paddle";
-  return "Manual invoice or legacy migration";
+  return getBillingProviderPolicy(provider).label;
 }
 
 export function getBillingProviderCapability(provider: BillingProviderName): BillingProviderCapability {
-  if (provider !== "paddle") {
+  const policy = getBillingProviderPolicy(provider);
+
+  if (!policy.checkoutSupported || !policy.managementSupported) {
     return {
       checkout: {
         supported: false,
-        message:
-          "Shipped-first self-serve billing runs on Paddle only. Legacy providers require internal migration support."
+        message: policy.customerMessage
       },
       management: {
         supported: false,
-        message:
-          "Legacy or manual-invoice billing changes require internal support in shipped-first runtime."
+        message: policy.customerMessage
       }
     };
   }

@@ -30,6 +30,7 @@ Release is blocked if any of these fail:
 - shipped-kernel boundary enforcement
 - deferred-feature leakage tests
 - required email delivery plumbing expectations
+- two-week operator autonomy gate
 
 ## Email release gate
 
@@ -49,9 +50,14 @@ Replies to reminder emails are not an acknowledgment channel.
 ```bash
 npm run typecheck
 npm run test:release-critical
+npm run test:future-reference
 npm run release:check
 npm run e2e:p0:required
 npm run smoke:staging
 ```
 
-If any command above fails, Phase-1 is not done.
+`test:release-critical` is the shipped-loop release blocker.
+
+`test:future-reference` preserves deferred and reference coverage separately and must not redefine the shipped release gate.
+
+If the workflow still depends on hidden founder rescue, Phase-1 is not done even when technical gates are green.

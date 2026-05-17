@@ -2,6 +2,7 @@ import type { BillingProviderName } from "@/lib/billing/types";
 import { isBillingConfigured } from "@/lib/billing/config";
 import { createAuditLog } from "@/lib/audit";
 import { getOrganizationBilling } from "@/lib/contracts/kernel-queries";
+import { getCustomerBillingProvider } from "@/lib/billing/provider-policy";
 import {
   COMMERCIAL_PLAN_DEFINITIONS,
   COMMERCIAL_POLICY,
@@ -161,9 +162,10 @@ export function normalizeBillingSnapshot(input: {
     input.plan_tier === "growth" || input.plan_tier === "starter" ? input.plan_tier : "free";
   const billingProvider =
     input.billing_provider === "paddle" ||
+    input.billing_provider === "manual" ||
     input.billing_provider === "paypal" ||
     input.billing_provider === "stripe"
-      ? input.billing_provider
+      ? getCustomerBillingProvider(input.billing_provider)
       : "none";
 
   return {

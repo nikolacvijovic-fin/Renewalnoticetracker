@@ -10,6 +10,7 @@ import { createBillingCheckoutSession } from "@/lib/billing/service";
 import type { BillingProviderName } from "@/lib/billing/types";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
 import { createAuditLog } from "@/lib/audit";
+import { getBillingProviderPolicy } from "@/lib/billing/provider-policy";
 
 export async function POST(request: Request) {
   const auth = await getActiveOrganizationContextOrNull();
@@ -44,8 +45,26 @@ export async function POST(request: Request) {
   const plan = (url.searchParams.get("plan") ?? "growth") as "starter" | "growth";
   const providerOverride = url.searchParams.get("provider") as BillingProviderName | null;
   const source = url.searchParams.get("source");
-  if (providerOverride && providerOverride !== "paddle") {
+  if (providerOverride === "paypal" || providerOverride === "stripe") {
     return NextResponse.json({ error: "Unsupported billing provider." }, { status: 400 });
+  }
+  if (providerOverride === "manual") {
+    const policy = getBillingProviderPolicy("manual");
+    await createAuditLog({
+      organizationId,
+      actorUserId: user.id,
+      action: "billing.checkout_unavailable",
+      entityType: "billing",
+      details: {
+        provider: "manual",
+        provider_state: policy.state,
+        reason: policy.customerMessage
+      }
+    });
+    return NextResponse.redirect(
+      `${new URL(request.url).origin}/dashboard/settings?billing=contact-support&provider=manual`,
+      { status: 303 }
+    );
   }
   const billing = await getOrganizationBilling(organizationId);
 
