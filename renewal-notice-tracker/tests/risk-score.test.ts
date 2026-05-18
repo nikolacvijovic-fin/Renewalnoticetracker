@@ -113,6 +113,30 @@ describe("risk score engine", () => {
 
     expect(result.confidence_level).toBe("high");
     expect(result.evidence_basis.length).toBeGreaterThan(0);
+    expect(result.explanation_metadata.calculation_version).toBe("risk_score.v1");
+    expect(result.explanation_metadata.trusted_fields_used).toEqual(
+      expect.arrayContaining(["notice_deadline_date", "renewal_date", "contract_value_amount"])
+    );
+  });
+
+  it("surfaces low-confidence inputs in explainability warnings", () => {
+    const result = calculateRiskScore(
+      makeInput({
+        reviewCompleted: false,
+        weakEvidence: true
+      }),
+      { now: new Date("2026-05-17T09:00:00.000Z") }
+    );
+
+    expect(result.explanation_metadata.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "review_pending" }),
+        expect.objectContaining({ code: "weak_evidence" })
+      ])
+    );
+    expect(result.explanation_metadata.low_confidence_fields_used).toEqual(
+      expect.arrayContaining(["review_status", "evidence_quality"])
+    );
   });
 
   it("stays read-only and does not import workflow mutation code", () => {

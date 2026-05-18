@@ -7,6 +7,7 @@ import {
   getRiskConfidenceLabel
 } from "@/lib/intelligence/risk/dashboard";
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
+import { RiskBadge } from "@/components/contracts/risk-badge";
 import { formatDate } from "@/lib/utils";
 
 type ContractRow = {
@@ -23,13 +24,27 @@ type ContractRow = {
     needs_review: boolean;
   } | null;
   department?: string | null;
+  owner_user_id?: string | null;
   owner_name?: string | null;
   status_tag?: string | null;
   renewal_decision_status?: string | null;
   cycle_status?: string | null;
 };
 
-export function ContractsTable({ contracts }: { contracts: ContractRow[] }) {
+type RiskViewer = {
+  userId: string;
+  role: "admin" | "operator" | "reviewer" | "owner";
+  showRiskBadge: boolean;
+  showRiskExplanation: boolean;
+};
+
+export function ContractsTable({
+  contracts,
+  riskViewer
+}: {
+  contracts: ContractRow[];
+  riskViewer?: RiskViewer | null;
+}) {
   return (
     <div className="panel overflow-hidden">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -65,6 +80,34 @@ export function ContractsTable({ contracts }: { contracts: ContractRow[] }) {
               </td>
               <td className="px-4 py-4">
                 {(() => {
+                  const canSeeRiskForContract =
+                    Boolean(riskViewer?.showRiskBadge) &&
+                    (riskViewer?.role !== "owner" || contract.owner_user_id === riskViewer.userId);
+
+                  if (!canSeeRiskForContract) {
+                    return (
+                      <div className="flex flex-wrap gap-2">
+                        <Badge
+                          tone={
+                            contract.contract_metadata?.needs_review || !contract.owner_name || contract.owner_name === "Unassigned"
+                              ? "warning"
+                              : "success"
+                          }
+                        >
+                          {getPhase1TrustState({
+                            owner_user_id:
+                              contract.owner_name && contract.owner_name !== "Unassigned" ? "assigned" : null,
+                            renewal_decision_status: contract.renewal_decision_status ?? "undecided",
+                            cycle_status: contract.cycle_status ?? "open",
+                            contract_metadata: contract.contract_metadata
+                          })}
+                        </Badge>
+                        {contract.status_tag ? <Badge>{contract.status_tag.replace("_", " ")}</Badge> : null}
+                        {contract.contract_metadata?.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
+                      </div>
+                    );
+                  }
+
                   const risk = buildRiskQueueRow(
                     createRiskWorkflowSubjectFromDashboardContract({
                       ...contract,
@@ -91,14 +134,22 @@ export function ContractsTable({ contracts }: { contracts: ContractRow[] }) {
                             contract_metadata: contract.contract_metadata
                           })}
                         </Badge>
-                        <RiskExplanationDrawer explanation={risk} />
-                        <span className="text-xs text-slate-500">
-                          {getRiskConfidenceLabel(risk.confidenceLevel)}
-                        </span>
+                        {riskViewer?.showRiskExplanation ? (
+                          <>
+                            <RiskExplanationDrawer explanation={risk} />
+                            <span className="text-xs text-slate-500">
+                              {getRiskConfidenceLabel(risk.confidenceLevel)}
+                            </span>
+                          </>
+                        ) : (
+                          <RiskBadge riskBand={risk.riskBand} />
+                        )}
                         {contract.status_tag ? <Badge>{contract.status_tag.replace("_", " ")}</Badge> : null}
                         {contract.contract_metadata?.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
                       </div>
-                      <p className="text-xs text-slate-500">{risk.reasons[0]?.detail ?? "No active risk reasons."}</p>
+                      {riskViewer?.showRiskExplanation ? (
+                        <p className="text-xs text-slate-500">{risk.reasons[0]?.detail ?? "No active risk reasons."}</p>
+                      ) : null}
                     </div>
                   );
                 })()}

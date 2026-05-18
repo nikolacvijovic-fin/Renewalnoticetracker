@@ -36,6 +36,14 @@ export function buildProcurementAnalyticsInsights(
       dataQuality: deriveIntelligenceDataQuality(snapshot),
       sources: buildTrustedWorkflowSources(snapshot),
       calculationBasis: buildTrustedWorkflowBasis("procurement.vendor_rollup_readiness"),
+      explanationMetadata: {
+        calculation_version: "procurement_analytics.v1",
+        input_data_version: "trusted_workflow_state.v1",
+        trusted_fields_used: ["counterparty_name", "department", "owner_assigned"],
+        low_confidence_fields_used: snapshot.reviewCompleted ? [] : ["review_status"],
+        excluded_fields: snapshot.counterpartyName.trim().length === 0 ? ["counterparty_name"] : [],
+        warnings
+      },
       warnings,
       output: {
         workflowClass,

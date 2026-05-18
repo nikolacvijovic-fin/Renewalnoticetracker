@@ -1,6 +1,7 @@
 import {
   INTELLIGENCE_TRUST_LEVELS,
   type IntelligenceCalculationBasis,
+  type IntelligenceExplainabilityMetadata,
   type IntelligenceTrustLevel,
   type IntelligenceWarning
 } from "@/lib/intelligence/shared/types";
@@ -51,6 +52,7 @@ export type FinancialExposureResult = {
   trust_level: IntelligenceTrustLevel;
   warnings: IntelligenceWarning[];
   calculation_basis: IntelligenceCalculationBasis;
+  explanation_metadata: IntelligenceExplainabilityMetadata;
 };
 
 export const REVIEW_BLOCKING_TRUST_STATES = [

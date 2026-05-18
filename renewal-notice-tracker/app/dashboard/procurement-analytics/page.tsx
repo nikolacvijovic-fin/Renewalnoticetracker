@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireOrganization } from "@/lib/auth";
 import {
   getProcurementAnalyticsDashboard,
@@ -13,6 +14,9 @@ import {
 } from "@/components/dashboard/procurement-action-list";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
+import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
+import { getBillingSnapshot } from "@/lib/billing/entitlements";
+import { auditProcurementAnalyticsViewed } from "@/lib/intelligence/audit";
 
 function buildContractsDrilldownHref(input: {
   contractIds: string[];
@@ -89,13 +93,33 @@ export default async function ProcurementAnalyticsPage({
     trustStatus?: string;
   };
 }) {
-  const { organizationId } = await requireOrganization();
+  const context = await requireOrganization();
+  const billingSnapshot = await getBillingSnapshot(context.organizationId);
+  try {
+    await assertCanAccessIntelligenceSurface({
+      context,
+      billingSnapshot,
+      surface: "procurement_dashboard"
+    });
+  } catch {
+    redirect("/dashboard");
+  }
+
+  const { organizationId } = context;
   const dashboard = await getProcurementAnalyticsDashboard(organizationId, {
     department: searchParams.department,
     ownerUserId: searchParams.owner,
     counterpartyName: searchParams.counterparty,
     dueWindowDays: normalizeProcurementDueWindow(searchParams.dueWindow),
     trustStatus: normalizeProcurementTrustFilter(searchParams.trustStatus)
+  });
+  await auditProcurementAnalyticsViewed({
+    organizationId,
+    actorUserId: context.user.id,
+    contractCount: dashboard.totalContractsInScope,
+    lowConfidenceContractCount: dashboard.lowConfidenceContractCount,
+    warningCount: dashboard.combinedWarnings.length,
+    calculationVersion: "procurement_analytics.v1"
   });
 
   const topVendorRows = mapRowsToActionItems(

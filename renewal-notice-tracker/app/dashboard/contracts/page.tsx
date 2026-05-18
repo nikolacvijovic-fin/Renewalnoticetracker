@@ -19,6 +19,7 @@ import {
   getFeatureAccessResult,
   normalizeBillingSnapshot
 } from "@/lib/billing/entitlements";
+import { getIntelligenceSurfaceAccess } from "@/lib/intelligence/access";
 
 export default async function ContractsPage({
   searchParams
@@ -38,7 +39,8 @@ export default async function ContractsPage({
     procurementView?: string;
   };
 }) {
-  const { organizationId } = await requireOrganization();
+  const context = await requireOrganization();
+  const { organizationId } = context;
   const filter = CONTRACT_FILTERS.includes((searchParams.filter ?? "all") as never)
     ? (searchParams.filter ?? "all")
     : "all";
@@ -70,6 +72,18 @@ export default async function ContractsPage({
   const filteredContracts = filterContractsForFinancialDrilldown(contracts, searchParams).filter(
     (contract) => contractIds.size === 0 || contractIds.has(contract.id ?? "")
   );
+  const riskBadgeAccess = getIntelligenceSurfaceAccess({
+    context,
+    billingSnapshot,
+    surface: "risk_badge",
+    contractOwnerUserId: context.role === "owner" ? context.user.id : undefined
+  });
+  const riskExplanationAccess = getIntelligenceSurfaceAccess({
+    context,
+    billingSnapshot,
+    surface: "risk_explanation",
+    contractOwnerUserId: context.role === "owner" ? context.user.id : undefined
+  });
 
   return (
     <section className="space-y-5">
@@ -120,7 +134,15 @@ export default async function ContractsPage({
           statusTag: searchParams.statusTag ?? ""
         }}
       />
-      <ContractsTable contracts={filteredContracts as never[]} />
+      <ContractsTable
+        contracts={filteredContracts as never[]}
+        riskViewer={{
+          userId: context.user.id,
+          role: context.role,
+          showRiskBadge: riskBadgeAccess.allowed,
+          showRiskExplanation: riskExplanationAccess.allowed
+        }}
+      />
     </section>
   );
 }

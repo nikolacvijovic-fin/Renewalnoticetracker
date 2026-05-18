@@ -15,7 +15,12 @@ import {
 export type CommercialFeature =
   | "exports"
   | "manual_contracts"
-  | "multi_recipient_reminders";
+  | "multi_recipient_reminders"
+  | "risk_badges"
+  | "risk_scores"
+  | "financial_intelligence"
+  | "procurement_analytics"
+  | "intelligence_settings";
 
 export type ContractTrackingLimitResult = {
   allowed: boolean;
@@ -67,16 +72,26 @@ export type CommercialCapabilitySummaryItem = {
   access: CommercialAccessResult;
 };
 
-const FEATURE_MINIMUM_PLAN: Record<Exclude<CommercialFeature, "multi_recipient_reminders">, BillingSnapshot["planTier"]> =
-  {
-    exports: "starter",
-    manual_contracts: "starter"
-  };
+const FEATURE_MINIMUM_PLAN: Record<CommercialFeature, BillingSnapshot["planTier"]> = {
+  exports: "starter",
+  manual_contracts: "starter",
+  multi_recipient_reminders: "growth",
+  risk_badges: "starter",
+  risk_scores: "growth",
+  financial_intelligence: "growth",
+  procurement_analytics: "growth",
+  intelligence_settings: "growth"
+};
 
 export const COMMERCIAL_FEATURE_LABELS: Record<CommercialFeature, string> = {
   exports: "Exports",
   manual_contracts: "Manual contract creation",
-  multi_recipient_reminders: "Multi-recipient reminders"
+  multi_recipient_reminders: "Multi-recipient reminders",
+  risk_badges: "Risk badges",
+  risk_scores: "Risk scores",
+  financial_intelligence: "Financial Intelligence",
+  procurement_analytics: "Procurement Analytics",
+  intelligence_settings: "Intelligence settings"
 };
 
 export const CONTRACT_TRACKING_LIMITS: Record<BillingSnapshot["planTier"], number | null> = {
@@ -100,7 +115,6 @@ function isActiveSubscription(status: string) {
 }
 
 function getMinimumPlan(feature: CommercialFeature) {
-  if (feature === "multi_recipient_reminders") return "growth";
   return FEATURE_MINIMUM_PLAN[feature];
 }
 
@@ -402,6 +416,26 @@ export function getCommercialRedirectCode(feature: CommercialFeature, reason?: C
       return reason && reason !== "upgrade_required"
         ? `billing.multi_recipient_reminders.${reason}`
         : "billing.multi_recipient_upgrade_required";
+    case "risk_badges":
+      return reason && reason !== "upgrade_required"
+        ? `billing.risk_badges.${reason}`
+        : "billing.risk_badges_upgrade_required";
+    case "risk_scores":
+      return reason && reason !== "upgrade_required"
+        ? `billing.risk_scores.${reason}`
+        : "billing.risk_scores_upgrade_required";
+    case "financial_intelligence":
+      return reason && reason !== "upgrade_required"
+        ? `billing.financial_intelligence.${reason}`
+        : "billing.financial_intelligence_upgrade_required";
+    case "procurement_analytics":
+      return reason && reason !== "upgrade_required"
+        ? `billing.procurement_analytics.${reason}`
+        : "billing.procurement_analytics_upgrade_required";
+    case "intelligence_settings":
+      return reason && reason !== "upgrade_required"
+        ? `billing.intelligence_settings.${reason}`
+        : "billing.intelligence_settings_upgrade_required";
   }
 }
 
@@ -424,6 +458,31 @@ export function getCommercialNoticeFromCode(code: string | null | undefined) {
     "billing.multi_recipient_reminders.subscription_cancelled": "Multiple reminder recipients are blocked because the subscription is cancelled.",
     "billing.multi_recipient_reminders.inactive_subscription": "Multiple reminder recipients require an active Growth subscription.",
     "billing.multi_recipient_reminders.provider_not_configured": "Multiple reminder recipients are temporarily unavailable because billing is not configured correctly.",
+    "billing.risk_badges_upgrade_required": "Risk badges require the Starter plan.",
+    "billing.risk_badges.subscription_past_due": "Risk badges are currently blocked because the subscription is past due.",
+    "billing.risk_badges.subscription_cancelled": "Risk badges are currently blocked because the subscription is cancelled.",
+    "billing.risk_badges.inactive_subscription": "Risk badges require an active paid subscription.",
+    "billing.risk_badges.provider_not_configured": "Risk badges are temporarily unavailable because billing is not configured correctly.",
+    "billing.risk_scores_upgrade_required": "Risk scores require the Growth plan.",
+    "billing.risk_scores.subscription_past_due": "Risk scores are currently blocked because the subscription is past due.",
+    "billing.risk_scores.subscription_cancelled": "Risk scores are currently blocked because the subscription is cancelled.",
+    "billing.risk_scores.inactive_subscription": "Risk scores require an active Growth subscription.",
+    "billing.risk_scores.provider_not_configured": "Risk scores are temporarily unavailable because billing is not configured correctly.",
+    "billing.financial_intelligence_upgrade_required": "Financial Intelligence requires the Growth plan.",
+    "billing.financial_intelligence.subscription_past_due": "Financial Intelligence is currently blocked because the subscription is past due.",
+    "billing.financial_intelligence.subscription_cancelled": "Financial Intelligence is currently blocked because the subscription is cancelled.",
+    "billing.financial_intelligence.inactive_subscription": "Financial Intelligence requires an active Growth subscription.",
+    "billing.financial_intelligence.provider_not_configured": "Financial Intelligence is temporarily unavailable because billing is not configured correctly.",
+    "billing.procurement_analytics_upgrade_required": "Procurement Analytics requires the Growth plan.",
+    "billing.procurement_analytics.subscription_past_due": "Procurement Analytics is currently blocked because the subscription is past due.",
+    "billing.procurement_analytics.subscription_cancelled": "Procurement Analytics is currently blocked because the subscription is cancelled.",
+    "billing.procurement_analytics.inactive_subscription": "Procurement Analytics requires an active Growth subscription.",
+    "billing.procurement_analytics.provider_not_configured": "Procurement Analytics is temporarily unavailable because billing is not configured correctly.",
+    "billing.intelligence_settings_upgrade_required": "Intelligence settings require the Growth plan.",
+    "billing.intelligence_settings.subscription_past_due": "Intelligence settings are currently blocked because the subscription is past due.",
+    "billing.intelligence_settings.subscription_cancelled": "Intelligence settings are currently blocked because the subscription is cancelled.",
+    "billing.intelligence_settings.inactive_subscription": "Intelligence settings require an active Growth subscription.",
+    "billing.intelligence_settings.provider_not_configured": "Intelligence settings are temporarily unavailable because billing is not configured correctly.",
     "billing.contract_tracking_limit_reached": "You have reached your tracked contract limit. Upgrade before adding more contracts."
   };
 

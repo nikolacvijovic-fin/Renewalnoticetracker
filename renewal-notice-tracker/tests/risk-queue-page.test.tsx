@@ -1,12 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 
 const requireOrganization = vi.fn();
+const redirectMock = vi.fn((location: string) => {
+  throw new Error(`REDIRECT:${location}`);
+});
 const getContracts = vi.fn();
 const getContractFacets = vi.fn();
 const getCounterparties = vi.fn();
+const getBillingSnapshot = vi.fn();
+const auditRiskScoreViewed = vi.fn();
+const auditRiskScoreRecalculated = vi.fn();
 
 vi.mock("next/link", () => ({
   default: ({
@@ -28,7 +34,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: vi.fn()
   }),
-  useSearchParams: () => new URLSearchParams()
+  useSearchParams: () => new URLSearchParams(),
+  redirect: redirectMock
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -39,6 +46,22 @@ vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContracts,
   getContractFacets,
   getCounterparties
+}));
+
+vi.mock("@/lib/billing/entitlements", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/billing/entitlements")>(
+    "@/lib/billing/entitlements"
+  );
+
+  return {
+    ...actual,
+    getBillingSnapshot
+  };
+});
+
+vi.mock("@/lib/intelligence/audit", () => ({
+  auditRiskScoreViewed,
+  auditRiskScoreRecalculated
 }));
 
 function makeContract(
@@ -79,11 +102,27 @@ function makeContract(
   };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("RiskQueuePage", () => {
   it(
     "renders the risk queue with low-confidence labels and workflow-safe actions only",
     async () => {
-    requireOrganization.mockResolvedValue({ organizationId: "org-1" });
+    requireOrganization.mockResolvedValue({
+      user: { id: "reviewer-1" },
+      organizationId: "org-1",
+      role: "reviewer"
+    });
+    getBillingSnapshot.mockResolvedValue({
+      organizationId: "org-1",
+      planTier: "growth",
+      subscriptionStatus: "active",
+      billingProvider: "paddle",
+      trialEndsAt: null,
+      currentPeriodEnd: null
+    });
     getContracts.mockResolvedValue([makeContract()]);
     getContractFacets.mockResolvedValue({
       owners: [{ user_id: "owner-1", label: "Owner One" }],
@@ -120,10 +159,45 @@ describe("RiskQueuePage", () => {
       "href",
       "/dashboard/contracts/contract-1#review-panel"
     );
+    expect(auditRiskScoreViewed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        actorUserId: "reviewer-1",
+        calculationVersion: "risk_score.v1"
+      })
+    );
+    expect(auditRiskScoreRecalculated).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        actorUserId: "reviewer-1",
+        inputDataVersion: "trusted_workflow_state.v1"
+      })
+    );
       expect(screen.queryByText(/legal action/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/\bterminate\b/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/^Renew$/i)).not.toBeInTheDocument();
     },
     15000
   );
+
+  it("redirects owners away from the portfolio-wide risk queue", async () => {
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue({
+      organizationId: "org-1",
+      planTier: "growth",
+      subscriptionStatus: "active",
+      billingProvider: "paddle",
+      trialEndsAt: null,
+      currentPeriodEnd: null
+    });
+
+    const Page = (await import("@/app/dashboard/risk-queue/page")).default;
+
+    await expect(Page({ searchParams: {} })).rejects.toThrow("REDIRECT:/dashboard");
+    expect(getContracts).not.toHaveBeenCalled();
+  });
 });

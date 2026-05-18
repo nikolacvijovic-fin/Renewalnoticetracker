@@ -1,9 +1,14 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requireOrganization = vi.fn();
+const redirectMock = vi.fn((location: string) => {
+  throw new Error(`REDIRECT:${location}`);
+});
 const getProcurementAnalyticsDashboard = vi.fn();
+const getBillingSnapshot = vi.fn();
+const auditProcurementAnalyticsViewed = vi.fn();
 
 vi.mock("next/link", () => ({
   default: ({
@@ -25,7 +30,8 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: vi.fn()
   }),
-  useSearchParams: () => new URLSearchParams()
+  useSearchParams: () => new URLSearchParams(),
+  redirect: redirectMock
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -36,6 +42,21 @@ vi.mock("@/lib/intelligence/procurement/query-helpers", () => ({
   getProcurementAnalyticsDashboard,
   normalizeProcurementDueWindow: (value: string | undefined) => (value ? Number(value) : null),
   normalizeProcurementTrustFilter: (value: string | undefined) => value ?? "all"
+}));
+
+vi.mock("@/lib/billing/entitlements", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/billing/entitlements")>(
+    "@/lib/billing/entitlements"
+  );
+
+  return {
+    ...actual,
+    getBillingSnapshot
+  };
+});
+
+vi.mock("@/lib/intelligence/audit", () => ({
+  auditProcurementAnalyticsViewed
 }));
 
 function makeRow(overrides: Record<string, unknown> = {}) {
@@ -65,11 +86,27 @@ function makeRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("ProcurementAnalyticsPage", () => {
   it(
     "renders action-oriented procurement analytics with drilldowns and low-trust labels",
     async () => {
-      requireOrganization.mockResolvedValue({ organizationId: "org-1" });
+      requireOrganization.mockResolvedValue({
+        user: { id: "operator-1" },
+        organizationId: "org-1",
+        role: "operator"
+      });
+      getBillingSnapshot.mockResolvedValue({
+        organizationId: "org-1",
+        planTier: "growth",
+        subscriptionStatus: "active",
+        billingProvider: "paddle",
+        trialEndsAt: null,
+        currentPeriodEnd: null
+      });
       getProcurementAnalyticsDashboard.mockResolvedValue({
         filters: {
           department: "",
@@ -236,6 +273,13 @@ describe("ProcurementAnalyticsPage", () => {
       expect(screen.getByText("Owner gaps by department")).toBeInTheDocument();
       expect(screen.getByText("Decision gaps by owner")).toBeInTheDocument();
       expect(screen.getAllByText("Low trust").length).toBeGreaterThan(0);
+      expect(auditProcurementAnalyticsViewed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: "org-1",
+          actorUserId: "operator-1",
+          calculationVersion: "procurement_analytics.v1"
+        })
+      );
       expect(
         screen.getAllByRole("link", { name: /Open vendor contracts|Work due-soon contracts|Assign owners|Record decisions|Review auto-renewals|Clean up vendor identity|Open decided contracts/i })
           .some((link) => {

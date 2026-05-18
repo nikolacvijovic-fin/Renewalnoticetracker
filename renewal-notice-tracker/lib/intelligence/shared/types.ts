@@ -41,6 +41,15 @@ export type IntelligenceCalculationBasis = {
   blocksWhenTrustGatesFail: boolean;
 };
 
+export type IntelligenceExplainabilityMetadata = {
+  calculation_version: string;
+  input_data_version: string;
+  trusted_fields_used: string[];
+  low_confidence_fields_used: string[];
+  excluded_fields: string[];
+  warnings: IntelligenceWarning[];
+};
+
 export type IntelligenceWarning = {
   code: string;
   message: string;
@@ -57,6 +66,7 @@ export type IntelligenceInsight<TOutput extends Record<string, unknown> = Record
   dataQuality: IntelligenceDataQuality;
   sources: IntelligenceSource[];
   calculationBasis: IntelligenceCalculationBasis;
+  explanationMetadata: IntelligenceExplainabilityMetadata;
   warnings: IntelligenceWarning[];
   output: TOutput;
 };

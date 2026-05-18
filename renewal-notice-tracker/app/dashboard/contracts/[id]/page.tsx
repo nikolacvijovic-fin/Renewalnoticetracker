@@ -3,6 +3,7 @@ import { requireOrganization } from "@/lib/auth";
 import {
   getContractById,
   getCounterparties,
+  getOrganizationBilling,
   getOrganizationMembers
 } from "@/lib/contracts/kernel-queries";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,13 @@ import {
   getRiskConfidenceLabel
 } from "@/lib/intelligence/risk/dashboard";
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
+import { RiskBadge } from "@/components/contracts/risk-badge";
+import { getIntelligenceSurfaceAccess } from "@/lib/intelligence/access";
+import { normalizeBillingSnapshot } from "@/lib/billing/entitlements";
+import {
+  auditRiskScoreRecalculated,
+  auditRiskScoreViewed
+} from "@/lib/intelligence/audit";
 import { formatDate } from "@/lib/utils";
 
 type ContractPageMetadata = Record<string, unknown> & {
@@ -169,11 +177,13 @@ export default async function ContractDetailPage({
 }: {
   params: { id: string };
 }) {
-  const { organizationId } = await requireOrganization();
-  const [contract, members, counterparties] = await Promise.all([
+  const context = await requireOrganization();
+  const { organizationId } = context;
+  const [contract, members, counterparties, billing] = await Promise.all([
     getContractById(params.id, organizationId).catch(() => null),
     getOrganizationMembers(organizationId),
-    getCounterparties(organizationId)
+    getCounterparties(organizationId),
+    getOrganizationBilling(organizationId)
   ]);
 
   if (!contract || !contract.contract_metadata) notFound();
@@ -282,6 +292,44 @@ export default async function ContractDetailPage({
     ).length,
     duplicateCounterpartyUncertainty: duplicateCounterpartyIds.has(contract.counterparty_id ?? "")
   });
+  const billingSnapshot = normalizeBillingSnapshot({
+    organizationId,
+    plan_tier: billing.plan_tier,
+    subscription_status: billing.subscription_status,
+    billing_provider: billing.billing_provider
+  });
+  const riskBadgeAccess = getIntelligenceSurfaceAccess({
+    context,
+    billingSnapshot,
+    surface: "risk_badge",
+    contractOwnerUserId: contract.owner_user_id
+  });
+  const riskExplanationAccess = getIntelligenceSurfaceAccess({
+    context,
+    billingSnapshot,
+    surface: "risk_explanation",
+    contractOwnerUserId: contract.owner_user_id
+  });
+  if (riskBadgeAccess.allowed) {
+    await auditRiskScoreViewed({
+      organizationId,
+      actorUserId: context.user.id,
+      contractId: contract.id,
+      contractCount: 1,
+      lowConfidenceCount: riskExplanation.confidenceLevel === "low" ? 1 : 0,
+      riskBandsViewed: [riskExplanation.riskBand],
+      calculationVersion: riskExplanation.explanationMetadata.calculation_version
+    });
+    await auditRiskScoreRecalculated({
+      organizationId,
+      actorUserId: context.user.id,
+      contractId: contract.id,
+      contractCount: 1,
+      warningCount: riskExplanation.missingDataWarnings.length,
+      calculationVersion: riskExplanation.explanationMetadata.calculation_version,
+      inputDataVersion: riskExplanation.explanationMetadata.input_data_version
+    });
+  }
 
   return (
     <ContractDetailShell
@@ -299,10 +347,18 @@ export default async function ContractDetailPage({
             {reviewBlocked ? "Needs review" : "Reviewed"}
           </Badge>
           <Badge>{trustState}</Badge>
-          <RiskExplanationDrawer explanation={riskExplanation} />
-          <Badge tone={riskExplanation.confidenceLevel === "low" ? "warning" : "default"}>
-            {getRiskConfidenceLabel(riskExplanation.confidenceLevel)}
-          </Badge>
+          {riskBadgeAccess.allowed ? (
+            riskExplanationAccess.allowed ? (
+              <>
+                <RiskExplanationDrawer explanation={riskExplanation} />
+                <Badge tone={riskExplanation.confidenceLevel === "low" ? "warning" : "default"}>
+                  {getRiskConfidenceLabel(riskExplanation.confidenceLevel)}
+                </Badge>
+              </>
+            ) : (
+              <RiskBadge riskBand={riskExplanation.riskBand} />
+            )
+          ) : null}
           {ocrAssisted ? <Badge tone="warning">OCR-assisted</Badge> : null}
           {metadata.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
         </>

@@ -14,6 +14,7 @@ describe("release script boundary", () => {
     };
 
     const releaseCritical = packageJson.scripts?.["test:release-critical"] ?? "";
+    const intelligenceReleaseGate = packageJson.scripts?.["test:intelligence-release-gate"] ?? "";
     const futureReference = packageJson.scripts?.["test:future-reference"] ?? "";
 
     expect(releaseCritical).toContain("test:release-critical:session-org");
@@ -33,11 +34,26 @@ describe("release script boundary", () => {
     expect(releaseCritical).not.toContain("tests/conversion-strategy.test.ts");
     expect(releaseCritical).not.toContain("tests/red-team-strategy.test.ts");
     expect(releaseCritical).not.toContain("tests/unified-blueprint.test.ts");
+    expect(releaseCritical).not.toContain("test:intelligence-release-gate");
+    expect(releaseCritical).not.toContain("tests/intelligence-access.test.ts");
+    expect(releaseCritical).not.toContain("tests/financial-intelligence-page.test.tsx");
+    expect(releaseCritical).not.toContain("tests/procurement-analytics-page.test.tsx");
+    expect(releaseCritical).not.toContain("tests/risk-queue-page.test.tsx");
 
     expect(futureReference).toContain("tests/monthly-digest-route.test.ts");
     expect(futureReference).toContain("tests/support-economics.test.ts");
     expect(futureReference).toContain("tests/conversion-strategy.test.ts");
     expect(futureReference).toContain("tests/red-team-strategy.test.ts");
     expect(futureReference).toContain("tests/unified-blueprint.test.ts");
+
+    expect(intelligenceReleaseGate).toContain("tests/intelligence-release-gate.test.ts");
+    expect(intelligenceReleaseGate).toContain("tests/financial-exposure.test.ts");
+    expect(intelligenceReleaseGate).toContain("tests/risk-score.test.ts");
+    expect(intelligenceReleaseGate).toContain("tests/procurement-query-helpers.test.ts");
+    expect(intelligenceReleaseGate).toContain("tests/intelligence-access.test.ts");
+    expect(intelligenceReleaseGate).toContain("tests/financial-intelligence-page.test.tsx");
+    expect(intelligenceReleaseGate).toContain("tests/procurement-analytics-page.test.tsx");
+    expect(intelligenceReleaseGate).toContain("tests/risk-queue-page.test.tsx");
+    expect(intelligenceReleaseGate).toContain("tests/risk-explanation-drawer.test.tsx");
   });
 });

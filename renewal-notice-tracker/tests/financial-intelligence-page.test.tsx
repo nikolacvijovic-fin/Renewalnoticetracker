@@ -1,12 +1,17 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 
 const requireOrganization = vi.fn();
+const redirectMock = vi.fn((location: string) => {
+  throw new Error(`REDIRECT:${location}`);
+});
 const getContracts = vi.fn();
 const getContractFacets = vi.fn();
 const getOrganizationBilling = vi.fn();
+const getBillingSnapshot = vi.fn();
+const auditFinancialIntelligenceViewed = vi.fn();
 const contractsTableSpy = vi.fn();
 
 vi.mock("next/link", () => ({
@@ -25,6 +30,10 @@ vi.mock("next/link", () => ({
   )
 }));
 
+vi.mock("next/navigation", () => ({
+  redirect: redirectMock
+}));
+
 vi.mock("@/lib/auth", () => ({
   requireOrganization
 }));
@@ -33,6 +42,21 @@ vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContracts,
   getContractFacets,
   getOrganizationBilling
+}));
+
+vi.mock("@/lib/billing/entitlements", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/billing/entitlements")>(
+    "@/lib/billing/entitlements"
+  );
+
+  return {
+    ...actual,
+    getBillingSnapshot
+  };
+});
+
+vi.mock("@/lib/intelligence/audit", () => ({
+  auditFinancialIntelligenceViewed
 }));
 
 vi.mock("@/components/contracts/contract-filters", () => ({
@@ -81,11 +105,27 @@ function makeContract(
   };
 }
 
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
 describe("FinancialIntelligencePage", () => {
   it(
     "renders the allowed financial cards and keeps low-trust values labeled without suite creep",
     async () => {
-    requireOrganization.mockResolvedValue({ organizationId: "org-1" });
+    requireOrganization.mockResolvedValue({
+      user: { id: "admin-1" },
+      organizationId: "org-1",
+      role: "admin"
+    });
+    getBillingSnapshot.mockResolvedValue({
+      organizationId: "org-1",
+      planTier: "growth",
+      subscriptionStatus: "active",
+      billingProvider: "paddle",
+      trialEndsAt: null,
+      currentPeriodEnd: null
+    });
     getContracts.mockResolvedValue([
       makeContract(),
       makeContract(
@@ -107,18 +147,50 @@ describe("FinancialIntelligencePage", () => {
     expect(screen.getByText("Auto-renewal exposure")).toBeInTheDocument();
     expect(screen.getByText("Price-change exposure")).toBeInTheDocument();
     expect(screen.getAllByText("Low trust").length).toBeGreaterThan(0);
+    expect(auditFinancialIntelligenceViewed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        actorUserId: "admin-1",
+        calculationVersion: "financial_exposure.v1"
+      })
+    );
     expect(screen.queryByText(/\bERP\b/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/invoice matching/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/cash-flow forecasting/i)).not.toBeInTheDocument();
     },
     15000
   );
+
+  it("redirects when the active plan does not allow financial intelligence", async () => {
+    requireOrganization.mockResolvedValue({
+      user: { id: "admin-1" },
+      organizationId: "org-1",
+      role: "admin"
+    });
+    getBillingSnapshot.mockResolvedValue({
+      organizationId: "org-1",
+      planTier: "starter",
+      subscriptionStatus: "active",
+      billingProvider: "paddle",
+      trialEndsAt: null,
+      currentPeriodEnd: null
+    });
+
+    const Page = (await import("@/app/dashboard/financial-intelligence/page")).default;
+
+    await expect(Page()).rejects.toThrow("REDIRECT:/dashboard");
+    expect(getContracts).not.toHaveBeenCalled();
+  });
 });
 
 describe("ContractsPage financial drilldowns", () => {
   it("keeps drilldowns scoped to the active organization contract set", async () => {
     contractsTableSpy.mockReset();
-    requireOrganization.mockResolvedValue({ organizationId: "org-1" });
+    requireOrganization.mockResolvedValue({
+      user: { id: "admin-1" },
+      organizationId: "org-1",
+      role: "admin"
+    });
     getContracts.mockResolvedValue([
       makeContract(),
       makeContract(

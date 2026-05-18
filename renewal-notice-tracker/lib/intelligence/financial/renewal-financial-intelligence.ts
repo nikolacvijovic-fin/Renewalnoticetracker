@@ -37,6 +37,14 @@ export function buildFinancialIntelligenceInsights(
       dataQuality: deriveIntelligenceDataQuality(snapshot),
       sources: buildTrustedWorkflowSources(snapshot),
       calculationBasis: buildTrustedWorkflowBasis("financial.renewal_value_at_risk"),
+      explanationMetadata: {
+        calculation_version: "financial_intelligence.v1",
+        input_data_version: "trusted_workflow_state.v1",
+        trusted_fields_used: ["contract_value", "notice_deadline_date", "renewal_date", "expiration_date"],
+        low_confidence_fields_used: snapshot.reviewCompleted ? [] : ["review_status"],
+        excluded_fields: snapshot.contractValue == null ? ["contract_value"] : [],
+        warnings
+      },
       warnings,
       output: {
         forecastCategory,

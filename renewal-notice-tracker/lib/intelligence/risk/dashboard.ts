@@ -4,6 +4,7 @@ import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 import { getPhase1TrustState } from "@/lib/contracts/phase1-pilot";
 import { calculateRiskScore, type RiskScoreResult } from "@/lib/intelligence/risk/risk-score";
 import type { RiskBand, RiskConfidenceLevel, RiskMissingDataWarning, RiskReason } from "@/lib/intelligence/risk/risk-factors";
+import type { IntelligenceExplainabilityMetadata } from "@/lib/intelligence/shared/types";
 
 export const RISK_QUEUE_BANDS = ["all", "critical", "high", "medium", "low"] as const;
 export const RISK_QUEUE_DUE_WINDOWS = [7, 14, 30, 60, 90] as const;
@@ -29,6 +30,7 @@ export type RiskExplanationModel = {
   reasons: RiskReason[];
   missingDataWarnings: RiskMissingDataWarning[];
   lastCalculatedAt: string;
+  explanationMetadata: IntelligenceExplainabilityMetadata;
   dueLabel: string;
   dueDate: string | null;
   nextActionLabel: "Review P0" | "Assign owner" | "Record decision" | "Acknowledge" | "Open contract";
@@ -276,6 +278,7 @@ export function buildRiskQueueRow(subject: RiskWorkflowSubject): RiskQueueRow {
     reasons: result.reasons,
     missingDataWarnings: result.missing_data_warnings,
     lastCalculatedAt: result.last_calculated_at,
+    explanationMetadata: result.explanation_metadata,
     dueLabel,
     dueDate,
     nextActionLabel,

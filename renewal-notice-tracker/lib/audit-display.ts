@@ -124,8 +124,49 @@ export function summarizeAuditDetails(
   if (typeof record.status === "string" && record.status !== "undecided") {
     summary.push(`Updated status: ${normalizeDetailLine(record.status)}`);
   }
+  if (typeof record.contract_count === "number" && String(record.layer ?? "").trim().length > 0) {
+    summary.push(
+      view === "internal"
+        ? `Contracts in scope: ${record.contract_count}`
+        : `${record.contract_count} contract${record.contract_count === 1 ? "" : "s"} in scope`
+    );
+  }
+  if (typeof record.warning_count === "number" && record.warning_count > 0) {
+    summary.push(
+      view === "internal"
+        ? `Warnings present: ${record.warning_count}`
+        : `${record.warning_count} warning${record.warning_count === 1 ? "" : "s"} present`
+    );
+  }
+  if (typeof record.low_confidence_count === "number" && record.low_confidence_count > 0) {
+    summary.push(
+      `${record.low_confidence_count} low-confidence score${record.low_confidence_count === 1 ? "" : "s"}`
+    );
+  }
+  if (
+    typeof record.low_trust_contract_count === "number" &&
+    record.low_trust_contract_count > 0
+  ) {
+    summary.push(
+      `${record.low_trust_contract_count} low-trust contract${record.low_trust_contract_count === 1 ? "" : "s"}`
+    );
+  }
 
   if (view === "internal") {
+    if (typeof record.calculation_version === "string" && record.calculation_version.trim().length > 0) {
+      summary.push(`Calculation version: ${record.calculation_version.trim()}`);
+    }
+    if (typeof record.input_data_version === "string" && record.input_data_version.trim().length > 0) {
+      summary.push(`Input data version: ${record.input_data_version.trim()}`);
+    }
+    if (Array.isArray(record.risk_bands_viewed) && record.risk_bands_viewed.length > 0) {
+      summary.push(
+        `Risk bands viewed: ${record.risk_bands_viewed
+          .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+          .map((value) => normalizeDetailLine(value))
+          .join(", ")}`
+      );
+    }
     if (typeof record.file_name === "string" && record.file_name.trim().length > 0) {
       summary.push(`File: ${record.file_name.trim()}`);
     }

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireOrganization } from "@/lib/auth";
 import {
   getContractFacets,
@@ -10,6 +11,12 @@ import { RiskQueueTable } from "@/components/dashboard/risk-queue-table";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
 import { buildRiskQueueView } from "@/lib/intelligence/risk/dashboard";
+import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
+import { getBillingSnapshot } from "@/lib/billing/entitlements";
+import {
+  auditRiskScoreRecalculated,
+  auditRiskScoreViewed
+} from "@/lib/intelligence/audit";
 
 export default async function RiskQueuePage({
   searchParams
@@ -22,7 +29,19 @@ export default async function RiskQueuePage({
     trustStatus?: string;
   };
 }) {
-  const { organizationId } = await requireOrganization();
+  const context = await requireOrganization();
+  const billingSnapshot = await getBillingSnapshot(context.organizationId);
+  try {
+    await assertCanAccessIntelligenceSurface({
+      context,
+      billingSnapshot,
+      surface: "risk_queue"
+    });
+  } catch {
+    redirect("/dashboard");
+  }
+
+  const { organizationId } = context;
   const [contracts, facets, counterparties] = await Promise.all([
     getContracts(organizationId, "all", {
       ownerUserId: searchParams.owner,
@@ -48,6 +67,29 @@ export default async function RiskQueuePage({
       dueWindowDays: searchParams.dueWindow,
       trustStatus: searchParams.trustStatus
     }
+  });
+  await auditRiskScoreViewed({
+    organizationId,
+    actorUserId: context.user.id,
+    contractCount: dashboard.rows.length,
+    lowConfidenceCount: dashboard.summary.lowConfidence,
+    riskBandsViewed: Array.from(new Set(dashboard.rows.map((row) => row.riskBand))),
+    calculationVersion:
+      dashboard.rows[0]?.explanationMetadata.calculation_version ?? "risk_score.v1"
+  });
+  await auditRiskScoreRecalculated({
+    organizationId,
+    actorUserId: context.user.id,
+    contractCount: dashboard.rows.length,
+    warningCount: dashboard.rows.reduce(
+      (sum, row) => sum + row.missingDataWarnings.length,
+      0
+    ),
+    calculationVersion:
+      dashboard.rows[0]?.explanationMetadata.calculation_version ?? "risk_score.v1",
+    inputDataVersion:
+      dashboard.rows[0]?.explanationMetadata.input_data_version ??
+      "trusted_workflow_state.v1"
   });
 
   return (

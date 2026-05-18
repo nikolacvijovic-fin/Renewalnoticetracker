@@ -11,7 +11,11 @@ import type {
   FinancialExposureContractInput,
   FinancialExposureResult
 } from "@/lib/intelligence/financial/model";
-import type { IntelligenceTrustLevel, IntelligenceWarning } from "@/lib/intelligence/shared/types";
+import type {
+  IntelligenceExplainabilityMetadata,
+  IntelligenceTrustLevel,
+  IntelligenceWarning
+} from "@/lib/intelligence/shared/types";
 import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 
 export const FINANCIAL_EXPOSURE_HORIZONS = [30, 60, 90, 180] as const;
@@ -39,6 +43,7 @@ export type FinancialExposureCardData = {
   includedContractCount: number;
   excludedContractCount: number;
   emptyState: string | null;
+  explanationMetadata: IntelligenceExplainabilityMetadata;
 };
 
 export type FinancialExposureBreakdownRow = {
@@ -50,6 +55,7 @@ export type FinancialExposureBreakdownRow = {
   warnings: IntelligenceWarning[];
   href: string;
   includedContractCount: number;
+  explanationMetadata: IntelligenceExplainabilityMetadata;
 };
 
 export type FinancialDashboardView = {
@@ -315,7 +321,8 @@ function buildExposureBreakdown(
         trustLevel: result.trust_level,
         warnings: result.warnings,
         href: value.href,
-        includedContractCount: result.included_contract_count
+        includedContractCount: result.included_contract_count,
+        explanationMetadata: result.explanation_metadata
       } satisfies FinancialExposureBreakdownRow;
     })
     .sort((left, right) => compareExposureRows(left, right));
@@ -380,6 +387,7 @@ function buildExposureCard(input: {
     href: input.href,
     includedContractCount: input.result.included_contract_count,
     excludedContractCount: input.result.excluded_contract_count,
+    explanationMetadata: input.result.explanation_metadata,
     emptyState:
       input.result.included_contract_count === 0
         ? "Needs reviewed contract value, currency, and trusted workflow dates before exposure can be summed."

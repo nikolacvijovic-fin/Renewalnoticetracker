@@ -12,6 +12,10 @@ import {
   type RiskReason,
   type RiskScoreInput
 } from "@/lib/intelligence/risk/risk-factors";
+import type { IntelligenceExplainabilityMetadata } from "@/lib/intelligence/shared/types";
+
+const RISK_CALCULATION_VERSION = "risk_score.v1";
+const RISK_INPUT_DATA_VERSION = "trusted_workflow_state.v1";
 
 export type RiskScoreResult = {
   risk_band: "low" | "medium" | "high" | "critical";
@@ -21,6 +25,7 @@ export type RiskScoreResult = {
   missing_data_warnings: RiskMissingDataWarning[];
   evidence_basis: RiskEvidenceBasis[];
   last_calculated_at: string;
+  explanation_metadata: IntelligenceExplainabilityMetadata;
 };
 
 export function calculateRiskScore(
@@ -102,8 +107,87 @@ export function calculateRiskScore(
     confidence_level,
     missing_data_warnings,
     evidence_basis,
-    last_calculated_at: (options?.now ?? new Date()).toISOString()
+    last_calculated_at: (options?.now ?? new Date()).toISOString(),
+    explanation_metadata: buildExplainabilityMetadata(input, evidence_basis, missing_data_warnings)
   };
+}
+
+function buildExplainabilityMetadata(
+  input: RiskScoreInput,
+  evidenceBasis: RiskEvidenceBasis[],
+  warnings: RiskMissingDataWarning[]
+): IntelligenceExplainabilityMetadata {
+  const trustedFields = new Set<string>();
+  const lowConfidenceFields = new Set<string>();
+  const excludedFields = new Set<string>();
+
+  for (const evidence of evidenceBasis) {
+    const field = mapFactorToField(evidence.factor);
+    if (evidence.trusted) {
+      trustedFields.add(field);
+    } else {
+      lowConfidenceFields.add(field);
+    }
+  }
+
+  if (!input.noticeDeadlineDate) excludedFields.add("notice_deadline_date");
+  if (!input.renewalDate) excludedFields.add("renewal_date");
+  if (!input.expirationDate) excludedFields.add("expiration_date");
+  if (input.contractValueAmount == null) excludedFields.add("contract_value_amount");
+  if (input.autoRenewalConfirmed === null) excludedFields.add("auto_renewal");
+  if (!input.reviewCompleted) lowConfidenceFields.add("review_status");
+  if (input.weakEvidence) lowConfidenceFields.add("evidence_quality");
+  if (input.acceptedRiskOverride) lowConfidenceFields.add("accepted_risk_override");
+  if (input.reminderDeliveryFailures > 0) lowConfidenceFields.add("reminder_delivery_failures");
+  if (input.duplicateCounterpartyUncertainty) {
+    lowConfidenceFields.add("counterparty_identity");
+  }
+
+  return {
+    calculation_version: RISK_CALCULATION_VERSION,
+    input_data_version: RISK_INPUT_DATA_VERSION,
+    trusted_fields_used: [...trustedFields].sort(),
+    low_confidence_fields_used: [...lowConfidenceFields].sort(),
+    excluded_fields: [...excludedFields].sort(),
+    warnings
+  };
+}
+
+function mapFactorToField(factor: string) {
+  switch (factor) {
+    case "notice_deadline_proximity":
+      return "notice_deadline_date";
+    case "renewal_date_proximity":
+      return "renewal_date";
+    case "expiration_date_proximity":
+      return "expiration_date";
+    case "auto_renewal_confirmed":
+      return "auto_renewal";
+    case "contract_value":
+      return "contract_value_amount";
+    case "missing_owner":
+      return "owner_user_id";
+    case "missing_decision":
+      return "decision_status";
+    case "unacknowledged_reminder":
+      return "acknowledgment_status";
+    case "weak_evidence":
+      return "evidence_quality";
+    case "unreviewed_p0":
+      return "review_status";
+    case "accepted_risk_override":
+      return "accepted_risk_override";
+    case "price_change_trigger":
+      return "price_change_trigger";
+    case "previous_defer_watchlist":
+      return "decision_history";
+    case "reminder_delivery_failures":
+      return "reminder_delivery_failures";
+    case "duplicate_counterparty_uncertainty":
+      return "counterparty_identity";
+    default:
+      return factor;
+  }
 }
 
 function factor(code: string, points: number, detail: string) {

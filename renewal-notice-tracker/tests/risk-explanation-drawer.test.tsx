@@ -54,6 +54,20 @@ function makeExplanation(
       }
     ],
     lastCalculatedAt: "2026-05-17T12:00:00.000Z",
+    explanationMetadata: {
+      calculation_version: "risk_score.v1",
+      input_data_version: "trusted_workflow_state.v1",
+      trusted_fields_used: ["notice_deadline_date", "owner_user_id"],
+      low_confidence_fields_used: ["review_status"],
+      excluded_fields: ["contract_value_amount"],
+      warnings: [
+        {
+          code: "missing_contract_value",
+          message: "Contract value is missing, so exposure-related risk is understated.",
+          severity: "warning"
+        }
+      ]
+    },
     dueLabel: "Notice deadline",
     dueDate: "2026-05-20",
     nextActionLabel: "Review P0",

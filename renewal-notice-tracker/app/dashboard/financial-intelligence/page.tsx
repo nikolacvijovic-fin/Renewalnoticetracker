@@ -1,15 +1,40 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { requireOrganization } from "@/lib/auth";
 import { getContracts } from "@/lib/contracts/kernel-queries";
 import { buildFinancialDashboardView } from "@/lib/intelligence/financial/dashboard";
 import { FinancialExposureCard } from "@/components/dashboard/financial-exposure-card";
 import { FinancialExposureBreakdown } from "@/components/dashboard/financial-exposure-breakdown";
+import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
+import { getBillingSnapshot } from "@/lib/billing/entitlements";
+import { auditFinancialIntelligenceViewed } from "@/lib/intelligence/audit";
 
 export default async function FinancialIntelligencePage() {
-  const { organizationId } = await requireOrganization();
+  const context = await requireOrganization();
+  const billingSnapshot = await getBillingSnapshot(context.organizationId);
+  try {
+    await assertCanAccessIntelligenceSurface({
+      context,
+      billingSnapshot,
+      surface: "financial_dashboard"
+    });
+  } catch {
+    redirect("/dashboard");
+  }
+
+  const { organizationId } = context;
   const contracts = await getContracts(organizationId, "all");
   const view = buildFinancialDashboardView(contracts);
+  await auditFinancialIntelligenceViewed({
+    organizationId,
+    actorUserId: context.user.id,
+    contractCount: contracts.length,
+    lowTrustContractCount: view.lowTrustContractCount,
+    warningCount: view.warnings.length,
+    calculationVersion:
+      view.cards[0]?.explanationMetadata.calculation_version ?? "financial_exposure.v1"
+  });
 
   return (
     <section className="space-y-6">

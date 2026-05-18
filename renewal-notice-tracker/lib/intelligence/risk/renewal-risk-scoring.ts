@@ -55,6 +55,7 @@ export function buildAiRiskScoringInsights(
       dataQuality: deriveIntelligenceDataQuality(snapshot),
       sources: buildTrustedWorkflowSources(snapshot),
       calculationBasis: buildTrustedWorkflowBasis("risk.renewal_cycle_risk_score"),
+      explanationMetadata: riskScore.explanation_metadata,
       warnings: [...warnings, ...riskScore.missing_data_warnings],
       output: {
         riskBand: riskScore.risk_band,

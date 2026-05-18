@@ -52,6 +52,15 @@ describe("financial exposure helpers", () => {
     expect(result.excluded_contract_count).toBe(0);
     expect(result.trust_level).toBe("high");
     expect(result.calculation_basis.usesReviewedTruthOnly).toBe(true);
+    expect(result.explanation_metadata.calculation_version).toBe("financial_exposure.v1");
+    expect(result.explanation_metadata.trusted_fields_used).toEqual(
+      expect.arrayContaining([
+        "contract_value_amount",
+        "contract_value_currency",
+        "notice_deadline_date",
+        "expiration_date"
+      ])
+    );
   });
 
   it("includes unreviewed imported values only when low-trust inclusion policy is enabled", () => {
@@ -90,6 +99,7 @@ describe("financial exposure helpers", () => {
         expect.objectContaining({ code: "missing_contract_value" })
       ])
     );
+    expect(result.explanation_metadata.excluded_fields).toContain("contract_value_amount");
   });
 
   it("does not sum multi-currency values without a conversion policy", () => {
