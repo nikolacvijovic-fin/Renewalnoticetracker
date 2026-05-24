@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
-import { env } from "@/lib/env";
 import { executeWorkspaceDeletionRequest } from "@/lib/organization/workspace-deletion";
+import { hasValidDestructiveInternalRequestAuth } from "@/lib/internal-route-auth";
 
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-internal-health-secret");
-  if (secret !== env.INTERNAL_HEALTH_SECRET) {
+  const rawBody = await request.text();
+
+  if (!hasValidDestructiveInternalRequestAuth(request, rawBody)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   try {
-    const body = (await request.json()) as { request_id?: string };
+    const body = JSON.parse(rawBody) as { request_id?: string };
     if (!body.request_id) {
       return NextResponse.json({ error: "Deletion request id is required." }, { status: 400 });
     }
@@ -17,6 +18,10 @@ export async function POST(request: Request) {
     const result = await executeWorkspaceDeletionRequest(body.request_id);
     return NextResponse.json({ ok: true, result }, { status: 200 });
   } catch (error) {
+    if (error instanceof SyntaxError) {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+
     const message = error instanceof Error ? error.message : "Workspace deletion failed.";
     if (message === "Deletion request not found.") {
       return NextResponse.json({ error: message }, { status: 404 });

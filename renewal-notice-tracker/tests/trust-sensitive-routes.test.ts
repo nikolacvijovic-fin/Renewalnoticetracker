@@ -86,6 +86,21 @@ describe("trust-sensitive route authz", () => {
     );
   });
 
+  it("fails extraction preview explicitly when the success audit write fails", async () => {
+    createAuditLog.mockRejectedValueOnce(new Error("audit failed"));
+    const { POST } = await import("@/app/api/extract/route");
+    const response = await POST(
+      new Request("http://localhost/api/extract", {
+        method: "POST",
+        body: JSON.stringify({ documentText: "Notice clause" }),
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "Extraction failed." });
+  });
+
   it("rejects owner access to extraction preview because it is a review-lane action", async () => {
     getOrganizationContextOrNull.mockResolvedValueOnce({
       user: { id: "user-1" },
@@ -185,5 +200,42 @@ describe("trust-sensitive route authz", () => {
         action: "reminders.preview_requested"
       })
     );
+  });
+
+  it("fails reminder preview explicitly when the success audit write fails", async () => {
+    createAuditLog.mockRejectedValueOnce(new Error("audit failed"));
+    const { POST } = await import("@/app/api/reminders/route");
+    await expect(
+      POST(
+        new Request("http://localhost/api/reminders", {
+          method: "POST",
+          body: JSON.stringify({
+            metadata: {
+              contract_title: "MSA",
+              counterparty_name: "Acme",
+              contract_type: null,
+              effective_date: null,
+              renewal_date: "2030-03-01",
+              expiration_date: "2030-06-01",
+              auto_renewal: true,
+              renewal_term: null,
+              notice_period_value: 30,
+              notice_period_unit: "days",
+              notice_deadline_date: "2030-01-01",
+              termination_window: "30 days",
+              governing_law: null,
+              payment_terms: null,
+              extracted_clauses: [],
+              field_confidence: {},
+              field_source_snippets: {},
+              reminder_recommendations: [],
+              reviewer_notes: null
+            },
+            recipientEmail: "owner@example.com"
+          }),
+          headers: { "content-type": "application/json" }
+        })
+      )
+    ).rejects.toThrow("audit failed");
   });
 });

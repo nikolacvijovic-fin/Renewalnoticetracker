@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { env } from "@/lib/env";
+import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
 
 export async function GET(request: Request) {
-  const secret = request.headers.get("x-internal-health-secret");
-  if (secret !== env.INTERNAL_HEALTH_SECRET) {
+  if (!hasValidInternalRouteSecret(request, "health")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

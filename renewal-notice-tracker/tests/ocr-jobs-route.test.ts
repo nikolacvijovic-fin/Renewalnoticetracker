@@ -4,7 +4,7 @@ const processPendingOcrJobs = vi.fn();
 
 vi.mock("@/lib/env", () => ({
   env: {
-    INTERNAL_HEALTH_SECRET: "secret"
+    INTERNAL_OCR_JOBS_SECRET: "secret"
   }
 }));
 
@@ -41,12 +41,29 @@ describe("OCR jobs internal route", () => {
         body: JSON.stringify({ limit: 1 }),
         headers: {
           "content-type": "application/json",
-          "x-internal-health-secret": "secret"
+          "x-internal-ocr-secret": "secret"
         }
       })
     );
 
     expect(response.status).toBe(200);
     expect(processPendingOcrJobs).toHaveBeenCalledWith(1);
+  });
+
+  it("does not accept an operations secret on the OCR route", async () => {
+    const { POST } = await import("@/app/api/internal/ocr-jobs/route");
+    const response = await POST(
+      new Request("http://localhost/api/internal/ocr-jobs", {
+        method: "POST",
+        body: JSON.stringify({ limit: 1 }),
+        headers: {
+          "content-type": "application/json",
+          "x-internal-operations-secret": "secret"
+        }
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(processPendingOcrJobs).not.toHaveBeenCalled();
   });
 });

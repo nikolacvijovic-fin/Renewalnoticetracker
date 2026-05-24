@@ -21,6 +21,9 @@ NoticeControl ships first as a vendor-side renewal and notice control product.
 - `/api/reminders` requires authenticated, org-scoped customer access and records audit logs for reminder previews
 - `/api/cron/send-reminders` is machine-authenticated
 - `/api/internal/health` accepts only the `x-internal-health-secret` header
+- `/api/internal/ocr-jobs` accepts only the `x-internal-ocr-secret` header
+- `/api/internal/backup-readiness`, `/api/internal/restore-drill`, and `/api/internal/ops-snapshots` accept only the `x-internal-operations-secret` header
+- `/api/internal/workspace-deletion` requires the `x-internal-destructive-ops-secret` header plus a timestamped `x-internal-destructive-signature` HMAC over the request body and path
 
 ## Billing runtime
 

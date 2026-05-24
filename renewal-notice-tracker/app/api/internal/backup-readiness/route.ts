@@ -1,11 +1,10 @@
 import { NextResponse } from "next/server";
-import { env } from "@/lib/env";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { buildBackupReadinessEvidence } from "@/lib/commercial/privacy-operations";
+import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
 
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-internal-health-secret");
-  if (secret !== env.INTERNAL_HEALTH_SECRET) {
+  if (!hasValidInternalRouteSecret(request, "operations")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

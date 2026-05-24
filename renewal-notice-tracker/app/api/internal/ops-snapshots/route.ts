@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { env } from "@/lib/env";
 import { refreshInternalRescueSnapshot } from "@/lib/internal/ops-queries";
 import { createAuditLog } from "@/lib/audit";
+import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
 
 function getIdempotencyState(idempotencyKey: string | null) {
   if (!idempotencyKey) return null;
@@ -10,8 +10,7 @@ function getIdempotencyState(idempotencyKey: string | null) {
 }
 
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-internal-health-secret");
-  if (secret !== env.INTERNAL_HEALTH_SECRET) {
+  if (!hasValidInternalRouteSecret(request, "operations")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

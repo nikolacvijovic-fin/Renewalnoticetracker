@@ -5,7 +5,7 @@ const createAdminSupabaseClient = vi.fn();
 
 vi.mock("@/lib/env", () => ({
   env: {
-    INTERNAL_HEALTH_SECRET: "secret"
+    INTERNAL_OPERATIONS_SECRET: "secret"
   }
 }));
 
@@ -51,7 +51,7 @@ describe("backup readiness internal route", () => {
         }),
         headers: {
           "content-type": "application/json",
-          "x-internal-health-secret": "secret"
+          "x-internal-operations-secret": "secret"
         }
       })
     );

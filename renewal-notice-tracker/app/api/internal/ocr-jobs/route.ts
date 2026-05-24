@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
-import { env } from "@/lib/env";
+import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
 import { processPendingOcrJobs } from "@/lib/ocr/jobs";
 
 export async function POST(request: Request) {
-  const secret = request.headers.get("x-internal-health-secret");
-  if (secret !== env.INTERNAL_HEALTH_SECRET) {
+  if (!hasValidInternalRouteSecret(request, "ocr_jobs")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

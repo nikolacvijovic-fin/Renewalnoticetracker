@@ -14,6 +14,7 @@ vi.mock("@/lib/audit", () => ({
 describe("ops snapshots internal route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.INTERNAL_OPERATIONS_SECRET = "test-operations-secret";
     process.env.INTERNAL_HEALTH_SECRET = "test-health-secret";
   });
 
@@ -56,7 +57,7 @@ describe("ops snapshots internal route", () => {
       new Request("http://localhost/api/internal/ops-snapshots", {
         method: "POST",
         headers: {
-          "x-internal-health-secret": "test-health-secret",
+          "x-internal-operations-secret": "test-operations-secret",
           "x-idempotency-key": "run-1",
           "x-organization-id": "org-1"
         }
@@ -92,5 +93,49 @@ describe("ops snapshots internal route", () => {
         })
       })
     );
+  });
+
+  it("does not accept the health secret for operations refresh", async () => {
+    const { POST } = await import("@/app/api/internal/ops-snapshots/route");
+    const response = await POST(
+      new Request("http://localhost/api/internal/ops-snapshots", {
+        method: "POST",
+        headers: {
+          "x-internal-health-secret": "test-health-secret",
+          "x-organization-id": "org-1"
+        }
+      })
+    );
+
+    expect(response.status).toBe(401);
+    expect(refreshInternalRescueSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("returns a safe failure when the rescue snapshot audit write fails", async () => {
+    refreshInternalRescueSnapshot.mockResolvedValue({
+      failedReminders: 2,
+      retryPendingReminders: 1,
+      failedNotifications: 3,
+      duplicateSuppressedNotifications: 1,
+      extractionFailureCount: 4,
+      retryScheduledRuns: 2,
+      terminalFailureRuns: 1,
+      importsNeedingRescue: 2
+    });
+    createAuditLog.mockRejectedValueOnce(new Error("audit failed"));
+
+    const { POST } = await import("@/app/api/internal/ops-snapshots/route");
+    const response = await POST(
+      new Request("http://localhost/api/internal/ops-snapshots", {
+        method: "POST",
+        headers: {
+          "x-internal-operations-secret": "test-operations-secret",
+          "x-organization-id": "org-1"
+        }
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "Ops snapshot refresh failed." });
   });
 });

@@ -66,6 +66,18 @@ describe("admin actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/internal/ops?organizationId=org-1");
   });
 
+  it("fails resend notification explicitly when the audit write fails", async () => {
+    createAuditLog.mockRejectedValueOnce(new Error("audit failed"));
+    const { resendNotificationAction } = await import("@/lib/actions/admin");
+    const formData = new FormData();
+    formData.append("notification_log_id", "11111111-1111-4111-8111-111111111111");
+    formData.append("organization_id", "11111111-1111-4111-8111-111111111111");
+
+    await expect(resendNotificationAction(formData)).rejects.toThrow("audit failed");
+    expect(trackServerAnalyticsEvent).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
   it("blocks resend notification abuse when the caller lacks rescue permissions", async () => {
     requireInternalActionAccess.mockRejectedValue(new Error("REDIRECT:/dashboard"));
     const { resendNotificationAction } = await import("@/lib/actions/admin");
@@ -108,6 +120,22 @@ describe("admin actions", () => {
         action: "admin.reminder_rerun"
       })
     );
+  });
+
+  it("fails reminder rerun explicitly when the audit write fails", async () => {
+    requireInternalActionAccess.mockResolvedValue({
+      user: { id: "user-1" },
+      organizationId: "org-1",
+      role: "internal_admin"
+    });
+    createAuditLog.mockRejectedValueOnce(new Error("audit failed"));
+    const { rerunReminderAction } = await import("@/lib/actions/admin");
+    const formData = new FormData();
+    formData.append("reminder_id", "22222222-2222-4222-8222-222222222222");
+    formData.append("organization_id", "11111111-1111-4111-8111-111111111111");
+
+    await expect(rerunReminderAction(formData)).rejects.toThrow("audit failed");
+    expect(trackServerAnalyticsEvent).not.toHaveBeenCalled();
   });
 
   it("keeps reminder reruns out of internal support hands", async () => {
