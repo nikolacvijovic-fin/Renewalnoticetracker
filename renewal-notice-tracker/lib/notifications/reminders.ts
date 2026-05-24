@@ -2,6 +2,7 @@ import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { sendReminderEmail } from "@/lib/email/send-reminder";
 import type { Json } from "@/lib/supabase/database.types";
 import { env } from "@/lib/env";
+import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
 import {
   buildDeliveryKey,
   isTerminalAttempt,
@@ -49,6 +50,17 @@ type DeliveryContract = {
 type JoinedReminderRecord = ReminderRecord & {
   contracts: DeliveryContract;
 };
+
+function checkedReminderWrite<TData>(
+  write: PromiseLike<{ data?: TData | null; error: unknown | null }>,
+  input: {
+    operation: "insert" | "update" | "delete" | "upsert";
+    table: string;
+    context: string;
+  }
+) {
+  return checkedPrivilegedWrite(write, input);
+}
 
 export async function processDueReminders(untilIso: string) {
   const admin = createAdminSupabaseClient();
@@ -137,19 +149,24 @@ export async function rerunReminderJob(reminderId: string, organizationId: strin
 
 async function rescueStaleReminderClaims(nowIso: string, staleBeforeIso: string) {
   const admin = createAdminSupabaseClient();
-  const { error } = await admin
-    .from("reminders")
-    .update({
-      status: "retry_pending",
-      next_retry_at: nowIso,
-      last_error: STALE_REMINDER_RESCUE_MESSAGE,
-      processing_started_at: null,
-      processing_token: null
-    })
-    .eq("status", "processing")
-    .lt("processing_started_at", staleBeforeIso);
-
-  if (error) throw error;
+  await checkedReminderWrite(
+    admin
+      .from("reminders")
+      .update({
+        status: "retry_pending",
+        next_retry_at: nowIso,
+        last_error: STALE_REMINDER_RESCUE_MESSAGE,
+        processing_started_at: null,
+        processing_token: null
+      })
+      .eq("status", "processing")
+      .lt("processing_started_at", staleBeforeIso),
+    {
+      operation: "update",
+      table: "reminders",
+      context: "rescue_stale_reminder_claims"
+    }
+  );
 }
 
 async function claimReminder(
@@ -158,32 +175,38 @@ async function claimReminder(
 ): Promise<JoinedReminderRecord | null> {
   const admin = createAdminSupabaseClient();
   const token = crypto.randomUUID();
-  const { data, error } = await admin
-    .from("reminders")
-    .update({
-      status: "processing",
-      processing_started_at: new Date().toISOString(),
-      processing_token: token
-    })
-    .eq("id", reminderId)
-    .eq("organization_id", organizationId)
-    .in("status", ["pending", "retry_pending"])
-    .select(
-      `
-      *,
-      contracts (
-        id,
-        contract_metadata (
-          contract_title,
-          counterparty_name
+  const result = await checkedReminderWrite(
+    admin
+      .from("reminders")
+      .update({
+        status: "processing",
+        processing_started_at: new Date().toISOString(),
+        processing_token: token
+      })
+      .eq("id", reminderId)
+      .eq("organization_id", organizationId)
+      .in("status", ["pending", "retry_pending"])
+      .select(
+        `
+        *,
+        contracts (
+          id,
+          contract_metadata (
+            contract_title,
+            counterparty_name
+          )
         )
+      `
       )
-    `
-    )
-    .maybeSingle();
+      .maybeSingle(),
+    {
+      operation: "update",
+      table: "reminders",
+      context: `claim_reminder:${reminderId}`
+    }
+  );
 
-  if (error) throw error;
-  return data;
+  return result.data ?? null;
 }
 
 async function deliverReminder(input: {
@@ -212,12 +235,19 @@ async function deliverReminder(input: {
     input.reminder.remind_at
   ]);
 
-  await admin.from("reminder_runs").insert({
-    reminder_id: input.reminder.id,
-    organization_id: input.reminder.organization_id,
-    idempotency_key: runKey,
-    status: "started"
-  });
+  await checkedReminderWrite(
+    admin.from("reminder_runs").insert({
+      reminder_id: input.reminder.id,
+      organization_id: input.reminder.organization_id,
+      idempotency_key: runKey,
+      status: "started"
+    }),
+    {
+      operation: "insert",
+      table: "reminder_runs",
+      context: `deliver_reminder:${input.reminder.id}:start_run`
+    }
+  );
 
   let duplicateSuppressedCount = 0;
   let deliveryCount = 0;
@@ -235,27 +265,41 @@ async function deliverReminder(input: {
     if (outcome === "sent") deliveryCount += 1;
   }
 
-  await admin
-    .from("reminders")
-    .update({
-      status: "sent",
-      sent_at: new Date().toISOString(),
-      last_attempt_at: new Date().toISOString(),
-      attempt_count: input.reminder.attempt_count + 1,
-      last_error: null,
-      processing_started_at: null,
-      processing_token: null
-    })
-    .eq("id", input.reminder.id)
-    .eq("organization_id", input.reminder.organization_id);
+  await checkedReminderWrite(
+    admin
+      .from("reminders")
+      .update({
+        status: "sent",
+        sent_at: new Date().toISOString(),
+        last_attempt_at: new Date().toISOString(),
+        attempt_count: input.reminder.attempt_count + 1,
+        last_error: null,
+        processing_started_at: null,
+        processing_token: null
+      })
+      .eq("id", input.reminder.id)
+      .eq("organization_id", input.reminder.organization_id),
+    {
+      operation: "update",
+      table: "reminders",
+      context: `deliver_reminder:${input.reminder.id}:mark_sent`
+    }
+  );
 
-  await admin
-    .from("reminder_runs")
-    .update({
-      status:
-        duplicateSuppressedCount > 0 ? "sent_with_duplicate_suppression" : "sent"
-    })
-    .eq("idempotency_key", runKey);
+  await checkedReminderWrite(
+    admin
+      .from("reminder_runs")
+      .update({
+        status:
+          duplicateSuppressedCount > 0 ? "sent_with_duplicate_suppression" : "sent"
+      })
+      .eq("idempotency_key", runKey),
+    {
+      operation: "update",
+      table: "reminder_runs",
+      context: `deliver_reminder:${input.reminder.id}:finalize_run`
+    }
+  );
 
   await trackServerAnalyticsEvent({
     organizationId: input.reminder.organization_id,
@@ -343,31 +387,48 @@ export async function markReminderFailure(reminderId: string, organizationId: st
   const terminal = isTerminalAttempt(attemptCount, reminder.max_attempts);
   const nextRetryAt = terminal ? null : nextRetryForAttempt(attemptCount);
 
-  await admin
-    .from("reminders")
-    .update({
-      status: terminal ? "failed_terminal" : "retry_pending",
-      attempt_count: attemptCount,
-      next_retry_at: nextRetryAt,
-      last_attempt_at: new Date().toISOString(),
-      last_error: message,
-      processing_started_at: null,
-      processing_token: null
-    })
-    .eq("id", reminderId)
-    .eq("organization_id", organizationId);
+  await checkedReminderWrite(
+    admin
+      .from("reminders")
+      .update({
+        status: terminal ? "failed_terminal" : "retry_pending",
+        attempt_count: attemptCount,
+        next_retry_at: nextRetryAt,
+        last_attempt_at: new Date().toISOString(),
+        last_error: message,
+        processing_started_at: null,
+        processing_token: null
+      })
+      .eq("id", reminderId)
+      .eq("organization_id", organizationId),
+    {
+      operation: "update",
+      table: "reminders",
+      context: `mark_reminder_failure:${reminderId}`
+    }
+  );
 
-  await admin
-    .from("reminder_runs")
-    .upsert({
-      reminder_id: reminderId,
-      organization_id: organizationId,
-      idempotency_key: buildDeliveryKey([reminderId, "run", String(attemptCount)]),
-      status: terminal ? "failed_terminal" : "retry_pending",
-      error_message: message
-    }, {
-      onConflict: "idempotency_key"
-    });
+  await checkedReminderWrite(
+    admin
+      .from("reminder_runs")
+      .upsert(
+        {
+          reminder_id: reminderId,
+          organization_id: organizationId,
+          idempotency_key: buildDeliveryKey([reminderId, "run", String(attemptCount)]),
+          status: terminal ? "failed_terminal" : "retry_pending",
+          error_message: message
+        },
+        {
+          onConflict: "idempotency_key"
+        }
+      ),
+    {
+      operation: "upsert",
+      table: "reminder_runs",
+      context: `mark_reminder_failure:${reminderId}:upsert_run`
+    }
+  );
 
   await logNotification({
     reminderId,
@@ -400,11 +461,12 @@ export async function markReminderFailure(reminderId: string, organizationId: st
 
 async function notificationExists(deliveryKey: string) {
   const admin = createAdminSupabaseClient();
-  const { data } = await admin
+  const { data, error } = await admin
     .from("notification_logs")
     .select("id")
     .eq("delivery_key", deliveryKey)
     .maybeSingle();
+  if (error) throw error;
   return Boolean(data?.id);
 }
 
@@ -421,19 +483,26 @@ async function logNotification(params: {
   providerPayload?: Record<string, unknown>;
 }) {
   const admin = createAdminSupabaseClient();
-  await admin.from("notification_logs").insert({
-    reminder_id: params.reminderId,
-    organization_id: params.organizationId,
-    recipient_email: params.recipientEmail,
-    channel: params.channel,
-    status: params.status,
-    provider_message_id: params.providerMessageId ?? null,
-    error_message: params.errorMessage ?? null,
-    notification_kind: "reminder",
-    destination: params.destination ?? null,
-    delivery_key: params.deliveryKey ?? null,
-    provider_payload: (params.providerPayload ?? {}) as Json
-  });
+  await checkedReminderWrite(
+    admin.from("notification_logs").insert({
+      reminder_id: params.reminderId,
+      organization_id: params.organizationId,
+      recipient_email: params.recipientEmail,
+      channel: params.channel,
+      status: params.status,
+      provider_message_id: params.providerMessageId ?? null,
+      error_message: params.errorMessage ?? null,
+      notification_kind: "reminder",
+      destination: params.destination ?? null,
+      delivery_key: params.deliveryKey ?? null,
+      provider_payload: (params.providerPayload ?? {}) as Json
+    }),
+    {
+      operation: "insert",
+      table: "notification_logs",
+      context: `log_notification:${params.reminderId ?? "none"}:${params.status}`
+    }
+  );
 }
 
 function reminderTitle(reminderType: string, contractTitle: string) {

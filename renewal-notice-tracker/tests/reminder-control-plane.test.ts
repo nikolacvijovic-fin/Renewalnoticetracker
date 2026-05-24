@@ -65,6 +65,7 @@ function buildReminderProcessingClient(input?: {
   claimedReminder?: Record<string, unknown> | null;
   duplicateExists?: boolean;
   staleProcessingRows?: Array<Record<string, unknown>>;
+  writeErrors?: Partial<Record<string, Error>>;
 }) {
   const state = {
     reminderUpdates: [] as Array<Record<string, unknown>>,
@@ -77,6 +78,31 @@ function buildReminderProcessingClient(input?: {
   const selectedReminders = input?.selectedReminders ?? [buildJoinedReminder()];
   const claimedReminder = input?.claimedReminder ?? selectedReminders[0] ?? null;
   const staleProcessingRows = input?.staleProcessingRows ?? [];
+  const getWriteError = (key: string) => input?.writeErrors?.[key] ?? null;
+
+  const getReminderUpdateWriteError = (payload: Record<string, unknown>) => {
+    if (payload.status === "processing") {
+      return getWriteError("reminders:update:claim");
+    }
+
+    if (payload.status === "sent") {
+      return getWriteError("reminders:update:mark_sent");
+    }
+
+    if (
+      payload.status === "retry_pending" &&
+      payload.last_error ===
+        "Reminder processing lease expired. Returned to retry_pending for rescue."
+    ) {
+      return getWriteError("reminders:update:rescue");
+    }
+
+    if (payload.status === "retry_pending" || payload.status === "failed_terminal") {
+      return getWriteError("reminders:update:failure");
+    }
+
+    return null;
+  };
 
   const client = {
     from(table: string) {
@@ -99,7 +125,18 @@ function buildReminderProcessingClient(input?: {
                 return this;
               },
               async single() {
-                throw new Error("single should not be used in duplicate suppression flow");
+                const sourceReminder = (claimedReminder ?? selectedReminders[0] ?? {}) as Record<
+                  string,
+                  unknown
+                >;
+                return {
+                  data: {
+                    attempt_count: Number(sourceReminder.attempt_count ?? 0),
+                    max_attempts: Number(sourceReminder.max_attempts ?? 3),
+                    recipient_email: String(sourceReminder.recipient_email ?? "owner@example.com")
+                  },
+                  error: null
+                };
               }
             };
           },
@@ -128,19 +165,24 @@ function buildReminderProcessingClient(input?: {
                   );
                 }
 
-                return Promise.resolve({ error: null });
+                return Promise.resolve({ error: getReminderUpdateWriteError(payload) });
               },
               select() {
                 return {
                   async maybeSingle() {
                     state.reminderUpdates.push(payload);
-                    return { data: claimedReminder, error: null };
+                    return {
+                      data: claimedReminder,
+                      error: getReminderUpdateWriteError(payload)
+                    };
                   }
                 };
               },
-              then(onFulfilled: (value: { error: null }) => unknown) {
+              then(onFulfilled: (value: { error: Error | null }) => unknown) {
                 state.reminderUpdates.push(payload);
-                return Promise.resolve({ error: null }).then(onFulfilled);
+                return Promise.resolve({
+                  error: getReminderUpdateWriteError(payload)
+                }).then(onFulfilled);
               }
             };
 
@@ -167,7 +209,7 @@ function buildReminderProcessingClient(input?: {
           },
           async insert(payload: Record<string, unknown>) {
             state.notificationInserts.push(payload);
-            return { error: null };
+            return { error: getWriteError("notification_logs:insert") };
           }
         };
       }
@@ -176,15 +218,19 @@ function buildReminderProcessingClient(input?: {
         return {
           async insert(payload: Record<string, unknown>) {
             state.reminderRunInserts.push(payload);
-            return { error: null };
+            return { error: getWriteError("reminder_runs:insert") };
           },
           update(payload: Record<string, unknown>) {
             state.reminderRunUpdates.push(payload);
             return {
               eq() {
-                return Promise.resolve({ error: null });
+                return Promise.resolve({ error: getWriteError("reminder_runs:update") });
               }
             };
+          },
+          async upsert(payload: Record<string, unknown>) {
+            state.reminderRunUpdates.push(payload);
+            return { error: getWriteError("reminder_runs:upsert") };
           }
         };
       }
@@ -196,7 +242,11 @@ function buildReminderProcessingClient(input?: {
   return { client, state };
 }
 
-function buildFailureProgressionClient(input: { attemptCount: number; maxAttempts: number }) {
+function buildFailureProgressionClient(input: {
+  attemptCount: number;
+  maxAttempts: number;
+  writeErrors?: Partial<Record<string, Error>>;
+}) {
   const state = {
     reminderUpdates: [] as Array<Record<string, unknown>>,
     reminderRunUpserts: [] as Array<Record<string, unknown>>,
@@ -230,8 +280,10 @@ function buildFailureProgressionClient(input: { attemptCount: number; maxAttempt
               eq() {
                 return this;
               },
-              then(onFulfilled: (value: { error: null }) => unknown) {
-                return Promise.resolve({ error: null }).then(onFulfilled);
+              then(onFulfilled: (value: { error: Error | null }) => unknown) {
+                return Promise.resolve({
+                  error: input.writeErrors?.["reminders:update"] ?? null
+                }).then(onFulfilled);
               }
             };
           }
@@ -242,7 +294,7 @@ function buildFailureProgressionClient(input: { attemptCount: number; maxAttempt
         return {
           async upsert(payload: Record<string, unknown>) {
             state.reminderRunUpserts.push(payload);
-            return { error: null };
+            return { error: input.writeErrors?.["reminder_runs:upsert"] ?? null };
           }
         };
       }
@@ -251,7 +303,7 @@ function buildFailureProgressionClient(input: { attemptCount: number; maxAttempt
         return {
           async insert(payload: Record<string, unknown>) {
             state.notificationInserts.push(payload);
-            return { error: null };
+            return { error: input.writeErrors?.["notification_logs:insert"] ?? null };
           }
         };
       }
@@ -377,6 +429,127 @@ describe("reminder control plane", () => {
     expect(sendReminderEmail).not.toHaveBeenCalled();
   });
 
+  it("marks the reminder failed when email send succeeds but the sent-state write fails", async () => {
+    const reminder = buildJoinedReminder();
+    const { client, state } = buildReminderProcessingClient({
+      selectedReminders: [reminder],
+      claimedReminder: reminder,
+      duplicateExists: false,
+      writeErrors: {
+        "reminders:update:mark_sent": new Error("mark sent failed")
+      }
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { processDueReminders } = await import("@/lib/notifications/reminders");
+    const result = await processDueReminders("2030-01-01T00:00:00.000Z");
+
+    expect(sendReminderEmail).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      {
+        id: "reminder-1",
+        status: "failed",
+        error: expect.stringContaining('Privileged update failed for "reminders"')
+      }
+    ]);
+    expect(state.reminderUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "processing" }),
+        expect.objectContaining({ status: "sent" }),
+        expect.objectContaining({
+          status: "retry_pending",
+          last_error: expect.stringContaining('Privileged update failed for "reminders"')
+        })
+      ])
+    );
+  });
+
+  it("fails explicitly when notification log persistence fails after delivery", async () => {
+    const reminder = buildJoinedReminder();
+    const { client, state } = buildReminderProcessingClient({
+      selectedReminders: [reminder],
+      claimedReminder: reminder,
+      duplicateExists: false,
+      writeErrors: {
+        "notification_logs:insert": new Error("notification insert failed")
+      }
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { processDueReminders } = await import("@/lib/notifications/reminders");
+    await expect(processDueReminders("2030-01-01T00:00:00.000Z")).rejects.toThrow(
+      'Privileged insert failed for "notification_logs"'
+    );
+    expect(state.reminderUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "processing" }),
+        expect.objectContaining({
+          status: "retry_pending",
+          last_error: expect.stringContaining('Privileged insert failed for "notification_logs"')
+        })
+      ])
+    );
+  });
+
+  it("fails before sending when reminder run creation cannot be persisted", async () => {
+    const reminder = buildJoinedReminder();
+    const { client } = buildReminderProcessingClient({
+      selectedReminders: [reminder],
+      claimedReminder: reminder,
+      duplicateExists: false,
+      writeErrors: {
+        "reminder_runs:insert": new Error("run insert failed")
+      }
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { processDueReminders } = await import("@/lib/notifications/reminders");
+    const result = await processDueReminders("2030-01-01T00:00:00.000Z");
+
+    expect(sendReminderEmail).not.toHaveBeenCalled();
+    expect(result).toEqual([
+      {
+        id: "reminder-1",
+        status: "failed",
+        error: expect.stringContaining('Privileged insert failed for "reminder_runs"')
+      }
+    ]);
+  });
+
+  it("marks the reminder failed when reminder run finalization cannot be persisted", async () => {
+    const reminder = buildJoinedReminder();
+    const { client, state } = buildReminderProcessingClient({
+      selectedReminders: [reminder],
+      claimedReminder: reminder,
+      duplicateExists: false,
+      writeErrors: {
+        "reminder_runs:update": new Error("run finalize failed")
+      }
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { processDueReminders } = await import("@/lib/notifications/reminders");
+    const result = await processDueReminders("2030-01-01T00:00:00.000Z");
+
+    expect(sendReminderEmail).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      {
+        id: "reminder-1",
+        status: "failed",
+        error: expect.stringContaining('Privileged update failed for "reminder_runs"')
+      }
+    ]);
+    expect(state.reminderUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: "sent" }),
+        expect.objectContaining({
+          status: "retry_pending",
+          last_error: expect.stringContaining('Privileged update failed for "reminder_runs"')
+        })
+      ])
+    );
+  });
+
   it("moves a failed reminder into retry_pending before the terminal threshold", async () => {
     const { client, state } = buildFailureProgressionClient({ attemptCount: 0, maxAttempts: 3 });
     createAdminSupabaseClient.mockReturnValue(client);
@@ -397,6 +570,40 @@ describe("reminder control plane", () => {
         status: "retry_pending",
         error_message: "smtp timeout"
       })
+    );
+  });
+
+  it("throws explicitly when markReminderFailure cannot persist the reminder state update", async () => {
+    const { client } = buildFailureProgressionClient({
+      attemptCount: 0,
+      maxAttempts: 3,
+      writeErrors: {
+        "reminders:update": new Error("failure update failed")
+      }
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { markReminderFailure } = await import("@/lib/notifications/reminders");
+
+    await expect(markReminderFailure("reminder-1", "org-1", "smtp timeout")).rejects.toThrow(
+      'Privileged update failed for "reminders"'
+    );
+  });
+
+  it("throws explicitly when markReminderFailure cannot persist the reminder run upsert", async () => {
+    const { client } = buildFailureProgressionClient({
+      attemptCount: 0,
+      maxAttempts: 3,
+      writeErrors: {
+        "reminder_runs:upsert": new Error("run upsert failed")
+      }
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { markReminderFailure } = await import("@/lib/notifications/reminders");
+
+    await expect(markReminderFailure("reminder-1", "org-1", "smtp timeout")).rejects.toThrow(
+      'Privileged upsert failed for "reminder_runs"'
     );
   });
 
