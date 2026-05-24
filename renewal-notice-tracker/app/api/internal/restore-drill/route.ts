@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { buildRestoreDrillEvidence } from "@/lib/commercial/privacy-operations";
 import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
+import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
 
 export async function POST(request: Request) {
   if (!hasValidInternalRouteSecret(request, "operations")) {
@@ -26,19 +27,26 @@ export async function POST(request: Request) {
     const testedAt = body.tested_at ?? new Date().toISOString();
     const admin = createAdminSupabaseClient();
 
-    await admin.from("backup_readiness_checks").insert({
-      environment: "production",
-      status: body.outcome === "passed" ? "healthy" : "failed",
-      summary: body.summary ?? `Restore drill ${body.outcome}.`,
-      restore_tested_at: testedAt,
-      evidence_json: buildRestoreDrillEvidence({
-        trigger: body.trigger ?? "manual",
-        outcome: body.outcome,
-        scope: body.scope ?? "workspace_restore",
-        recoveryTimeMinutes: body.recovery_time_minutes ?? null,
-        failures: body.failures ?? []
-      })
-    });
+    await checkedPrivilegedWrite(
+      admin.from("backup_readiness_checks").insert({
+        environment: "production",
+        status: body.outcome === "passed" ? "healthy" : "failed",
+        summary: body.summary ?? `Restore drill ${body.outcome}.`,
+        restore_tested_at: testedAt,
+        evidence_json: buildRestoreDrillEvidence({
+          trigger: body.trigger ?? "manual",
+          outcome: body.outcome,
+          scope: body.scope ?? "workspace_restore",
+          recoveryTimeMinutes: body.recovery_time_minutes ?? null,
+          failures: body.failures ?? []
+        })
+      }),
+      {
+        operation: "insert",
+        table: "backup_readiness_checks",
+        context: "internal_restore_drill"
+      }
+    );
 
     return NextResponse.json({ ok: true, restore_tested_at: testedAt }, { status: 200 });
   } catch {

@@ -24,14 +24,16 @@ vi.mock("@/lib/analytics/events", () => ({
 }));
 
 function buildDuplicateSuppressionClient() {
-  const state = {
-    reminderUpdates: [] as Array<Record<string, unknown>>,
-    reminderRunInserts: [] as Array<Record<string, unknown>>,
-    reminderRunUpdates: [] as Array<Record<string, unknown>>,
-    notificationInserts: [] as Array<Record<string, unknown>>
-  };
+  const reminder = buildJoinedReminder();
+  return buildReminderProcessingClient({
+    selectedReminders: [reminder],
+    claimedReminder: reminder,
+    duplicateExists: true
+  });
+}
 
-  const joinedReminder = {
+function buildJoinedReminder(overrides?: Partial<Record<string, unknown>>) {
+  return {
     id: "reminder-1",
     organization_id: "org-1",
     contract_id: "contract-1",
@@ -44,6 +46,8 @@ function buildDuplicateSuppressionClient() {
     max_attempts: 3,
     escalation_level: 0,
     rule_name: null,
+    processing_started_at: null,
+    processing_token: null,
     contracts: {
       id: "contract-1",
       contract_metadata: {
@@ -51,8 +55,28 @@ function buildDuplicateSuppressionClient() {
         counterparty_name: "Acme"
       }
     },
-    organizations: {}
+    organizations: {},
+    ...overrides
   };
+}
+
+function buildReminderProcessingClient(input?: {
+  selectedReminders?: Array<Record<string, unknown>>;
+  claimedReminder?: Record<string, unknown> | null;
+  duplicateExists?: boolean;
+  staleProcessingRows?: Array<Record<string, unknown>>;
+}) {
+  const state = {
+    reminderUpdates: [] as Array<Record<string, unknown>>,
+    reminderRunInserts: [] as Array<Record<string, unknown>>,
+    reminderRunUpdates: [] as Array<Record<string, unknown>>,
+    notificationInserts: [] as Array<Record<string, unknown>>,
+    rescuedReminderIds: [] as string[]
+  };
+
+  const selectedReminders = input?.selectedReminders ?? [buildJoinedReminder()];
+  const claimedReminder = input?.claimedReminder ?? selectedReminders[0] ?? null;
+  const staleProcessingRows = input?.staleProcessingRows ?? [];
 
   const client = {
     from(table: string) {
@@ -65,7 +89,7 @@ function buildDuplicateSuppressionClient() {
                   or() {
                     return {
                       async order() {
-                        return { data: [joinedReminder], error: null };
+                        return { data: selectedReminders, error: null };
                       }
                     };
                   }
@@ -80,23 +104,47 @@ function buildDuplicateSuppressionClient() {
             };
           },
           update(payload: Record<string, unknown>) {
-            state.reminderUpdates.push(payload);
-            return {
-              eq() {
-                return this;
+            const filters: {
+              eq: Array<[string, unknown]>;
+              lt?: [string, unknown];
+            } = { eq: [] };
+
+            const chain = {
+              eq(column: string, value: unknown) {
+                filters.eq.push([column, value]);
+                return chain;
               },
               in() {
+                return chain;
+              },
+              lt() {
+                const isRescue = filters.eq.some(
+                  ([column, value]) => column === "status" && value === "processing"
+                );
+                if (isRescue && staleProcessingRows.length > 0) {
+                  state.reminderUpdates.push(payload);
+                  state.rescuedReminderIds.push(
+                    ...staleProcessingRows.map((row) => String(row.id))
+                  );
+                }
+
+                return Promise.resolve({ error: null });
+              },
+              select() {
                 return {
-                  select() {
-                    return {
-                      async maybeSingle() {
-                        return { data: joinedReminder, error: null };
-                      }
-                    };
+                  async maybeSingle() {
+                    state.reminderUpdates.push(payload);
+                    return { data: claimedReminder, error: null };
                   }
                 };
+              },
+              then(onFulfilled: (value: { error: null }) => unknown) {
+                state.reminderUpdates.push(payload);
+                return Promise.resolve({ error: null }).then(onFulfilled);
               }
             };
+
+            return chain;
           }
         };
       }
@@ -108,7 +156,10 @@ function buildDuplicateSuppressionClient() {
               eq() {
                 return {
                   async maybeSingle() {
-                    return { data: { id: "existing-notification" }, error: null };
+                    return {
+                      data: input?.duplicateExists ? { id: "existing-notification" } : null,
+                      error: null
+                    };
                   }
                 };
               }
@@ -258,6 +309,73 @@ describe("reminder control plane", () => {
     },
     15000
   );
+
+  it("rescues a stale processing reminder back to retry_pending and completes delivery", async () => {
+    const staleReminder = buildJoinedReminder({
+      id: "reminder-stale",
+      status: "processing",
+      processing_started_at: "2030-01-01T00:00:00.000Z",
+      processing_token: "stale-token"
+    });
+    const rescuedReminder = buildJoinedReminder({
+      id: "reminder-stale",
+      status: "retry_pending",
+      processing_started_at: null,
+      processing_token: null
+    });
+    const { client, state } = buildReminderProcessingClient({
+      selectedReminders: [rescuedReminder],
+      claimedReminder: rescuedReminder,
+      duplicateExists: false,
+      staleProcessingRows: [staleReminder]
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { processDueReminders } = await import("@/lib/notifications/reminders");
+    const result = await processDueReminders("2030-01-01T00:15:00.000Z");
+
+    expect(state.rescuedReminderIds).toEqual(["reminder-stale"]);
+    expect(state.reminderUpdates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: "retry_pending",
+          last_error:
+            "Reminder processing lease expired. Returned to retry_pending for rescue.",
+          processing_started_at: null,
+          processing_token: null
+        }),
+        expect.objectContaining({ status: "processing" }),
+        expect.objectContaining({ status: "sent" })
+      ])
+    );
+    expect(sendReminderEmail).toHaveBeenCalledTimes(1);
+    expect(result).toEqual([
+      {
+        id: "reminder-stale",
+        status: "sent",
+        duplicateSuppressedCount: 0,
+        deliveryCount: 1
+      }
+    ]);
+  });
+
+  it("does not rescue or double-process a reminder with a fresh active lease", async () => {
+    const { client, state } = buildReminderProcessingClient({
+      selectedReminders: [],
+      claimedReminder: null,
+      duplicateExists: false,
+      staleProcessingRows: []
+    });
+    createAdminSupabaseClient.mockReturnValue(client);
+
+    const { processDueReminders } = await import("@/lib/notifications/reminders");
+    const result = await processDueReminders("2030-01-01T00:15:00.000Z");
+
+    expect(result).toEqual([]);
+    expect(state.rescuedReminderIds).toEqual([]);
+    expect(state.reminderUpdates).toEqual([]);
+    expect(sendReminderEmail).not.toHaveBeenCalled();
+  });
 
   it("moves a failed reminder into retry_pending before the terminal threshold", async () => {
     const { client, state } = buildFailureProgressionClient({ attemptCount: 0, maxAttempts: 3 });

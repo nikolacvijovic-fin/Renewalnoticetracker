@@ -6,8 +6,10 @@ import {
 } from "@/lib/internal-route-auth";
 
 const executeWorkspaceDeletionRequest = vi.fn();
+class WorkspaceDeletionExecutionError extends Error {}
 
 vi.mock("@/lib/organization/workspace-deletion", () => ({
+  WorkspaceDeletionExecutionError,
   executeWorkspaceDeletionRequest
 }));
 
@@ -183,5 +185,25 @@ describe("workspace deletion internal route", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({ error: "Invalid request body." });
     expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
+  });
+
+  it("returns a safe 500 when deletion execution fails after auth succeeds", async () => {
+    executeWorkspaceDeletionRequest.mockRejectedValue(
+      new WorkspaceDeletionExecutionError("partial deletion failure")
+    );
+    const body = JSON.stringify({ request_id: "delete-1" });
+
+    const { POST } = await import("@/app/api/internal/workspace-deletion/route");
+    const response = await POST(
+      new Request("http://localhost/api/internal/workspace-deletion", {
+        method: "POST",
+        body,
+        headers: makeSignedHeaders(body)
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "Workspace deletion failed." });
+    expect(executeWorkspaceDeletionRequest).toHaveBeenCalledWith("delete-1");
   });
 });

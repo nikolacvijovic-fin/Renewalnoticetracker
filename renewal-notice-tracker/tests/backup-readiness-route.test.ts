@@ -66,4 +66,28 @@ describe("backup readiness internal route", () => {
       })
     );
   });
+
+  it("returns a safe failure when the backup readiness insert returns an error", async () => {
+    insert.mockResolvedValueOnce({ error: new Error("insert failed") });
+
+    const { POST } = await import("@/app/api/internal/backup-readiness/route");
+    const response = await POST(
+      new Request("http://localhost/api/internal/backup-readiness", {
+        method: "POST",
+        body: JSON.stringify({
+          status: "healthy",
+          trigger: "nightly"
+        }),
+        headers: {
+          "content-type": "application/json",
+          "x-internal-operations-secret": "secret"
+        }
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Backup readiness check failed."
+    });
+  });
 });

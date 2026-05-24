@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { executeWorkspaceDeletionRequest } from "@/lib/organization/workspace-deletion";
+import {
+  WorkspaceDeletionExecutionError,
+  executeWorkspaceDeletionRequest
+} from "@/lib/organization/workspace-deletion";
 import { hasValidDestructiveInternalRequestAuth } from "@/lib/internal-route-auth";
 
 export async function POST(request: Request) {
@@ -20,6 +23,10 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof SyntaxError) {
       return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+
+    if (error instanceof WorkspaceDeletionExecutionError) {
+      return NextResponse.json({ error: "Workspace deletion failed." }, { status: 500 });
     }
 
     const message = error instanceof Error ? error.message : "Workspace deletion failed.";

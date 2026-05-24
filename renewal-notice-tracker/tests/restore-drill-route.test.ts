@@ -68,4 +68,28 @@ describe("restore drill internal route", () => {
       })
     );
   });
+
+  it("returns a safe failure when the restore drill insert returns an error", async () => {
+    insert.mockResolvedValueOnce({ error: new Error("insert failed") });
+
+    const { POST } = await import("@/app/api/internal/restore-drill/route");
+    const response = await POST(
+      new Request("http://localhost/api/internal/restore-drill", {
+        method: "POST",
+        body: JSON.stringify({
+          outcome: "passed",
+          trigger: "nightly"
+        }),
+        headers: {
+          "content-type": "application/json",
+          "x-internal-operations-secret": "secret"
+        }
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "Restore drill recording failed."
+    });
+  });
 });

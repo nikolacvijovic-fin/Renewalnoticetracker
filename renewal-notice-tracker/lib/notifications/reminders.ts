@@ -15,6 +15,10 @@ import {
 } from "@/lib/organization/scoped-admin";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
 
+export const REMINDER_PROCESSING_LEASE_MS = 15 * 60 * 1000;
+const STALE_REMINDER_RESCUE_MESSAGE =
+  "Reminder processing lease expired. Returned to retry_pending for rescue.";
+
 type ReminderRecord = {
   id: string;
   organization_id: string;
@@ -48,6 +52,11 @@ type JoinedReminderRecord = ReminderRecord & {
 
 export async function processDueReminders(untilIso: string) {
   const admin = createAdminSupabaseClient();
+  const nowIso = new Date().toISOString();
+  const staleBeforeIso = new Date(Date.now() - REMINDER_PROCESSING_LEASE_MS).toISOString();
+
+  await rescueStaleReminderClaims(nowIso, staleBeforeIso);
+
   const { data: reminders, error } = await admin
     .from("reminders")
     .select(
@@ -124,6 +133,23 @@ export async function rerunReminderJob(reminderId: string, organizationId: strin
     processing_started_at: null,
     processing_token: null
   });
+}
+
+async function rescueStaleReminderClaims(nowIso: string, staleBeforeIso: string) {
+  const admin = createAdminSupabaseClient();
+  const { error } = await admin
+    .from("reminders")
+    .update({
+      status: "retry_pending",
+      next_retry_at: nowIso,
+      last_error: STALE_REMINDER_RESCUE_MESSAGE,
+      processing_started_at: null,
+      processing_token: null
+    })
+    .eq("status", "processing")
+    .lt("processing_started_at", staleBeforeIso);
+
+  if (error) throw error;
 }
 
 async function claimReminder(
