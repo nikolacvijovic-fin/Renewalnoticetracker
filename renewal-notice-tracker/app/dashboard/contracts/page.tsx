@@ -3,8 +3,7 @@ import { CONTRACT_FILTERS } from "@/lib/constants";
 import { requireOrganization } from "@/lib/auth";
 import {
   getContractFacets,
-  getContracts,
-  getOrganizationBilling
+  getContracts
 } from "@/lib/contracts/kernel-queries";
 import {
   describeFinancialDrilldown,
@@ -16,10 +15,9 @@ import { Button } from "@/components/ui/button";
 import { CommercialNotice } from "@/components/billing/commercial-notice";
 import {
   getCommercialNoticeFromCode,
-  getFeatureAccessResult,
-  normalizeBillingSnapshot
+  getFeatureAccessResult
 } from "@/lib/billing/entitlements";
-import { getIntelligenceSurfaceAccess } from "@/lib/intelligence/access";
+import { getIntelligenceSurfaceAccessMap } from "@/lib/intelligence/access";
 
 export default async function ContractsPage({
   searchParams
@@ -44,21 +42,20 @@ export default async function ContractsPage({
   const filter = CONTRACT_FILTERS.includes((searchParams.filter ?? "all") as never)
     ? (searchParams.filter ?? "all")
     : "all";
-  const [contracts, facets, billing] = await Promise.all([
+  const [contracts, facets, intelligenceAccess] = await Promise.all([
     getContracts(organizationId, filter as never, {
       ownerUserId: searchParams.owner,
       department: searchParams.department,
       statusTag: searchParams.statusTag
     }),
     getContractFacets(organizationId),
-    getOrganizationBilling(organizationId)
+    getIntelligenceSurfaceAccessMap({
+      context,
+      surfaces: ["risk_badge", "risk_explanation"],
+      contractOwnerUserId: context.role === "owner" ? context.user.id : undefined
+    })
   ]);
-  const billingSnapshot = normalizeBillingSnapshot({
-    organizationId,
-    plan_tier: billing.plan_tier,
-    subscription_status: billing.subscription_status,
-    billing_provider: billing.billing_provider
-  });
+  const billingSnapshot = intelligenceAccess.billingSnapshot;
   const exportAccess = getFeatureAccessResult(billingSnapshot, "exports");
   const commercialNotice = getCommercialNoticeFromCode(searchParams.commercial);
   const financialDrilldownDescription = describeFinancialDrilldown(searchParams);
@@ -72,18 +69,8 @@ export default async function ContractsPage({
   const filteredContracts = filterContractsForFinancialDrilldown(contracts, searchParams).filter(
     (contract) => contractIds.size === 0 || contractIds.has(contract.id ?? "")
   );
-  const riskBadgeAccess = getIntelligenceSurfaceAccess({
-    context,
-    billingSnapshot,
-    surface: "risk_badge",
-    contractOwnerUserId: context.role === "owner" ? context.user.id : undefined
-  });
-  const riskExplanationAccess = getIntelligenceSurfaceAccess({
-    context,
-    billingSnapshot,
-    surface: "risk_explanation",
-    contractOwnerUserId: context.role === "owner" ? context.user.id : undefined
-  });
+  const riskBadgeAccess = intelligenceAccess.accessBySurface.risk_badge;
+  const riskExplanationAccess = intelligenceAccess.accessBySurface.risk_explanation;
 
   return (
     <section className="space-y-5">

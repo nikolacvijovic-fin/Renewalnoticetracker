@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getOrganizationContextOrNull = vi.fn();
-const getBillingSnapshot = vi.fn();
 const getContractRiskAuditContext = vi.fn();
 const assertCanAccessIntelligenceSurface = vi.fn();
 const auditRiskExplanationViewed = vi.fn();
@@ -11,10 +10,6 @@ class IntelligencePlanAccessError extends Error {}
 
 vi.mock("@/lib/auth", () => ({
   getOrganizationContextOrNull
-}));
-
-vi.mock("@/lib/billing/entitlements", () => ({
-  getBillingSnapshot
 }));
 
 vi.mock("@/lib/contracts/kernel-queries", () => ({
@@ -38,12 +33,6 @@ describe("risk explanation view audit route", () => {
       user: { id: "user-1" },
       organizationId: "org-1",
       role: "reviewer"
-    });
-    getBillingSnapshot.mockResolvedValue({
-      organizationId: "org-1",
-      planTier: "growth",
-      subscriptionStatus: "active",
-      billingProvider: "paddle"
     });
     getContractRiskAuditContext.mockResolvedValue({
       id: "contract-1",

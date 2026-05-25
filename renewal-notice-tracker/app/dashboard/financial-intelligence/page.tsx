@@ -7,16 +7,13 @@ import { buildFinancialDashboardView } from "@/lib/intelligence/financial/dashbo
 import { FinancialExposureCard } from "@/components/dashboard/financial-exposure-card";
 import { FinancialExposureBreakdown } from "@/components/dashboard/financial-exposure-breakdown";
 import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
-import { getBillingSnapshot } from "@/lib/billing/entitlements";
 import { auditFinancialIntelligenceViewed } from "@/lib/intelligence/audit";
 
 export default async function FinancialIntelligencePage() {
   const context = await requireOrganization();
-  const billingSnapshot = await getBillingSnapshot(context.organizationId);
   try {
     await assertCanAccessIntelligenceSurface({
       context,
-      billingSnapshot,
       surface: "financial_dashboard"
     });
   } catch {

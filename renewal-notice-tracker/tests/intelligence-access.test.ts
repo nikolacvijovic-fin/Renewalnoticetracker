@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createAuditLog = vi.fn();
 const createCommercialDenialAuditLog = vi.fn();
+const getBillingSnapshot = vi.fn();
 
 vi.mock("@/lib/audit", () => ({
   createAuditLog
@@ -14,7 +15,8 @@ vi.mock("@/lib/billing/entitlements", async () => {
 
   return {
     ...actual,
-    createCommercialDenialAuditLog
+    createCommercialDenialAuditLog,
+    getBillingSnapshot
   };
 });
 
@@ -47,6 +49,7 @@ function makeBillingSnapshot(planTier: "free" | "starter" | "growth") {
 describe("intelligence access control", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot("growth"));
   });
 
   it("lets owners see risk on their own contract only", async () => {
@@ -60,7 +63,9 @@ describe("intelligence access control", () => {
         contractOwnerUserId: "user-1"
       })
     ).resolves.toMatchObject({
-      allowed: true
+      access: {
+        allowed: true
+      }
     });
 
     await expect(
@@ -162,4 +167,42 @@ describe("intelligence access control", () => {
       })
     );
   }, 15000);
+
+  it("loads the canonical billing snapshot inside the shared intelligence access state helper", async () => {
+    const { getIntelligenceSurfaceAccessState } = await import("@/lib/intelligence/access");
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot("starter"));
+
+    const result = await getIntelligenceSurfaceAccessState({
+      context: makeContext("admin"),
+      surface: "risk_badge"
+    });
+
+    expect(getBillingSnapshot).toHaveBeenCalledWith("org-1");
+    expect(result.billingSnapshot.planTier).toBe("starter");
+    expect(result.access).toMatchObject({
+      allowed: true,
+      featureAccess: expect.objectContaining({
+        allowed: true,
+        feature: "risk_badges"
+      })
+    });
+  });
+
+  it("reuses one canonical billing snapshot across multiple intelligence surfaces", async () => {
+    const { getIntelligenceSurfaceAccessMap } = await import("@/lib/intelligence/access");
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot("starter"));
+
+    const result = await getIntelligenceSurfaceAccessMap({
+      context: makeContext("admin"),
+      surfaces: ["risk_badge", "risk_explanation", "financial_dashboard"]
+    });
+
+    expect(getBillingSnapshot).toHaveBeenCalledTimes(1);
+    expect(result.billingSnapshot.planTier).toBe("starter");
+    expect(result.accessBySurface.risk_badge.allowed).toBe(true);
+    expect(result.accessBySurface.risk_explanation.allowed).toBe(false);
+    expect(result.accessBySurface.financial_dashboard.allowed).toBe(false);
+    expect(result.accessBySurface.risk_explanation.featureAccess.reason).toBe("upgrade_required");
+    expect(result.accessBySurface.financial_dashboard.featureAccess.reason).toBe("upgrade_required");
+  });
 });

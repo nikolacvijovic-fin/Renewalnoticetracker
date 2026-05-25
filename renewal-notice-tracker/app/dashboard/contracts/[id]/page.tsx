@@ -3,7 +3,6 @@ import { requireOrganization } from "@/lib/auth";
 import {
   getContractById,
   getCounterparties,
-  getOrganizationBilling,
   getOrganizationMembers
 } from "@/lib/contracts/kernel-queries";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +31,7 @@ import {
 } from "@/lib/intelligence/risk/dashboard";
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
 import { RiskBadge } from "@/components/contracts/risk-badge";
-import { getIntelligenceSurfaceAccess } from "@/lib/intelligence/access";
-import { normalizeBillingSnapshot } from "@/lib/billing/entitlements";
+import { getIntelligenceSurfaceAccessMap } from "@/lib/intelligence/access";
 import {
   auditRiskBadgeViewed
 } from "@/lib/intelligence/audit";
@@ -178,11 +176,10 @@ export default async function ContractDetailPage({
 }) {
   const context = await requireOrganization();
   const { organizationId } = context;
-  const [contract, members, counterparties, billing] = await Promise.all([
+  const [contract, members, counterparties] = await Promise.all([
     getContractById(params.id, organizationId).catch(() => null),
     getOrganizationMembers(organizationId),
-    getCounterparties(organizationId),
-    getOrganizationBilling(organizationId)
+    getCounterparties(organizationId)
   ]);
 
   if (!contract || !contract.contract_metadata) notFound();
@@ -291,24 +288,13 @@ export default async function ContractDetailPage({
     ).length,
     duplicateCounterpartyUncertainty: duplicateCounterpartyIds.has(contract.counterparty_id ?? "")
   });
-  const billingSnapshot = normalizeBillingSnapshot({
-    organizationId,
-    plan_tier: billing.plan_tier,
-    subscription_status: billing.subscription_status,
-    billing_provider: billing.billing_provider
-  });
-  const riskBadgeAccess = getIntelligenceSurfaceAccess({
+  const intelligenceAccess = await getIntelligenceSurfaceAccessMap({
     context,
-    billingSnapshot,
-    surface: "risk_badge",
+    surfaces: ["risk_badge", "risk_explanation"],
     contractOwnerUserId: contract.owner_user_id
   });
-  const riskExplanationAccess = getIntelligenceSurfaceAccess({
-    context,
-    billingSnapshot,
-    surface: "risk_explanation",
-    contractOwnerUserId: contract.owner_user_id
-  });
+  const riskBadgeAccess = intelligenceAccess.accessBySurface.risk_badge;
+  const riskExplanationAccess = intelligenceAccess.accessBySurface.risk_explanation;
   if (riskBadgeAccess.allowed) {
     await auditRiskBadgeViewed({
       organizationId,

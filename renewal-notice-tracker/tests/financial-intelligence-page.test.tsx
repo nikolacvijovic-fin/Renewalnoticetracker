@@ -9,7 +9,6 @@ const redirectMock = vi.fn((location: string) => {
 });
 const getContracts = vi.fn();
 const getContractFacets = vi.fn();
-const getOrganizationBilling = vi.fn();
 const getBillingSnapshot = vi.fn();
 const auditFinancialIntelligenceViewed = vi.fn();
 const contractsTableSpy = vi.fn();
@@ -40,8 +39,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContracts,
-  getContractFacets,
-  getOrganizationBilling
+  getContractFacets
 }));
 
 vi.mock("@/lib/billing/entitlements", async () => {
@@ -205,10 +203,13 @@ describe("ContractsPage financial drilldowns", () => {
       departments: [],
       statusTags: []
     });
-    getOrganizationBilling.mockResolvedValue({
-      plan_tier: "starter",
-      subscription_status: "active",
-      billing_provider: "paddle"
+    getBillingSnapshot.mockResolvedValue({
+      organizationId: "org-1",
+      planTier: "starter",
+      subscriptionStatus: "active",
+      billingProvider: "paddle",
+      trialEndsAt: null,
+      currentPeriodEnd: null
     });
 
     const Page = (await import("@/app/dashboard/contracts/page")).default;

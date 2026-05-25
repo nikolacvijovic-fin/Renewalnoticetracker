@@ -1,6 +1,7 @@
 import { createAuditLog } from "@/lib/audit";
 import {
   createCommercialDenialAuditLog,
+  getBillingSnapshot,
   getFeatureAccessResult,
   type BillingSnapshot,
   type CommercialFeature,
@@ -158,15 +159,63 @@ export function getIntelligenceSurfaceAccess(input: {
   };
 }
 
-export async function assertCanAccessIntelligenceSurface(input: {
+export async function getIntelligenceSurfaceAccessState(input: {
   context: ActiveOrganizationContext;
-  billingSnapshot: BillingSnapshot;
   surface: IntelligenceSurface;
   contractOwnerUserId?: string | null;
+  billingSnapshot?: BillingSnapshot;
 }) {
-  const access = getIntelligenceSurfaceAccess(input);
+  const billingSnapshot =
+    input.billingSnapshot ?? (await getBillingSnapshot(input.context.organizationId));
+  const access = getIntelligenceSurfaceAccess({
+    context: input.context,
+    billingSnapshot,
+    surface: input.surface,
+    contractOwnerUserId: input.contractOwnerUserId
+  });
+
+  return {
+    billingSnapshot,
+    access
+  };
+}
+
+export async function getIntelligenceSurfaceAccessMap(input: {
+  context: ActiveOrganizationContext;
+  surfaces: readonly IntelligenceSurface[];
+  contractOwnerUserId?: string | null;
+}) {
+  const billingSnapshot = await getBillingSnapshot(input.context.organizationId);
+  const accessBySurface = Object.fromEntries(
+    input.surfaces.map((surface) => [
+      surface,
+      getIntelligenceSurfaceAccess({
+        context: input.context,
+        billingSnapshot,
+        surface,
+        contractOwnerUserId: input.contractOwnerUserId
+      })
+    ])
+  ) as Record<IntelligenceSurface, ReturnType<typeof getIntelligenceSurfaceAccess>>;
+
+  return {
+    billingSnapshot,
+    accessBySurface
+  };
+}
+
+export async function assertCanAccessIntelligenceSurface(input: {
+  context: ActiveOrganizationContext;
+  surface: IntelligenceSurface;
+  contractOwnerUserId?: string | null;
+  billingSnapshot?: BillingSnapshot;
+}) {
+  const { billingSnapshot, access } = await getIntelligenceSurfaceAccessState(input);
   if (access.allowed) {
-    return access;
+    return {
+      billingSnapshot,
+      access
+    };
   }
 
   if (!access.roleAllowed || !access.ownerScopedAllowed) {
@@ -181,7 +230,7 @@ export async function assertCanAccessIntelligenceSurface(input: {
         permission: access.rule.permission,
         role: input.context.role,
         reason,
-        plan_tier: input.billingSnapshot.planTier,
+        plan_tier: billingSnapshot.planTier,
         contract_owner_user_id: input.contractOwnerUserId ?? null
       }
     });
@@ -197,7 +246,7 @@ export async function assertCanAccessIntelligenceSurface(input: {
     organizationId: input.context.organizationId,
     actorUserId: input.context.user.id,
     feature: access.rule.feature,
-    billingSnapshot: input.billingSnapshot,
+    billingSnapshot,
     accessResult: access.featureAccess,
     context: {
       surface: input.surface,

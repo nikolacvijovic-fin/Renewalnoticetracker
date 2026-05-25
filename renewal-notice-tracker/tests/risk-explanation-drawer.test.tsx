@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
@@ -144,13 +144,15 @@ describe("RiskExplanationDrawer", () => {
   });
 
   it("uses the supplied audit surface and does not log before the drawer is opened", () => {
-    render(
+    const view = render(
       <RiskExplanationDrawer explanation={makeExplanation()} auditSurface="risk_queue" />
     );
 
     expect(global.fetch).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /show risk details for global msa/i }));
+    fireEvent.click(
+      within(view.container).getByRole("button", { name: /show risk details for global msa/i })
+    );
 
     expect(global.fetch).toHaveBeenCalledWith(
       "/api/intelligence/risk/contracts/contract-1/explanation-view",

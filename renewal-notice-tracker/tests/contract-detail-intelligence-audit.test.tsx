@@ -5,14 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const requireOrganization = vi.fn();
 const getContractById = vi.fn();
 const getCounterparties = vi.fn();
-const getOrganizationBilling = vi.fn();
 const getOrganizationMembers = vi.fn();
 const getPhase1TrustState = vi.fn();
 const getPhase1ReviewMode = vi.fn();
 const listPhase1ActiveReviewDirtyFlags = vi.fn();
 const buildRiskQueueRow = vi.fn();
-const getIntelligenceSurfaceAccess = vi.fn();
-const normalizeBillingSnapshot = vi.fn();
+const getIntelligenceSurfaceAccessMap = vi.fn();
 const auditRiskBadgeViewed = vi.fn();
 const auditRiskExplanationViewed = vi.fn();
 const auditRiskScoreRecalculated = vi.fn();
@@ -30,7 +28,6 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContractById,
   getCounterparties,
-  getOrganizationBilling,
   getOrganizationMembers
 }));
 
@@ -51,11 +48,7 @@ vi.mock("@/lib/intelligence/risk/dashboard", () => ({
 }));
 
 vi.mock("@/lib/intelligence/access", () => ({
-  getIntelligenceSurfaceAccess
-}));
-
-vi.mock("@/lib/billing/entitlements", () => ({
-  normalizeBillingSnapshot
+  getIntelligenceSurfaceAccessMap
 }));
 
 vi.mock("@/lib/intelligence/audit", () => ({
@@ -231,28 +224,38 @@ beforeEach(() => {
     }
   ]);
   getCounterparties.mockResolvedValue([]);
-  getOrganizationBilling.mockResolvedValue({
-    plan_tier: "growth",
-    subscription_status: "active",
-    billing_provider: "paddle"
-  });
   getPhase1TrustState.mockReturnValue("Verified");
   getPhase1ReviewMode.mockReturnValue("fast_review");
   listPhase1ActiveReviewDirtyFlags.mockReturnValue([]);
   buildRiskQueueRow.mockReturnValue(makeRiskExplanation());
-  normalizeBillingSnapshot.mockReturnValue({
-    organizationId: "org-1",
-    planTier: "growth",
-    subscriptionStatus: "active",
-    billingProvider: "paddle"
+  getIntelligenceSurfaceAccessMap.mockResolvedValue({
+    billingSnapshot: {
+      organizationId: "org-1",
+      planTier: "growth",
+      subscriptionStatus: "active",
+      billingProvider: "paddle"
+    },
+    accessBySurface: {
+      risk_badge: { allowed: true },
+      risk_explanation: { allowed: true }
+    }
   });
 });
 
 describe("Contract detail intelligence audit semantics", () => {
   it("logs only badge-level access on passive render when only badge visibility is allowed", async () => {
-    getIntelligenceSurfaceAccess.mockImplementation(
-      ({ surface }: { surface: string }) => ({ allowed: surface === "risk_badge" })
-    );
+    getIntelligenceSurfaceAccessMap.mockResolvedValue({
+      billingSnapshot: {
+        organizationId: "org-1",
+        planTier: "growth",
+        subscriptionStatus: "active",
+        billingProvider: "paddle"
+      },
+      accessBySurface: {
+        risk_badge: { allowed: true },
+        risk_explanation: { allowed: false }
+      }
+    });
 
     const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
     render(await Page({ params: { id: "contract-1" } }));
@@ -272,7 +275,18 @@ describe("Contract detail intelligence audit semantics", () => {
   });
 
   it("does not log explanation or recalculation events during passive render even when the drawer is available", async () => {
-    getIntelligenceSurfaceAccess.mockReturnValue({ allowed: true });
+    getIntelligenceSurfaceAccessMap.mockResolvedValue({
+      billingSnapshot: {
+        organizationId: "org-1",
+        planTier: "growth",
+        subscriptionStatus: "active",
+        billingProvider: "paddle"
+      },
+      accessBySurface: {
+        risk_badge: { allowed: true },
+        risk_explanation: { allowed: true }
+      }
+    });
 
     const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
     render(await Page({ params: { id: "contract-1" } }));

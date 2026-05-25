@@ -12,7 +12,6 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
 import { buildRiskQueueView } from "@/lib/intelligence/risk/dashboard";
 import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
-import { getBillingSnapshot } from "@/lib/billing/entitlements";
 import {
   auditRiskQueueViewed
 } from "@/lib/intelligence/audit";
@@ -29,11 +28,9 @@ export default async function RiskQueuePage({
   };
 }) {
   const context = await requireOrganization();
-  const billingSnapshot = await getBillingSnapshot(context.organizationId);
   try {
     await assertCanAccessIntelligenceSurface({
       context,
-      billingSnapshot,
       surface: "risk_queue"
     });
   } catch {

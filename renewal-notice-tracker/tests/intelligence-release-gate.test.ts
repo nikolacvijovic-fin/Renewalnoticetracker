@@ -52,8 +52,9 @@ describe("intelligence release gate", () => {
     for (const relativePath of INTELLIGENCE_ROUTE_FILES) {
       const content = readRepoFile(relativePath);
       expect(content).toContain("requireOrganization");
-      expect(content).toContain("getBillingSnapshot");
-      expect(content).toContain("assertCanAccessIntelligenceSurface");
+      expect(content).toMatch(
+        /assertCanAccessIntelligenceSurface|getIntelligenceSurfaceAccessMap/
+      );
     }
   });
 

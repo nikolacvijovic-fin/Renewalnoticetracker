@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getOrganizationContextOrNull } from "@/lib/auth";
-import { getBillingSnapshot } from "@/lib/billing/entitlements";
 import { getContractRiskAuditContext } from "@/lib/contracts/kernel-queries";
 import {
   assertCanAccessIntelligenceSurface,
@@ -57,10 +56,8 @@ export async function POST(
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
 
-    const billingSnapshot = await getBillingSnapshot(context.organizationId);
     await assertCanAccessIntelligenceSurface({
       context,
-      billingSnapshot,
       surface: "risk_explanation",
       contractOwnerUserId: contract.owner_user_id
     });

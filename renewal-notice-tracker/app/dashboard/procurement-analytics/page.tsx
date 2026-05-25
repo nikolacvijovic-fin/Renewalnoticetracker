@@ -15,7 +15,6 @@ import {
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
 import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
-import { getBillingSnapshot } from "@/lib/billing/entitlements";
 import { auditProcurementAnalyticsViewed } from "@/lib/intelligence/audit";
 
 function buildContractsDrilldownHref(input: {
@@ -94,11 +93,9 @@ export default async function ProcurementAnalyticsPage({
   };
 }) {
   const context = await requireOrganization();
-  const billingSnapshot = await getBillingSnapshot(context.organizationId);
   try {
     await assertCanAccessIntelligenceSurface({
       context,
-      billingSnapshot,
       surface: "procurement_dashboard"
     });
   } catch {
