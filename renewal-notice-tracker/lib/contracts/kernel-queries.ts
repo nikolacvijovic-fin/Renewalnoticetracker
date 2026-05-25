@@ -306,6 +306,23 @@ export async function requireScopedContract(contractId: string, organizationId: 
   return data;
 }
 
+export async function getContractRiskAuditContext(contractId: string, organizationId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("contracts")
+    .select("id, owner_user_id")
+    .eq("id", contractId)
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data?.id) {
+    return null;
+  }
+
+  return data as { id: string; owner_user_id: string | null };
+}
+
 export async function getScopedContractMetadataId(contractId: string, organizationId: string) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase

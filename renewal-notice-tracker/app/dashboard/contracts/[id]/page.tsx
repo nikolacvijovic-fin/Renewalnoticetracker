@@ -35,8 +35,7 @@ import { RiskBadge } from "@/components/contracts/risk-badge";
 import { getIntelligenceSurfaceAccess } from "@/lib/intelligence/access";
 import { normalizeBillingSnapshot } from "@/lib/billing/entitlements";
 import {
-  auditRiskScoreRecalculated,
-  auditRiskScoreViewed
+  auditRiskBadgeViewed
 } from "@/lib/intelligence/audit";
 import { formatDate } from "@/lib/utils";
 
@@ -311,23 +310,14 @@ export default async function ContractDetailPage({
     contractOwnerUserId: contract.owner_user_id
   });
   if (riskBadgeAccess.allowed) {
-    await auditRiskScoreViewed({
+    await auditRiskBadgeViewed({
       organizationId,
       actorUserId: context.user.id,
       contractId: contract.id,
-      contractCount: 1,
+      riskBand: riskExplanation.riskBand,
       lowConfidenceCount: riskExplanation.confidenceLevel === "low" ? 1 : 0,
-      riskBandsViewed: [riskExplanation.riskBand],
-      calculationVersion: riskExplanation.explanationMetadata.calculation_version
-    });
-    await auditRiskScoreRecalculated({
-      organizationId,
-      actorUserId: context.user.id,
-      contractId: contract.id,
-      contractCount: 1,
-      warningCount: riskExplanation.missingDataWarnings.length,
       calculationVersion: riskExplanation.explanationMetadata.calculation_version,
-      inputDataVersion: riskExplanation.explanationMetadata.input_data_version
+      explanationAvailable: riskExplanationAccess.allowed
     });
   }
 
@@ -350,7 +340,10 @@ export default async function ContractDetailPage({
           {riskBadgeAccess.allowed ? (
             riskExplanationAccess.allowed ? (
               <>
-                <RiskExplanationDrawer explanation={riskExplanation} />
+                <RiskExplanationDrawer
+                  explanation={riskExplanation}
+                  auditSurface="contract_detail"
+                />
                 <Badge tone={riskExplanation.confidenceLevel === "low" ? "warning" : "default"}>
                   {getRiskConfidenceLabel(riskExplanation.confidenceLevel)}
                 </Badge>

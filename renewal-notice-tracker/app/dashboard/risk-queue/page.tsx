@@ -14,8 +14,7 @@ import { buildRiskQueueView } from "@/lib/intelligence/risk/dashboard";
 import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
 import { getBillingSnapshot } from "@/lib/billing/entitlements";
 import {
-  auditRiskScoreRecalculated,
-  auditRiskScoreViewed
+  auditRiskQueueViewed
 } from "@/lib/intelligence/audit";
 
 export default async function RiskQueuePage({
@@ -68,19 +67,12 @@ export default async function RiskQueuePage({
       trustStatus: searchParams.trustStatus
     }
   });
-  await auditRiskScoreViewed({
+  await auditRiskQueueViewed({
     organizationId,
     actorUserId: context.user.id,
     contractCount: dashboard.rows.length,
     lowConfidenceCount: dashboard.summary.lowConfidence,
     riskBandsViewed: Array.from(new Set(dashboard.rows.map((row) => row.riskBand))),
-    calculationVersion:
-      dashboard.rows[0]?.explanationMetadata.calculation_version ?? "risk_score.v1"
-  });
-  await auditRiskScoreRecalculated({
-    organizationId,
-    actorUserId: context.user.id,
-    contractCount: dashboard.rows.length,
     warningCount: dashboard.rows.reduce(
       (sum, row) => sum + row.missingDataWarnings.length,
       0

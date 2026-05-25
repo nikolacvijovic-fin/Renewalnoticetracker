@@ -11,7 +11,7 @@ const getContracts = vi.fn();
 const getContractFacets = vi.fn();
 const getCounterparties = vi.fn();
 const getBillingSnapshot = vi.fn();
-const auditRiskScoreViewed = vi.fn();
+const auditRiskQueueViewed = vi.fn();
 const auditRiskScoreRecalculated = vi.fn();
 
 vi.mock("next/link", () => ({
@@ -60,7 +60,7 @@ vi.mock("@/lib/billing/entitlements", async () => {
 });
 
 vi.mock("@/lib/intelligence/audit", () => ({
-  auditRiskScoreViewed,
+  auditRiskQueueViewed,
   auditRiskScoreRecalculated
 }));
 
@@ -159,20 +159,18 @@ describe("RiskQueuePage", () => {
       "href",
       "/dashboard/contracts/contract-1#review-panel"
     );
-    expect(auditRiskScoreViewed).toHaveBeenCalledWith(
+    expect(auditRiskQueueViewed).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: "org-1",
         actorUserId: "reviewer-1",
-        calculationVersion: "risk_score.v1"
+        calculationVersion: "risk_score.v1",
+        inputDataVersion: "trusted_workflow_state.v1",
+        lowConfidenceCount: 1,
+        riskBandsViewed: ["critical"],
+        warningCount: expect.any(Number)
       })
     );
-    expect(auditRiskScoreRecalculated).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: "org-1",
-        actorUserId: "reviewer-1",
-        inputDataVersion: "trusted_workflow_state.v1"
-      })
-    );
+    expect(auditRiskScoreRecalculated).not.toHaveBeenCalled();
       expect(screen.queryByText(/legal action/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/\bterminate\b/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/^Renew$/i)).not.toBeInTheDocument();

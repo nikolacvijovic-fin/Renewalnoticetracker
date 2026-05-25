@@ -1,29 +1,66 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RiskBadge } from "@/components/contracts/risk-badge";
 import {
   getRiskConfidenceLabel,
   type RiskExplanationModel
 } from "@/lib/intelligence/risk/dashboard";
+import type { RiskExplanationAuditSurface } from "@/lib/intelligence/audit";
 import { cn, formatDate } from "@/lib/utils";
 
 export function RiskExplanationDrawer({
   explanation,
-  triggerStyle = "badge"
+  triggerStyle = "badge",
+  auditSurface = "contract_detail"
 }: {
   explanation: RiskExplanationModel;
   triggerStyle?: "badge" | "button";
+  auditSurface?: RiskExplanationAuditSurface;
 }) {
   const [open, setOpen] = useState(false);
+  const hasLoggedViewRef = useRef(false);
+
+  const handleOpen = () => {
+    setOpen(true);
+
+    if (hasLoggedViewRef.current) {
+      return;
+    }
+
+    hasLoggedViewRef.current = true;
+    void fetch(`/api/intelligence/risk/contracts/${explanation.contractId}/explanation-view`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({
+        sourceSurface: auditSurface,
+        riskBand: explanation.riskBand,
+        confidenceLevel: explanation.confidenceLevel,
+        reasonCount: explanation.reasons.length,
+        warningCount: explanation.missingDataWarnings.length,
+        calculationVersion: explanation.explanationMetadata.calculation_version,
+        inputDataVersion: explanation.explanationMetadata.input_data_version
+      })
+    })
+      .then((response) => {
+        if (!response.ok) {
+          hasLoggedViewRef.current = false;
+        }
+      })
+      .catch(() => {
+        hasLoggedViewRef.current = false;
+      });
+  };
 
   return (
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={handleOpen}
         className={cn(
           triggerStyle === "badge"
             ? "inline-flex rounded-full focus:outline-none focus:ring-2 focus:ring-brand-300 focus:ring-offset-2"

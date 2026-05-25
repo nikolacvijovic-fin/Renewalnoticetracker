@@ -3,10 +3,17 @@ import { createAuditLog } from "@/lib/audit";
 type IntelligenceAuditAction =
   | "intelligence.financial_viewed"
   | "intelligence.procurement_viewed"
-  | "intelligence.risk_score_viewed"
+  | "intelligence.risk_queue_viewed"
+  | "intelligence.risk_badge_viewed"
+  | "intelligence.risk_explanation_viewed"
   | "intelligence.risk_score_recalculated"
   | "intelligence.export_requested"
   | "intelligence.settings_changed";
+
+export type RiskExplanationAuditSurface =
+  | "contract_detail"
+  | "contracts_table"
+  | "risk_queue";
 
 async function createIntelligenceAuditLog(input: {
   organizationId: string;
@@ -73,32 +80,94 @@ export async function auditProcurementAnalyticsViewed(input: {
   });
 }
 
-export async function auditRiskScoreViewed(input: {
+export async function auditRiskQueueViewed(input: {
   organizationId: string;
   actorUserId: string;
-  contractId?: string | null;
   contractCount: number;
   lowConfidenceCount: number;
   riskBandsViewed: string[];
   calculationVersion: string;
+  inputDataVersion: string;
+  warningCount: number;
 }) {
   await createIntelligenceAuditLog({
     organizationId: input.organizationId,
     actorUserId: input.actorUserId,
-    contractId: input.contractId ?? null,
-    action: "intelligence.risk_score_viewed",
-    entityId: input.contractId ?? null,
+    action: "intelligence.risk_queue_viewed",
     details: {
       layer: "risk",
-      scope: input.contractId ? "contract" : "queue",
+      scope: "queue",
+      surface: "risk_queue",
       contract_count: input.contractCount,
       low_confidence_count: input.lowConfidenceCount,
       risk_bands_viewed: input.riskBandsViewed,
-      calculation_version: input.calculationVersion
+      warning_count: input.warningCount,
+      calculation_version: input.calculationVersion,
+      input_data_version: input.inputDataVersion
     }
   });
 }
 
+export async function auditRiskBadgeViewed(input: {
+  organizationId: string;
+  actorUserId: string;
+  contractId: string;
+  riskBand: string;
+  lowConfidenceCount: number;
+  calculationVersion: string;
+  explanationAvailable: boolean;
+}) {
+  await createIntelligenceAuditLog({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    contractId: input.contractId,
+    action: "intelligence.risk_badge_viewed",
+    entityId: input.contractId,
+    details: {
+      layer: "risk",
+      scope: "contract",
+      surface: "contract_detail",
+      risk_band: input.riskBand,
+      low_confidence_count: input.lowConfidenceCount,
+      calculation_version: input.calculationVersion,
+      explanation_available: input.explanationAvailable
+    }
+  });
+}
+
+export async function auditRiskExplanationViewed(input: {
+  organizationId: string;
+  actorUserId: string;
+  contractId: string;
+  sourceSurface: RiskExplanationAuditSurface;
+  riskBand: string;
+  lowConfidenceCount: number;
+  reasonCount: number;
+  warningCount: number;
+  calculationVersion: string;
+  inputDataVersion: string;
+}) {
+  await createIntelligenceAuditLog({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    contractId: input.contractId,
+    action: "intelligence.risk_explanation_viewed",
+    entityId: input.contractId,
+    details: {
+      layer: "risk",
+      scope: "contract",
+      surface: input.sourceSurface,
+      risk_band: input.riskBand,
+      low_confidence_count: input.lowConfidenceCount,
+      reason_count: input.reasonCount,
+      warning_count: input.warningCount,
+      calculation_version: input.calculationVersion,
+      input_data_version: input.inputDataVersion
+    }
+  });
+}
+
+// Reserved for future explicit user- or system-triggered recalc workflows only.
 export async function auditRiskScoreRecalculated(input: {
   organizationId: string;
   actorUserId: string;

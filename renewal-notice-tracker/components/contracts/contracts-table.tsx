@@ -136,7 +136,10 @@ export function ContractsTable({
                         </Badge>
                         {riskViewer?.showRiskExplanation ? (
                           <>
-                            <RiskExplanationDrawer explanation={risk} />
+                            <RiskExplanationDrawer
+                              explanation={risk}
+                              auditSurface="contracts_table"
+                            />
                             <span className="text-xs text-slate-500">
                               {getRiskConfidenceLabel(risk.confidenceLevel)}
                             </span>

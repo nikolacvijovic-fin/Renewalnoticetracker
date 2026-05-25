@@ -32,7 +32,7 @@ export function RiskQueueTable({ rows }: { rows: RiskQueueRow[] }) {
               </td>
               <td className="px-4 py-4">
                 <div className="flex items-start gap-3">
-                  <RiskExplanationDrawer explanation={row} />
+                  <RiskExplanationDrawer explanation={row} auditSurface="risk_queue" />
                   <div className="space-y-1">
                     {row.reasons.slice(0, 2).map((reason) => (
                       <p key={`${row.contractId}-${reason.factor}`} className="text-sm text-slate-600">

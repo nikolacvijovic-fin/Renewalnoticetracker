@@ -143,6 +143,14 @@ export function summarizeAuditDetails(
       `${record.low_confidence_count} low-confidence score${record.low_confidence_count === 1 ? "" : "s"}`
     );
   }
+  if (typeof record.risk_band === "string" && record.risk_band.trim().length > 0) {
+    summary.push(`Risk band: ${normalizeDetailLine(record.risk_band)}`);
+  }
+  if (typeof record.reason_count === "number" && record.reason_count > 0) {
+    summary.push(
+      `${record.reason_count} explanation reason${record.reason_count === 1 ? "" : "s"}`
+    );
+  }
   if (
     typeof record.low_trust_contract_count === "number" &&
     record.low_trust_contract_count > 0

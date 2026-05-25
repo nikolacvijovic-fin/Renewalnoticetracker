@@ -114,16 +114,16 @@ describe("ContractActivityFeed", () => {
         auditLogs={[
           {
             id: "log-4",
-            action: "intelligence.risk_score_viewed",
+            action: "intelligence.risk_badge_viewed",
             entity_type: "intelligence",
             entity_id: "contract-1",
             actor_user_id: "user-4",
             created_at: "2026-05-04T00:00:00.000Z",
             details: {
               layer: "risk",
-              contract_count: 1,
+              risk_band: "critical",
               low_confidence_count: 1,
-              risk_bands_viewed: ["critical"],
+              explanation_available: true,
               calculation_version: "risk_score.v1",
               input_data_version: "trusted_workflow_state.v1",
               trusted_fields_used: ["notice_deadline_date", "contract_value_amount"],
@@ -137,9 +137,9 @@ describe("ContractActivityFeed", () => {
       />
     );
 
-    expect(screen.getByText("Intelligence: risk score viewed")).toBeInTheDocument();
-    expect(screen.getByText("1 contract in scope")).toBeInTheDocument();
+    expect(screen.getByText("Intelligence: risk badge viewed")).toBeInTheDocument();
     expect(screen.getByText("1 low-confidence score")).toBeInTheDocument();
+    expect(screen.getByText("Risk band: critical")).toBeInTheDocument();
     expect(screen.queryByText(/risk_score\.v1/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/trusted_workflow_state\.v1/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/notice_deadline_date/i)).not.toBeInTheDocument();
