@@ -18,6 +18,7 @@ export const INTELLIGENCE_RELEASE_BLOCKERS = [
 
 export const INTELLIGENCE_RELEASE_GATE_TEST_FILES = [
   "tests/intelligence-release-gate.test.ts",
+  "tests/intelligence-surface-entitlement-consistency.test.tsx",
   "tests/financial-exposure.test.ts",
   "tests/risk-score.test.ts",
   "tests/procurement-query-helpers.test.ts",
@@ -29,6 +30,7 @@ export const INTELLIGENCE_RELEASE_GATE_TEST_FILES = [
 ];
 
 export const INTELLIGENCE_ROUTE_FILES = [
+  "app/dashboard/contracts/[id]/page.tsx",
   "app/dashboard/financial-intelligence/page.tsx",
   "app/dashboard/procurement-analytics/page.tsx",
   "app/dashboard/risk-queue/page.tsx"
