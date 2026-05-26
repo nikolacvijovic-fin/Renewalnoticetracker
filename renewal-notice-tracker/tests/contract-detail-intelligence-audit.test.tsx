@@ -39,7 +39,19 @@ vi.mock("@/lib/contracts/phase1-pilot", () => ({
 
 vi.mock("@/lib/contracts/shipped-reminder-policy", () => ({
   formatReminderRuntimeStatusLabel: (value: string) => value,
-  formatReminderTypeLabel: (value: string) => value
+  formatReminderTypeLabel: (value: string) => value,
+  getReminderActivationState: ({ needsReview, ownerUserId, noticeDeadlineDate, renewalDate, expirationDate }: {
+    needsReview?: boolean | null;
+    ownerUserId?: string | null;
+    noticeDeadlineDate?: string | null;
+    renewalDate?: string | null;
+    expirationDate?: string | null;
+  }) => {
+    if (needsReview) return "blocked_by_review";
+    if (!ownerUserId) return "blocked_by_missing_owner";
+    if (!noticeDeadlineDate && !renewalDate && !expirationDate) return "blocked_by_missing_p0";
+    return "scheduled";
+  }
 }));
 
 vi.mock("@/lib/intelligence/risk/dashboard", () => ({

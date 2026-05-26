@@ -16,158 +16,14 @@ import { ContractWorkflowSummary } from "@/components/contracts/contract-workflo
 import { ContractActivityFeed } from "@/components/contracts/contract-activity-feed";
 import { ContractSecondaryTabs } from "@/components/contracts/contract-secondary-tabs";
 import { ContractDetailShell } from "@/components/contracts/contract-detail-shell";
-import {
-  listPhase1ActiveReviewDirtyFlags,
-  getPhase1ReviewMode,
-  getPhase1TrustState
-} from "@/lib/contracts/phase1-pilot";
-import {
-  formatReminderRuntimeStatusLabel,
-  formatReminderTypeLabel
-} from "@/lib/contracts/shipped-reminder-policy";
-import {
-  buildRiskQueueRow,
-  getRiskConfidenceLabel
-} from "@/lib/intelligence/risk/dashboard";
+import { getRiskConfidenceLabel } from "@/lib/intelligence/risk/dashboard";
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
 import { RiskBadge } from "@/components/contracts/risk-badge";
-import { getIntelligenceSurfaceAccessMap } from "@/lib/intelligence/access";
 import {
   auditRiskBadgeViewed
 } from "@/lib/intelligence/audit";
 import { formatDate } from "@/lib/utils";
-
-type ContractPageMetadata = Record<string, unknown> & {
-  contract_title: string | null;
-  counterparty_name: string | null;
-  needs_review: boolean | null;
-  notice_deadline_date: string | null;
-  renewal_date: string | null;
-  expiration_date: string | null;
-  termination_window: string | null;
-  auto_renewal: boolean | null;
-  has_conflict?: boolean | null;
-  has_derived_date?: boolean | null;
-  has_weak_evidence?: boolean | null;
-  is_ocr_assisted?: boolean | null;
-  is_manual_without_evidence?: boolean | null;
-  changes_previously_verified_p0?: boolean | null;
-  accepted_unverified_risk_requested?: boolean | null;
-  contract_template_key?: string | null;
-  field_confidence: Record<string, number>;
-  field_source_snippets: Record<string, string>;
-};
-
-function normalizeMetadata(metadata: Record<string, unknown>): ContractPageMetadata {
-  return {
-    ...metadata,
-    contract_title: (metadata.contract_title as string | null | undefined) ?? null,
-    counterparty_name: (metadata.counterparty_name as string | null | undefined) ?? null,
-    needs_review: (metadata.needs_review as boolean | null | undefined) ?? null,
-    notice_deadline_date: (metadata.notice_deadline_date as string | null | undefined) ?? null,
-    renewal_date: (metadata as { renewal_date?: string | null }).renewal_date ?? null,
-    expiration_date: (metadata.expiration_date as string | null | undefined) ?? null,
-    termination_window: (metadata as { termination_window?: string | null }).termination_window ?? null,
-    auto_renewal: (metadata.auto_renewal as boolean | null | undefined) ?? null,
-    has_conflict: (metadata.has_conflict as boolean | null | undefined) ?? false,
-    has_derived_date: (metadata.has_derived_date as boolean | null | undefined) ?? false,
-    has_weak_evidence: (metadata.has_weak_evidence as boolean | null | undefined) ?? false,
-    is_ocr_assisted: (metadata.is_ocr_assisted as boolean | null | undefined) ?? false,
-    is_manual_without_evidence:
-      (metadata.is_manual_without_evidence as boolean | null | undefined) ?? false,
-    changes_previously_verified_p0:
-      (metadata.changes_previously_verified_p0 as boolean | null | undefined) ?? false,
-    accepted_unverified_risk_requested:
-      (metadata.accepted_unverified_risk_requested as boolean | null | undefined) ?? false,
-    contract_template_key:
-      (metadata.contract_template_key as string | null | undefined) ?? null,
-    field_confidence:
-      typeof metadata.field_confidence === "object" && metadata.field_confidence !== null
-        ? (metadata.field_confidence as Record<string, number>)
-        : {},
-    field_source_snippets:
-      typeof metadata.field_source_snippets === "object" &&
-      metadata.field_source_snippets !== null
-        ? (metadata.field_source_snippets as Record<string, string>)
-        : {}
-  };
-}
-
-function getOwnerLabel(
-  ownerUserId: string | null,
-  members: Array<{
-    user_id: string;
-    user: { full_name: string | null; notification_email: string | null } | null;
-  }>
-) {
-  if (!ownerUserId) return "Unassigned";
-  const match = members.find((member) => member.user_id === ownerUserId);
-  return match?.user?.full_name ?? match?.user?.notification_email ?? "Assigned";
-}
-
-function getNextReminder(
-  reminders: Array<{
-    remind_at: string;
-    reminder_type: string;
-    status: string;
-    source: string;
-  }>
-) {
-  return [...reminders]
-    .filter((reminder) => reminder.status !== "superseded" && reminder.status !== "cancelled")
-    .sort((a, b) => a.remind_at.localeCompare(b.remind_at))[0] ?? null;
-}
-
-function getNextWorkflowAction(input: {
-  trustState: string;
-  reviewBlocked: boolean;
-  ownerBlocked: boolean;
-  cycleStatus: string | null | undefined;
-  renewalDecisionStatus: string | null | undefined;
-}) {
-  if (input.reviewBlocked) {
-    return {
-      label: "Complete P0 review",
-      help: "Confirm the notice deadline, renewal date, expiration date, termination window, and auto-renewal flag before this contract can drive trusted reminders."
-    };
-  }
-
-  if (input.ownerBlocked) {
-    return {
-      label: "Assign the accountable owner",
-      help: "Trusted reminders stay blocked until one named owner can acknowledge high-risk reminders and make the renewal decision."
-    };
-  }
-
-  if ((input.cycleStatus ?? "open") === "awaiting_acknowledgment") {
-    return {
-      label: "Record acknowledgment",
-      help: "This cycle is waiting for an explicit acknowledgment before the decision work can continue."
-    };
-  }
-
-  if (
-    (input.renewalDecisionStatus ?? "undecided") === "undecided" &&
-    ["Decision Needed", "Due Soon", "Overdue Action"].includes(input.trustState)
-  ) {
-    return {
-      label: "Record the renewal decision",
-      help: "The contract is in the decision window. Capture renew, terminate, renegotiate, defer, or no-action-required to move the cycle forward."
-    };
-  }
-
-  if ((input.cycleStatus ?? "open") === "closed") {
-    return {
-      label: "Monitor the next cycle",
-      help: "The current cycle is closed. Use the timeline and audit trail only if support needs to verify what happened."
-    };
-  }
-
-  return {
-    label: "Monitor the trusted reminder timeline",
-    help: "Review is complete, an owner is assigned, and the contract is ready for the weekly operator loop."
-  };
-}
+import { buildContractDetailViewModel } from "@/lib/contracts/contract-detail-view";
 
 export default async function ContractDetailPage({
   params
@@ -184,133 +40,30 @@ export default async function ContractDetailPage({
 
   if (!contract || !contract.contract_metadata) notFound();
 
-  const metadataRow = Array.isArray(contract.contract_metadata)
-    ? contract.contract_metadata[0]
-    : contract.contract_metadata;
-  if (!metadataRow) notFound();
-
-  const metadata = normalizeMetadata(metadataRow as Record<string, unknown>);
-  const latestFile = [...(contract.contract_files ?? [])].sort(
-    (a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime()
-  )[0];
-  const ocrAssisted = latestFile?.extraction_source === "ocr";
-
-  const reviewMetadata = {
-    ...metadata,
-    owner_user_id: contract.owner_user_id,
-    department: contract.department,
-    status_tag: contract.status_tag,
-    is_ocr_assisted: metadata.is_ocr_assisted || ocrAssisted,
-    renewal_decision_status: contract.renewal_decision_status,
-    renewal_decision_date: contract.renewal_decision_date,
-    cycle_status: contract.cycle_status
-  };
-
-  const trustState = getPhase1TrustState({
-    owner_user_id: contract.owner_user_id ?? null,
-    renewal_decision_status: contract.renewal_decision_status ?? "undecided",
-    cycle_status: contract.cycle_status ?? "open",
-    contract_metadata: {
-      needs_review: metadata.needs_review as boolean | null | undefined,
-      notice_deadline_date: metadata.notice_deadline_date as string | null | undefined,
-      renewal_date: metadata.renewal_date,
-      expiration_date: metadata.expiration_date as string | null | undefined,
-      termination_window: metadata.termination_window,
-      auto_renewal: metadata.auto_renewal as boolean | null | undefined,
-      field_confidence: metadata.field_confidence,
-      field_source_snippets: metadata.field_source_snippets,
-      is_ocr_assisted: metadata.is_ocr_assisted || ocrAssisted
-    }
-  });
-  const nextReminder = getNextReminder(((contract.reminders ?? []) as never[]));
-  const ownerLabel = getOwnerLabel(contract.owner_user_id ?? null, members as never[]);
-  const reviewMode = getPhase1ReviewMode(reviewMetadata);
-  const dirtyReviewFlags = listPhase1ActiveReviewDirtyFlags(reviewMetadata);
-  const reviewBlocked = Boolean(metadata.needs_review);
-  const ownerBlocked = !contract.owner_user_id;
-  const reminderBlockedReason = reviewBlocked
-    ? "blocked_by_review"
-    : ownerBlocked
-      ? "blocked_by_missing_owner"
-      : null;
-  const nextAction = getNextWorkflowAction({
-    trustState,
-    reviewBlocked,
-    ownerBlocked,
-    cycleStatus: contract.cycle_status,
-    renewalDecisionStatus: contract.renewal_decision_status
-  });
-  const actorLabels = Object.fromEntries(
-    members.map((member) => [
-      member.user_id,
-      member.user?.full_name ?? member.user?.notification_email ?? member.user_id
-    ])
-  );
-  const duplicateCounterpartyIds = new Set(
-    counterparties
-      .filter((counterparty) => counterparty.duplicate_suggestions.length > 0)
-      .map((counterparty) => counterparty.id)
-  );
-  const riskExplanation = buildRiskQueueRow({
-    contractId: contract.id,
-    contractTitle: metadata.contract_title ?? "Untitled contract",
-    counterpartyName: metadata.counterparty_name ?? "Counterparty not set",
-    department: contract.department?.trim() || "Unassigned department",
-    ownerLabel,
-    workflowTrustState: trustState,
-    noticeDeadlineDate: metadata.notice_deadline_date,
-    renewalDate: metadata.renewal_date,
-    expirationDate: metadata.expiration_date,
-    autoRenewalConfirmed: metadata.auto_renewal,
-    contractValueAmount:
-      typeof (metadataRow as { contract_value_amount?: unknown }).contract_value_amount === "number"
-        ? ((metadataRow as { contract_value_amount?: number }).contract_value_amount ?? null)
-        : null,
-    decisionStatus:
-      contract.renewal_decision_status === "renew" ||
-      contract.renewal_decision_status === "terminate" ||
-      contract.renewal_decision_status === "renegotiate" ||
-      contract.renewal_decision_status === "defer" ||
-      contract.renewal_decision_status === "no_action_required"
-        ? contract.renewal_decision_status
-        : "undecided",
-    reminderAcknowledged: (contract.cycle_status ?? "open") !== "awaiting_acknowledgment",
-    weakEvidence: Boolean(metadata.has_weak_evidence),
-    reviewCompleted: !metadata.needs_review,
-    acceptedRiskOverride: Boolean(metadata.accepted_unverified_risk_requested),
-    priceChangeTrigger:
-      typeof (metadataRow as { price_change_trigger?: unknown }).price_change_trigger === "string"
-        ? ((metadataRow as { price_change_trigger?: string | null }).price_change_trigger ?? null)
-        : null,
-    previousDeferWatchlist: contract.renewal_decision_status === "defer",
-    reminderDeliveryFailures: (contract.reminders ?? []).filter((reminder) =>
-      ["retry_pending", "failed_terminal"].includes(reminder.status ?? "")
-    ).length,
-    duplicateCounterpartyUncertainty: duplicateCounterpartyIds.has(contract.counterparty_id ?? "")
-  });
-  const intelligenceAccess = await getIntelligenceSurfaceAccessMap({
+  const viewModel = await buildContractDetailViewModel({
     context,
-    surfaces: ["risk_badge", "risk_explanation"],
-    contractOwnerUserId: contract.owner_user_id
+    contract,
+    members,
+    counterparties
   });
-  const riskBadgeAccess = intelligenceAccess.accessBySurface.risk_badge;
-  const riskExplanationAccess = intelligenceAccess.accessBySurface.risk_explanation;
+  const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
+  const riskExplanationAccess = viewModel.intelligenceAccess.accessBySurface.risk_explanation;
   if (riskBadgeAccess.allowed) {
     await auditRiskBadgeViewed({
       organizationId,
       actorUserId: context.user.id,
       contractId: contract.id,
-      riskBand: riskExplanation.riskBand,
-      lowConfidenceCount: riskExplanation.confidenceLevel === "low" ? 1 : 0,
-      calculationVersion: riskExplanation.explanationMetadata.calculation_version,
+      riskBand: viewModel.riskExplanation.riskBand,
+      lowConfidenceCount: viewModel.riskExplanation.confidenceLevel === "low" ? 1 : 0,
+      calculationVersion: viewModel.riskExplanation.explanationMetadata.calculation_version,
       explanationAvailable: riskExplanationAccess.allowed
     });
   }
 
   return (
     <ContractDetailShell
-      title={(metadata.contract_title as string | null) ?? "Untitled contract"}
-      subtitle={`${(metadata.counterparty_name as string | null) ?? "Counterparty not set"} | Updated ${formatDate(contract.updated_at)}`}
+      title={viewModel.title}
+      subtitle={`${viewModel.counterpartyName} | Updated ${formatDate(contract.updated_at)}`}
       supportingLine="Run the contract through review, owner assignment, reminders, acknowledgment, decision, and closure from one calm workflow."
       primaryAction={
         <Button asChild variant="secondary">
@@ -319,97 +72,40 @@ export default async function ContractDetailPage({
       }
       badges={
         <>
-          <Badge tone={reviewBlocked ? "warning" : "success"}>
-            {reviewBlocked ? "Needs review" : "Reviewed"}
+          <Badge tone={viewModel.reviewBlocked ? "warning" : "success"}>
+            {viewModel.reviewBlocked ? "Needs review" : "Reviewed"}
           </Badge>
-          <Badge>{trustState}</Badge>
+          <Badge>{viewModel.trustState}</Badge>
           {riskBadgeAccess.allowed ? (
             riskExplanationAccess.allowed ? (
               <>
                 <RiskExplanationDrawer
-                  explanation={riskExplanation}
+                  explanation={viewModel.riskExplanation}
                   auditSurface="contract_detail"
                 />
-                <Badge tone={riskExplanation.confidenceLevel === "low" ? "warning" : "default"}>
-                  {getRiskConfidenceLabel(riskExplanation.confidenceLevel)}
+                <Badge tone={viewModel.riskExplanation.confidenceLevel === "low" ? "warning" : "default"}>
+                  {getRiskConfidenceLabel(viewModel.riskExplanation.confidenceLevel)}
                 </Badge>
               </>
             ) : (
-              <RiskBadge riskBand={riskExplanation.riskBand} />
+              <RiskBadge riskBand={viewModel.riskExplanation.riskBand} />
             )
           ) : null}
-          {ocrAssisted ? <Badge tone="warning">OCR-assisted</Badge> : null}
-          {metadata.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
+          {viewModel.ocrAssisted ? <Badge tone="warning">OCR-assisted</Badge> : null}
+          {viewModel.metadata.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
         </>
       }
       statusStrip={
         <ContractWorkflowSummary
-          nextAction={nextAction}
-          items={[
-            {
-              label: "Trust state",
-              value: trustState,
-              help:
-                trustState === "Verified"
-                  ? "Reviewed truth is ready to drive reminders."
-                  : "Complete the blocked step before trusting automation."
-            },
-            {
-              label: "Review",
-              value: reviewBlocked
-                ? reviewMode === "fast_review"
-                  ? "Fast review pending"
-                  : "Exception review pending"
-                : "Review complete",
-              help: reviewBlocked
-                ? dirtyReviewFlags.length > 0
-                  ? `${dirtyReviewFlags.length} trust flag${dirtyReviewFlags.length === 1 ? "" : "s"} require exception review before trusted reminders activate.`
-                  : "Confirm the P0 fields before trusted reminders activate."
-                : "The P0 record is confirmed and auditable."
-            },
-            {
-              label: "Owner",
-              value: ownerLabel,
-              help: ownerBlocked
-                ? "Assign one accountable owner to unblock trusted workflow."
-                : "The owner is accountable for acknowledgment and decisions."
-            },
-            {
-              label: "Due",
-              value: reminderBlockedReason
-                ? reminderBlockedReason === "blocked_by_review"
-                  ? "Blocked by review"
-                  : "Blocked by missing owner"
-                : nextReminder
-                  ? `${formatReminderTypeLabel(nextReminder.reminder_type)} | ${formatDate(nextReminder.remind_at)}`
-                  : "No reminder scheduled",
-              help: nextReminder
-                ? `Current reminder status: ${formatReminderRuntimeStatusLabel(nextReminder.status)}.`
-                : reminderBlockedReason
-                  ? "Trusted reminders appear automatically once the blocked step is resolved."
-                  : "The trusted schedule will appear after review and owner assignment."
-            },
-            {
-              label: "Decision",
-              value: (contract.renewal_decision_status ?? "undecided").replaceAll("_", " "),
-              help: `Cycle state: ${(contract.cycle_status ?? "open").replaceAll("_", " ")}.`
-            }
-          ]}
+          nextAction={viewModel.nextAction}
+          items={viewModel.workflowItems}
         />
       }
       reviewPanel={
         <ReviewForm
           contractId={contract.id}
-          metadata={reviewMetadata as never}
-          members={members.map(
-            (member: {
-              user_id: string;
-              user: { full_name: string | null; notification_email: string | null } | null;
-            }) => ({
-              user_id: member.user_id,
-              label: member.user?.full_name ?? member.user?.notification_email ?? member.user_id
-            })
-          )}
+          metadata={viewModel.reviewMetadata as never}
+          members={viewModel.memberLabels}
         />
       }
       ownerReminderPanel={
@@ -421,37 +117,21 @@ export default async function ContractDetailPage({
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                   Current owner
                 </p>
-                <p className="mt-2 text-base font-semibold text-ink">{ownerLabel}</p>
-                <p className="mt-2 text-sm text-slate-600">
-                  {ownerBlocked
-                    ? "Trusted reminders stay blocked until one accountable owner is assigned in review."
-                    : "The owner receives trusted reminders, records acknowledgment, and carries the decision forward."}
-                </p>
+                <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.ownerStatus}</p>
+                <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.ownerHelp}</p>
               </div>
               <div className="rounded-2xl border border-slate-200 p-4">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                   Reminder readiness
                 </p>
-                <p className="mt-2 text-base font-semibold text-ink">
-                  {reminderBlockedReason
-                    ? reminderBlockedReason === "blocked_by_review"
-                      ? "Blocked by review"
-                      : "Blocked by missing owner"
-                    : "Trusted schedule active"}
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  {reviewBlocked || ownerBlocked
-                    ? "The schedule stays inactive until reviewed P0 truth and owner assignment are both complete."
-                    : nextReminder
-                      ? `Next due event: ${formatReminderTypeLabel(nextReminder.reminder_type)} on ${formatDate(nextReminder.remind_at)}.`
-                      : "No reminder is due yet, but the contract is ready for the weekly loop."}
-                </p>
+                <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.reminderStatus}</p>
+                <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.reminderHelp}</p>
               </div>
             </div>
           </div>
           <ReminderTimeline
             reminders={((contract.reminders ?? []) as never[])}
-            blockedReason={reminderBlockedReason}
+            blockedReason={viewModel.reminderBlockedReason}
           />
         </div>
       }
@@ -534,7 +214,7 @@ export default async function ContractDetailPage({
               content: (
                 <ContractActivityFeed
                   auditLogs={((contract.audit_logs ?? []) as never[])}
-                  actorLabels={actorLabels}
+                  actorLabels={viewModel.actorLabels}
                 />
               )
             },

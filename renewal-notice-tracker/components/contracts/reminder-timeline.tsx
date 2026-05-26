@@ -29,7 +29,7 @@ export function ReminderTimeline({
   blockedReason
 }: {
   reminders: Reminder[];
-  blockedReason?: "blocked_by_review" | "blocked_by_missing_owner" | null;
+  blockedReason?: "blocked_by_review" | "blocked_by_missing_owner" | "blocked_by_missing_p0" | null;
 }) {
   const ordered = [...reminders].sort((a, b) => a.remind_at.localeCompare(b.remind_at));
 
@@ -61,7 +61,9 @@ export function ReminderTimeline({
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             {blockedReason === "blocked_by_review"
               ? "Trusted reminders are blocked until the P0 review is completed."
-              : "Trusted reminders are blocked until an owner is assigned."}
+              : blockedReason === "blocked_by_missing_owner"
+                ? "Trusted reminders are blocked until an owner is assigned."
+                : "Trusted reminders are blocked until a reminder-driving date is confirmed."}
           </div>
         ) : (
           <p className="text-sm text-slate-500">No reminders scheduled yet.</p>
