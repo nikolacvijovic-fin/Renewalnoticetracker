@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { requireOrganization } from "@/lib/auth";
 import {
   getContractFacets,
   getContracts,
@@ -11,10 +9,11 @@ import { RiskQueueTable } from "@/components/dashboard/risk-queue-table";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
 import { buildRiskQueueView } from "@/lib/intelligence/risk/dashboard";
-import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
+import { buildRiskQueueViewedAuditPayload } from "@/lib/intelligence/risk/page-model";
 import {
   auditRiskQueueViewed
 } from "@/lib/intelligence/audit";
+import { requireIntelligencePageContext } from "@/lib/intelligence/page-access";
 
 export default async function RiskQueuePage({
   searchParams
@@ -27,15 +26,7 @@ export default async function RiskQueuePage({
     trustStatus?: string;
   };
 }) {
-  const context = await requireOrganization();
-  try {
-    await assertCanAccessIntelligenceSurface({
-      context,
-      surface: "risk_queue"
-    });
-  } catch {
-    redirect("/dashboard");
-  }
+  const context = await requireIntelligencePageContext("risk_queue");
 
   const { organizationId } = context;
   const [contracts, facets, counterparties] = await Promise.all([
@@ -64,22 +55,13 @@ export default async function RiskQueuePage({
       trustStatus: searchParams.trustStatus
     }
   });
-  await auditRiskQueueViewed({
-    organizationId,
-    actorUserId: context.user.id,
-    contractCount: dashboard.rows.length,
-    lowConfidenceCount: dashboard.summary.lowConfidence,
-    riskBandsViewed: Array.from(new Set(dashboard.rows.map((row) => row.riskBand))),
-    warningCount: dashboard.rows.reduce(
-      (sum, row) => sum + row.missingDataWarnings.length,
-      0
-    ),
-    calculationVersion:
-      dashboard.rows[0]?.explanationMetadata.calculation_version ?? "risk_score.v1",
-    inputDataVersion:
-      dashboard.rows[0]?.explanationMetadata.input_data_version ??
-      "trusted_workflow_state.v1"
-  });
+  await auditRiskQueueViewed(
+    buildRiskQueueViewedAuditPayload({
+      organizationId,
+      actorUserId: context.user.id,
+      dashboard
+    })
+  );
 
   return (
     <section className="space-y-6">

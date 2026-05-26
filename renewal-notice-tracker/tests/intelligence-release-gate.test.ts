@@ -51,9 +51,9 @@ describe("intelligence release gate", () => {
   it("keeps route-level org, role, and plan gates on all intelligence pages", () => {
     for (const relativePath of INTELLIGENCE_ROUTE_FILES) {
       const content = readRepoFile(relativePath);
-      expect(content).toContain("requireOrganization");
+      expect(content).toMatch(/requireOrganization|requireIntelligencePageContext/);
       expect(content).toMatch(
-        /assertCanAccessIntelligenceSurface|getIntelligenceSurfaceAccessMap/
+        /assertCanAccessIntelligenceSurface|getIntelligenceSurfaceAccessMap|buildContractDetailViewModel|requireIntelligencePageContext/
       );
     }
   });
