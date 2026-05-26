@@ -536,17 +536,21 @@ async function expectDashboardPageAccess(input: {
   props: Record<string, unknown>;
   allowed: boolean;
   heading: string;
+  expectFetched: () => void;
+  expectBlockedBeforeFetch: () => void;
 }) {
   cleanup();
   const Page = (await import(input.pageImport)).default;
 
   if (!input.allowed) {
     await expect(Page(input.props as never)).rejects.toThrow("REDIRECT:/dashboard");
+    input.expectBlockedBeforeFetch();
     return;
   }
 
   render(await Page(input.props as never));
   expect(screen.getByRole("heading", { name: input.heading })).toBeInTheDocument();
+  input.expectFetched();
 }
 
 describe("intelligence surface entitlement consistency", () => {
@@ -568,25 +572,111 @@ describe("intelligence surface entitlement consistency", () => {
         expect(screen.queryByText("Risk explanation drawer")).not.toBeInTheDocument();
       }
 
+      if (scenario.expected.contractDetail.badge) {
+        expect(auditRiskBadgeViewed).toHaveBeenCalledWith(
+          expect.objectContaining({
+            organizationId: "org-1",
+            contractId: "contract-1"
+          })
+        );
+      } else {
+        expect(auditRiskBadgeViewed).not.toHaveBeenCalled();
+      }
+
+      vi.clearAllMocks();
+      requireOrganization.mockResolvedValue({
+        user: { id: "admin-1" },
+        organizationId: "org-1",
+        role: "admin"
+      });
+      getBillingSnapshot.mockResolvedValue(scenario.snapshot);
+      getContracts.mockResolvedValue([makeContract()]);
+      getContractFacets.mockResolvedValue({
+        owners: [],
+        departments: [],
+        statusTags: []
+      });
+      getCounterparties.mockResolvedValue([]);
+      buildRiskQueueView.mockReturnValue(makeRiskQueueDashboard());
+      auditRiskQueueViewed.mockResolvedValue(undefined);
+
       await expectDashboardPageAccess({
         pageImport: "@/app/dashboard/risk-queue/page",
         props: { searchParams: {} },
         allowed: scenario.expected.riskQueueAllowed,
-        heading: "Risk Queue"
+        heading: "Risk Queue",
+        expectFetched: () => {
+          expect(getContracts).toHaveBeenCalledWith("org-1", "all", {
+            ownerUserId: undefined,
+            department: undefined
+          });
+          expect(getContractFacets).toHaveBeenCalledWith("org-1");
+          expect(getCounterparties).toHaveBeenCalledWith("org-1");
+          expect(auditRiskQueueViewed).toHaveBeenCalled();
+        },
+        expectBlockedBeforeFetch: () => {
+          expect(getContracts).not.toHaveBeenCalled();
+          expect(getContractFacets).not.toHaveBeenCalled();
+          expect(getCounterparties).not.toHaveBeenCalled();
+          expect(auditRiskQueueViewed).not.toHaveBeenCalled();
+        }
       });
+
+      vi.clearAllMocks();
+      requireOrganization.mockResolvedValue({
+        user: { id: "admin-1" },
+        organizationId: "org-1",
+        role: "admin"
+      });
+      getBillingSnapshot.mockResolvedValue(scenario.snapshot);
+      getContracts.mockResolvedValue([makeContract()]);
+      buildFinancialDashboardView.mockReturnValue(makeFinancialDashboard());
+      auditFinancialIntelligenceViewed.mockResolvedValue(undefined);
 
       await expectDashboardPageAccess({
         pageImport: "@/app/dashboard/financial-intelligence/page",
         props: {},
         allowed: scenario.expected.financialAllowed,
-        heading: "Financial Intelligence"
+        heading: "Financial Intelligence",
+        expectFetched: () => {
+          expect(getContracts).toHaveBeenCalledWith("org-1", "all");
+          expect(auditFinancialIntelligenceViewed).toHaveBeenCalled();
+        },
+        expectBlockedBeforeFetch: () => {
+          expect(getContracts).not.toHaveBeenCalled();
+          expect(auditFinancialIntelligenceViewed).not.toHaveBeenCalled();
+        }
       });
+
+      vi.clearAllMocks();
+      requireOrganization.mockResolvedValue({
+        user: { id: "admin-1" },
+        organizationId: "org-1",
+        role: "admin"
+      });
+      getBillingSnapshot.mockResolvedValue(scenario.snapshot);
+      getProcurementAnalyticsDashboard.mockResolvedValue(makeProcurementDashboard());
+      auditProcurementAnalyticsViewed.mockResolvedValue(undefined);
 
       await expectDashboardPageAccess({
         pageImport: "@/app/dashboard/procurement-analytics/page",
         props: { searchParams: {} },
         allowed: scenario.expected.procurementAllowed,
-        heading: "Procurement Analytics"
+        heading: "Procurement Analytics",
+        expectFetched: () => {
+          expect(getProcurementAnalyticsDashboard).toHaveBeenCalledWith("org-1", {
+            department: undefined,
+            ownerUserId: undefined,
+            counterpartyName: undefined,
+            dueWindowDays: null,
+            trustStatus: "all"
+          });
+          expect(auditProcurementAnalyticsViewed).toHaveBeenCalled();
+        },
+        expectBlockedBeforeFetch: () => {
+          expect(getProcurementAnalyticsDashboard).not.toHaveBeenCalled();
+          expect(auditProcurementAnalyticsViewed).not.toHaveBeenCalled();
+        }
       });
     });
   }
@@ -602,25 +692,64 @@ describe("intelligence surface entitlement consistency", () => {
     await renderContractDetailForCurrentBilling();
     expect(screen.queryByText("Risk explanation drawer")).toBeInTheDocument();
 
+    vi.clearAllMocks();
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+
     await expectDashboardPageAccess({
       pageImport: "@/app/dashboard/risk-queue/page",
       props: { searchParams: {} },
       allowed: false,
-      heading: "Risk Queue"
+      heading: "Risk Queue",
+      expectFetched: () => {},
+      expectBlockedBeforeFetch: () => {
+        expect(getContracts).not.toHaveBeenCalled();
+        expect(auditRiskQueueViewed).not.toHaveBeenCalled();
+      }
     });
+
+    vi.clearAllMocks();
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
 
     await expectDashboardPageAccess({
       pageImport: "@/app/dashboard/financial-intelligence/page",
       props: {},
       allowed: false,
-      heading: "Financial Intelligence"
+      heading: "Financial Intelligence",
+      expectFetched: () => {},
+      expectBlockedBeforeFetch: () => {
+        expect(getContracts).not.toHaveBeenCalled();
+        expect(auditFinancialIntelligenceViewed).not.toHaveBeenCalled();
+      }
     });
+
+    vi.clearAllMocks();
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
 
     await expectDashboardPageAccess({
       pageImport: "@/app/dashboard/procurement-analytics/page",
       props: { searchParams: {} },
       allowed: false,
-      heading: "Procurement Analytics"
+      heading: "Procurement Analytics",
+      expectFetched: () => {},
+      expectBlockedBeforeFetch: () => {
+        expect(getProcurementAnalyticsDashboard).not.toHaveBeenCalled();
+        expect(auditProcurementAnalyticsViewed).not.toHaveBeenCalled();
+      }
     });
   });
 });
