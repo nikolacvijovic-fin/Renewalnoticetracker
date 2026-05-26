@@ -64,7 +64,13 @@ describe("trust-sensitive route authz", () => {
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "Invalid request." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Invalid request.",
+        code: "ERR_IMPORT_PARSE_002",
+        requestId: expect.any(String)
+      })
+    );
   });
 
   it("records an org-scoped extraction preview audit event", async () => {
@@ -81,8 +87,13 @@ describe("trust-sensitive route authz", () => {
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: "org-1",
-        action: "contracts.extraction_preview_requested"
-      })
+        action: "contracts.extraction_preview_requested",
+        details: expect.objectContaining({
+          request_id: expect.any(String),
+          source: "api_extract"
+        })
+      }),
+      undefined
     );
   });
 
@@ -98,7 +109,13 @@ describe("trust-sensitive route authz", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ error: "Extraction failed." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Extraction failed.",
+        code: "ERR_IMPORT_EXTRACTION_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 
   it("rejects owner access to extraction preview because it is a review-lane action", async () => {
@@ -157,7 +174,13 @@ describe("trust-sensitive route authz", () => {
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "Invalid request." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Invalid request.",
+        code: "ERR_REMINDER_PREVIEW_REQUEST_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 
   it("records an org-scoped reminder preview audit event", async () => {
@@ -197,45 +220,57 @@ describe("trust-sensitive route authz", () => {
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: "org-1",
-        action: "reminders.preview_requested"
-      })
+        action: "reminders.preview_requested",
+        details: expect.objectContaining({
+          request_id: expect.any(String),
+          source: "api_reminders"
+        })
+      }),
+      undefined
     );
   });
 
   it("fails reminder preview explicitly when the success audit write fails", async () => {
     createAuditLog.mockRejectedValueOnce(new Error("audit failed"));
     const { POST } = await import("@/app/api/reminders/route");
-    await expect(
-      POST(
-        new Request("http://localhost/api/reminders", {
-          method: "POST",
-          body: JSON.stringify({
-            metadata: {
-              contract_title: "MSA",
-              counterparty_name: "Acme",
-              contract_type: null,
-              effective_date: null,
-              renewal_date: "2030-03-01",
-              expiration_date: "2030-06-01",
-              auto_renewal: true,
-              renewal_term: null,
-              notice_period_value: 30,
-              notice_period_unit: "days",
-              notice_deadline_date: "2030-01-01",
-              termination_window: "30 days",
-              governing_law: null,
-              payment_terms: null,
-              extracted_clauses: [],
-              field_confidence: {},
-              field_source_snippets: {},
-              reminder_recommendations: [],
-              reviewer_notes: null
-            },
-            recipientEmail: "owner@example.com"
-          }),
-          headers: { "content-type": "application/json" }
-        })
-      )
-    ).rejects.toThrow("audit failed");
+    const response = await POST(
+      new Request("http://localhost/api/reminders", {
+        method: "POST",
+        body: JSON.stringify({
+          metadata: {
+            contract_title: "MSA",
+            counterparty_name: "Acme",
+            contract_type: null,
+            effective_date: null,
+            renewal_date: "2030-03-01",
+            expiration_date: "2030-06-01",
+            auto_renewal: true,
+            renewal_term: null,
+            notice_period_value: 30,
+            notice_period_unit: "days",
+            notice_deadline_date: "2030-01-01",
+            termination_window: "30 days",
+            governing_law: null,
+            payment_terms: null,
+            extracted_clauses: [],
+            field_confidence: {},
+            field_source_snippets: {},
+            reminder_recommendations: [],
+            reviewer_notes: null
+          },
+          recipientEmail: "owner@example.com"
+        }),
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Reminder preview failed.",
+        code: "ERR_REMINDER_PREVIEW_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 });

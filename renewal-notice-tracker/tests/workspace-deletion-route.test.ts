@@ -106,7 +106,13 @@ describe("workspace deletion internal route", () => {
     );
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Unauthorized",
+        code: "ERR_INTERNAL_DESTRUCTIVE_AUTH_001",
+        requestId: expect.any(String)
+      })
+    );
     expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
   });
 
@@ -125,7 +131,13 @@ describe("workspace deletion internal route", () => {
     );
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Unauthorized",
+        code: "ERR_INTERNAL_DESTRUCTIVE_AUTH_001",
+        requestId: expect.any(String)
+      })
+    );
     expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
   });
 
@@ -146,7 +158,13 @@ describe("workspace deletion internal route", () => {
       );
 
       expect(response.status).toBe(401);
-      await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+      await expect(response.json()).resolves.toEqual(
+        expect.objectContaining({
+          error: "Unauthorized",
+          code: "ERR_INTERNAL_DESTRUCTIVE_AUTH_001",
+          requestId: expect.any(String)
+        })
+      );
       expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
@@ -167,7 +185,13 @@ describe("workspace deletion internal route", () => {
     );
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Unauthorized",
+        code: "ERR_INTERNAL_DESTRUCTIVE_AUTH_001",
+        requestId: expect.any(String)
+      })
+    );
     expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
   });
 
@@ -183,7 +207,13 @@ describe("workspace deletion internal route", () => {
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "Invalid request body." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Invalid request body.",
+        code: "ERR_WORKSPACE_DELETION_REQUEST_001",
+        requestId: expect.any(String)
+      })
+    );
     expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
   });
 
@@ -203,7 +233,13 @@ describe("workspace deletion internal route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ error: "Workspace deletion failed." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Workspace deletion failed.",
+        code: "ERR_WORKSPACE_DELETION_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
     expect(executeWorkspaceDeletionRequest).toHaveBeenCalledWith("delete-1");
   });
 });

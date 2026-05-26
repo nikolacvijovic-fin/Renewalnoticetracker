@@ -161,9 +161,11 @@ describe("billing routes", () => {
         action: "billing.checkout_unavailable",
         details: expect.objectContaining({
           provider: "manual",
-          provider_state: "internal_exception"
+          provider_state: "internal_exception",
+          request_id: expect.any(String)
         })
-      })
+      }),
+      undefined
     );
   });
 
@@ -260,9 +262,11 @@ describe("billing routes", () => {
         action: "billing.management_unavailable",
         details: expect.objectContaining({
           provider: "manual",
-          provider_state: "internal_exception"
+          provider_state: "internal_exception",
+          request_id: expect.any(String)
         })
-      })
+      }),
+      undefined
     );
   });
 

@@ -86,8 +86,12 @@ describe("backup readiness internal route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: "Backup readiness check failed."
-    });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Backup readiness check failed.",
+        code: "ERR_BACKUP_READINESS_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 });

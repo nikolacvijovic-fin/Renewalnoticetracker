@@ -86,12 +86,14 @@ describe("ops snapshots internal route", () => {
       expect.objectContaining({
         action: "internal.ops_snapshots_refreshed",
         details: expect.objectContaining({
+          request_id: expect.any(String),
           rescue_snapshot: expect.objectContaining({
             failedReminders: 2,
             importsNeedingRescue: 2
           })
         })
-      })
+      }),
+      undefined
     );
   });
 
@@ -136,6 +138,12 @@ describe("ops snapshots internal route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ error: "Ops snapshot refresh failed." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Ops snapshot refresh failed.",
+        code: "ERR_OPS_SNAPSHOT_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 });

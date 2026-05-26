@@ -1,5 +1,13 @@
-import { NextResponse } from "next/server";
-import { getOrganizationContextOrNull } from "@/lib/auth";
+import {
+  createRouteHandler,
+  parseJsonBody,
+  requireOrganizationRouteAuth,
+  RouteHttpError,
+  routeForbiddenError,
+  routeNotFoundError,
+  routeServerError,
+  routeValidationError
+} from "@/lib/http";
 import { getContractRiskAuditContext } from "@/lib/contracts/kernel-queries";
 import {
   assertCanAccessIntelligenceSurface,
@@ -23,71 +31,99 @@ export async function POST(
   request: Request,
   { params }: { params: { id: string } }
 ) {
-  const context = await getOrganizationContextOrNull();
-  if (!context) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  return createRouteHandler(
+    {
+      auth: requireOrganizationRouteAuth<{ params: { id: string } }>(),
+      parse: async ({ request }) => {
+        const body = await parseJsonBody<{
+          sourceSurface?: unknown;
+          riskBand?: unknown;
+          confidenceLevel?: unknown;
+          reasonCount?: unknown;
+          warningCount?: unknown;
+          calculationVersion?: unknown;
+          inputDataVersion?: unknown;
+        }>(request, {
+          message: "Invalid request body.",
+          code: "ERR_RISK_EXPLANATION_REQUEST_001"
+        });
 
-  try {
-    const body = (await request.json()) as {
-      sourceSurface?: unknown;
-      riskBand?: unknown;
-      confidenceLevel?: unknown;
-      reasonCount?: unknown;
-      warningCount?: unknown;
-      calculationVersion?: unknown;
-      inputDataVersion?: unknown;
-    };
+        if (
+          !isRiskExplanationAuditSurface(body.sourceSurface) ||
+          typeof body.riskBand !== "string" ||
+          !isRiskConfidenceLevel(body.confidenceLevel) ||
+          typeof body.reasonCount !== "number" ||
+          typeof body.warningCount !== "number" ||
+          typeof body.calculationVersion !== "string" ||
+          typeof body.inputDataVersion !== "string"
+        ) {
+          throw routeValidationError(
+            "Invalid request body.",
+            "ERR_RISK_EXPLANATION_REQUEST_002"
+          );
+        }
 
-    if (
-      !isRiskExplanationAuditSurface(body.sourceSurface) ||
-      typeof body.riskBand !== "string" ||
-      !isRiskConfidenceLevel(body.confidenceLevel) ||
-      typeof body.reasonCount !== "number" ||
-      typeof body.warningCount !== "number" ||
-      typeof body.calculationVersion !== "string" ||
-      typeof body.inputDataVersion !== "string"
-    ) {
-      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+        return body as {
+          sourceSurface: RiskExplanationAuditSurface;
+          riskBand: string;
+          confidenceLevel: "low" | "medium" | "high";
+          reasonCount: number;
+          warningCount: number;
+          calculationVersion: string;
+          inputDataVersion: string;
+        };
+      },
+      mapError: (error) => {
+        if (
+          error instanceof IntelligenceAuthorizationError ||
+          error instanceof IntelligencePlanAccessError
+        ) {
+          return routeForbiddenError();
+        }
+
+        if (error instanceof RouteHttpError) {
+          return null;
+        }
+
+        if (error instanceof Error) {
+          return routeServerError(
+            "Risk explanation audit failed.",
+            "ERR_RISK_EXPLANATION_FAILED_001"
+          );
+        }
+
+        return null;
+      }
+    },
+    async ({ auth: context, input: body, routeContext, noContent }) => {
+      const contract = await getContractRiskAuditContext(
+        routeContext!.params.id,
+        context.organizationId
+      );
+      if (!contract) {
+        throw routeNotFoundError();
+      }
+
+      await assertCanAccessIntelligenceSurface({
+        context,
+        surface: "risk_explanation",
+        contractOwnerUserId: contract.owner_user_id
+      });
+
+      await auditRiskExplanationViewed({
+        organizationId: context.organizationId,
+        actorUserId: context.user.id,
+        contractId: contract.id,
+        sourceSurface: body.sourceSurface,
+        riskBand: body.riskBand,
+        lowConfidenceCount: body.confidenceLevel === "low" ? 1 : 0,
+        reasonCount: body.reasonCount,
+        warningCount: body.warningCount,
+        calculationVersion: body.calculationVersion,
+        inputDataVersion: body.inputDataVersion
+      });
+
+      return noContent();
     }
-
-    const contract = await getContractRiskAuditContext(params.id, context.organizationId);
-    if (!contract) {
-      return NextResponse.json({ error: "Not found." }, { status: 404 });
-    }
-
-    await assertCanAccessIntelligenceSurface({
-      context,
-      surface: "risk_explanation",
-      contractOwnerUserId: contract.owner_user_id
-    });
-
-    await auditRiskExplanationViewed({
-      organizationId: context.organizationId,
-      actorUserId: context.user.id,
-      contractId: contract.id,
-      sourceSurface: body.sourceSurface,
-      riskBand: body.riskBand,
-      lowConfidenceCount: body.confidenceLevel === "low" ? 1 : 0,
-      reasonCount: body.reasonCount,
-      warningCount: body.warningCount,
-      calculationVersion: body.calculationVersion,
-      inputDataVersion: body.inputDataVersion
-    });
-
-    return new NextResponse(null, { status: 204 });
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-    }
-
-    if (
-      error instanceof IntelligenceAuthorizationError ||
-      error instanceof IntelligencePlanAccessError
-    ) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
-
-    return NextResponse.json({ error: "Risk explanation audit failed." }, { status: 500 });
-  }
+  )(request, { params });
 }

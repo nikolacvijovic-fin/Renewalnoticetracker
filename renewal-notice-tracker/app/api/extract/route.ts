@@ -1,72 +1,50 @@
-import { NextResponse } from "next/server";
-import { createAuditLog } from "@/lib/audit";
-import { extractContractMetadata } from "@/lib/ai/extract-contract";
 import {
-  ActiveOrganizationRequiredError,
-  OrganizationAuthorizationError,
-  assertCanUseShippedAction,
-  getActiveOrganizationContextOrNull
-} from "@/lib/auth";
+  createRouteHandler,
+  parseJsonBody,
+  requireShippedActionRouteAuth,
+  routeValidationError,
+  routeServerError
+} from "@/lib/http";
+import { extractContractMetadata } from "@/lib/ai/extract-contract";
 
-export async function POST(request: Request) {
-  const auth = await getActiveOrganizationContextOrNull();
-  let context;
-  try {
-    context = await assertCanUseShippedAction(auth, "preview_extraction", {
-      onDenied: async ({ context: deniedContext, reason, action }) => {
-        if (!deniedContext?.user) return;
-        await createAuditLog({
-          organizationId: deniedContext.organizationId,
-          actorUserId: deniedContext.user.id,
-          action: "contracts.extraction_preview_denied",
-          entityType: "contract_preview",
-          details: {
-            source: "api_extract",
-            denied_action: action,
-            denied_reason: reason
-          }
-        });
+export const POST = createRouteHandler(
+  {
+    auth: requireShippedActionRouteAuth("preview_extraction", {
+      deniedAuditAction: "contracts.extraction_preview_denied",
+      deniedEntityType: "contract_preview",
+      deniedDetails: () => ({
+        source: "api_extract"
+      })
+    }),
+    parse: async ({ request }) => {
+      const body = await parseJsonBody<{ documentText?: unknown }>(request, {
+        code: "ERR_IMPORT_PARSE_001"
+      });
+      const documentText = String(body?.documentText ?? "");
+
+      if (!documentText.trim()) {
+        throw routeValidationError("Invalid request.", "ERR_IMPORT_PARSE_002");
       }
-    });
-  } catch (error) {
-    if (error instanceof ActiveOrganizationRequiredError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+      return { documentText };
     }
-    if (error instanceof OrganizationAuthorizationError) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  },
+  async ({ auth: context, input, audit, json }) => {
+    try {
+      const result = await extractContractMetadata(input.documentText);
+      await audit({
+        organizationId: context.organizationId,
+        actorUserId: context.user.id,
+        action: "contracts.extraction_preview_requested",
+        entityType: "contract_preview",
+        details: {
+          source: "api_extract",
+          character_count: input.documentText.length
+        }
+      });
+      return json(result);
+    } catch {
+      throw routeServerError("Extraction failed.", "ERR_IMPORT_EXTRACTION_001");
     }
-    throw error;
   }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-  }
-
-  const documentText = String(
-    (body as { documentText?: unknown } | null)?.documentText ?? ""
-  );
-
-  if (!documentText.trim()) {
-    return NextResponse.json({ error: "Invalid request." }, { status: 400 });
-  }
-
-  try {
-    const result = await extractContractMetadata(documentText);
-    await createAuditLog({
-      organizationId: context.organizationId,
-      actorUserId: context.user.id,
-      action: "contracts.extraction_preview_requested",
-      entityType: "contract_preview",
-      details: {
-        source: "api_extract",
-        character_count: documentText.length
-      }
-    });
-    return NextResponse.json(result);
-  } catch {
-    return NextResponse.json({ error: "Extraction failed." }, { status: 500 });
-  }
-}
+);

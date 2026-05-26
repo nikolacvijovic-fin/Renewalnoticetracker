@@ -102,7 +102,13 @@ describe("risk explanation view audit route", () => {
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "Invalid request body." });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Invalid request body.",
+        code: "ERR_RISK_EXPLANATION_REQUEST_002",
+        requestId: expect.any(String)
+      })
+    );
     expect(auditRiskExplanationViewed).not.toHaveBeenCalled();
   });
 
@@ -133,7 +139,13 @@ describe("risk explanation view audit route", () => {
     );
 
     expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toEqual({ error: "Forbidden" });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Forbidden",
+        code: "ERR_PERMISSION_DENIED_001",
+        requestId: expect.any(String)
+      })
+    );
     expect(auditRiskExplanationViewed).not.toHaveBeenCalled();
   });
 });

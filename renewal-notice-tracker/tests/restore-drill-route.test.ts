@@ -88,8 +88,12 @@ describe("restore drill internal route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: "Restore drill recording failed."
-    });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Restore drill recording failed.",
+        code: "ERR_RESTORE_DRILL_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 });

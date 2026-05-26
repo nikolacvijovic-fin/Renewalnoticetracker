@@ -75,8 +75,12 @@ describe("send reminders cron route", () => {
     );
 
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: "Reminder processing failed."
-    });
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        error: "Reminder processing failed.",
+        code: "ERR_REMINDER_PROCESSING_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
   });
 });
