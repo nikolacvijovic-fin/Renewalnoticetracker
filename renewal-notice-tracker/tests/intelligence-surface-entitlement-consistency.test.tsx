@@ -553,6 +553,29 @@ async function renderContractsListForCurrentBilling(searchParams: Record<string,
   render(await Page({ searchParams }));
 }
 
+async function getSharedContractsListRiskViewerExpectation(input: {
+  userId: string;
+  role: "admin" | "operator" | "reviewer" | "owner";
+}) {
+  const { getIntelligenceSurfaceAccessMap } = await import("@/lib/intelligence/access");
+  const accessMap = await getIntelligenceSurfaceAccessMap({
+    context: {
+      user: { id: input.userId },
+      organizationId: "org-1",
+      role: input.role
+    } as never,
+    surfaces: ["risk_badge", "risk_explanation"],
+    contractOwnerUserId: input.role === "owner" ? input.userId : undefined
+  });
+
+  return {
+    userId: input.userId,
+    role: input.role,
+    showRiskBadge: accessMap.accessBySurface.risk_badge.allowed,
+    showRiskExplanation: accessMap.accessBySurface.risk_explanation.allowed
+  };
+}
+
 async function expectDashboardPageAccess(input: {
   pageImport:
     | "@/app/dashboard/risk-queue/page"
@@ -563,6 +586,7 @@ async function expectDashboardPageAccess(input: {
   heading: string;
   expectFetched: () => void;
   expectBlockedBeforeFetch: () => void;
+  expectVisibleWhenAllowed?: () => void;
 }) {
   cleanup();
   const Page = (await import(input.pageImport)).default;
@@ -576,6 +600,7 @@ async function expectDashboardPageAccess(input: {
   render(await Page(input.props as never));
   expect(screen.getByRole("heading", { name: input.heading })).toBeInTheDocument();
   input.expectFetched();
+  input.expectVisibleWhenAllowed?.();
 }
 
 describe("intelligence surface entitlement consistency", () => {
@@ -622,6 +647,10 @@ describe("intelligence surface entitlement consistency", () => {
         departments: [],
         statusTags: []
       });
+      const sharedRiskViewer = await getSharedContractsListRiskViewerExpectation({
+        userId: "admin-1",
+        role: "admin"
+      });
 
       await renderContractsListForCurrentBilling();
       expect(screen.getByRole("heading", { name: "Contracts" })).toBeInTheDocument();
@@ -633,12 +662,17 @@ describe("intelligence surface entitlement consistency", () => {
       expect(getContractFacets).toHaveBeenCalledWith("org-1");
       expect(contractsTableSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          riskViewer: {
+          riskViewer: expect.objectContaining({
             userId: "admin-1",
             role: "admin",
             showRiskBadge: scenario.expected.contractsList.badge,
             showRiskExplanation: scenario.expected.contractsList.explanation
-          }
+          })
+        })
+      );
+      expect(contractsTableSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          riskViewer: sharedRiskViewer
         })
       );
 
@@ -678,6 +712,11 @@ describe("intelligence surface entitlement consistency", () => {
           expect(getContractFacets).not.toHaveBeenCalled();
           expect(getCounterparties).not.toHaveBeenCalled();
           expect(auditRiskQueueViewed).not.toHaveBeenCalled();
+        },
+        expectVisibleWhenAllowed: () => {
+          expect(screen.getByText("Contracts in queue")).toBeInTheDocument();
+          expect(screen.getByText("Risk queue table")).toBeInTheDocument();
+          expect(screen.getByText("Risk filters")).toBeInTheDocument();
         }
       });
 
@@ -704,6 +743,10 @@ describe("intelligence surface entitlement consistency", () => {
         expectBlockedBeforeFetch: () => {
           expect(getContracts).not.toHaveBeenCalled();
           expect(auditFinancialIntelligenceViewed).not.toHaveBeenCalled();
+        },
+        expectVisibleWhenAllowed: () => {
+          expect(screen.getByText("Renewal exposure next 30 days")).toBeInTheDocument();
+          expect(screen.getByText("Trust and data warnings")).toBeInTheDocument();
         }
       });
 
@@ -735,10 +778,35 @@ describe("intelligence surface entitlement consistency", () => {
         expectBlockedBeforeFetch: () => {
           expect(getProcurementAnalyticsDashboard).not.toHaveBeenCalled();
           expect(auditProcurementAnalyticsViewed).not.toHaveBeenCalled();
+        },
+        expectVisibleWhenAllowed: () => {
+          expect(screen.getByText("Contracts in scope")).toBeInTheDocument();
+          expect(screen.getByText("Top vendors by upcoming renewal exposure")).toBeInTheDocument();
+          expect(screen.getByText("Renewal outcome history")).toBeInTheDocument();
         }
       });
     });
   }
+
+  it("blocks owners from risk access on contract detail when they do not own the contract", async () => {
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+    getContractById.mockResolvedValue({
+      ...makeContract(),
+      owner_user_id: "owner-2",
+      owner_name: "Someone Else"
+    });
+
+    await renderContractDetailForCurrentBilling();
+
+    expect(screen.queryByText("Risk badge high")).not.toBeInTheDocument();
+    expect(screen.queryByText("Risk explanation drawer")).not.toBeInTheDocument();
+    expect(auditRiskBadgeViewed).not.toHaveBeenCalled();
+  });
 
   it("documents the intentional difference that owners can see their own contract risk while portfolio intelligence stays blocked", async () => {
     requireOrganization.mockResolvedValue({
@@ -765,16 +833,15 @@ describe("intelligence surface entitlement consistency", () => {
       departments: [],
       statusTags: []
     });
+    const sharedRiskViewer = await getSharedContractsListRiskViewerExpectation({
+      userId: "owner-1",
+      role: "owner"
+    });
 
     await renderContractsListForCurrentBilling();
     expect(contractsTableSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        riskViewer: {
-          userId: "owner-1",
-          role: "owner",
-          showRiskBadge: true,
-          showRiskExplanation: true
-        }
+        riskViewer: sharedRiskViewer
       })
     );
 
@@ -871,6 +938,10 @@ describe("intelligence surface entitlement consistency", () => {
       });
       buildRiskQueueRow.mockReturnValue(makeRiskExplanation());
       auditRiskBadgeViewed.mockResolvedValue(undefined);
+      const sharedRiskViewer = await getSharedContractsListRiskViewerExpectation({
+        userId: roleCase.userId,
+        role: roleCase.role
+      });
 
       await renderContractDetailForCurrentBilling();
       expect(screen.getByText("Risk explanation drawer")).toBeInTheDocument();
@@ -878,14 +949,132 @@ describe("intelligence surface entitlement consistency", () => {
       await renderContractsListForCurrentBilling();
       expect(contractsTableSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          riskViewer: {
-            userId: roleCase.userId,
-            role: roleCase.role,
-            showRiskBadge: true,
-            showRiskExplanation: true
-          }
+          riskViewer: sharedRiskViewer
         })
       );
+    }
+  });
+
+  it("keeps portfolio dashboard role gates aligned with user-visible page behavior on growth", async () => {
+    const roleCases = [
+      {
+        role: "admin",
+        userId: "admin-1",
+        expected: {
+          riskQueueAllowed: true,
+          financialAllowed: true,
+          procurementAllowed: true
+        }
+      },
+      {
+        role: "operator",
+        userId: "operator-1",
+        expected: {
+          riskQueueAllowed: true,
+          financialAllowed: false,
+          procurementAllowed: true
+        }
+      },
+      {
+        role: "reviewer",
+        userId: "reviewer-1",
+        expected: {
+          riskQueueAllowed: true,
+          financialAllowed: false,
+          procurementAllowed: false
+        }
+      }
+    ] as const;
+
+    for (const roleCase of roleCases) {
+      vi.clearAllMocks();
+      requireOrganization.mockResolvedValue({
+        user: { id: roleCase.userId },
+        organizationId: "org-1",
+        role: roleCase.role
+      });
+      getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+      getContracts.mockResolvedValue([makeContract()]);
+      getContractFacets.mockResolvedValue({
+        owners: [],
+        departments: [],
+        statusTags: []
+      });
+      getCounterparties.mockResolvedValue([]);
+      buildRiskQueueView.mockReturnValue(makeRiskQueueDashboard());
+
+      await expectDashboardPageAccess({
+        pageImport: "@/app/dashboard/risk-queue/page",
+        props: { searchParams: {} },
+        allowed: roleCase.expected.riskQueueAllowed,
+        heading: "Risk Queue",
+        expectFetched: () => {
+          expect(getContracts).toHaveBeenCalled();
+          expect(auditRiskQueueViewed).toHaveBeenCalled();
+        },
+        expectBlockedBeforeFetch: () => {
+          expect(getContracts).not.toHaveBeenCalled();
+          expect(auditRiskQueueViewed).not.toHaveBeenCalled();
+        },
+        expectVisibleWhenAllowed: () => {
+          expect(screen.getByText("Contracts in queue")).toBeInTheDocument();
+        }
+      });
+
+      vi.clearAllMocks();
+      requireOrganization.mockResolvedValue({
+        user: { id: roleCase.userId },
+        organizationId: "org-1",
+        role: roleCase.role
+      });
+      getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+      getContracts.mockResolvedValue([makeContract()]);
+      buildFinancialDashboardView.mockReturnValue(makeFinancialDashboard());
+
+      await expectDashboardPageAccess({
+        pageImport: "@/app/dashboard/financial-intelligence/page",
+        props: {},
+        allowed: roleCase.expected.financialAllowed,
+        heading: "Financial Intelligence",
+        expectFetched: () => {
+          expect(getContracts).toHaveBeenCalled();
+          expect(auditFinancialIntelligenceViewed).toHaveBeenCalled();
+        },
+        expectBlockedBeforeFetch: () => {
+          expect(getContracts).not.toHaveBeenCalled();
+          expect(auditFinancialIntelligenceViewed).not.toHaveBeenCalled();
+        },
+        expectVisibleWhenAllowed: () => {
+          expect(screen.getByText("Trust and data warnings")).toBeInTheDocument();
+        }
+      });
+
+      vi.clearAllMocks();
+      requireOrganization.mockResolvedValue({
+        user: { id: roleCase.userId },
+        organizationId: "org-1",
+        role: roleCase.role
+      });
+      getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+      getProcurementAnalyticsDashboard.mockResolvedValue(makeProcurementDashboard());
+
+      await expectDashboardPageAccess({
+        pageImport: "@/app/dashboard/procurement-analytics/page",
+        props: { searchParams: {} },
+        allowed: roleCase.expected.procurementAllowed,
+        heading: "Procurement Analytics",
+        expectFetched: () => {
+          expect(getProcurementAnalyticsDashboard).toHaveBeenCalled();
+          expect(auditProcurementAnalyticsViewed).toHaveBeenCalled();
+        },
+        expectBlockedBeforeFetch: () => {
+          expect(getProcurementAnalyticsDashboard).not.toHaveBeenCalled();
+          expect(auditProcurementAnalyticsViewed).not.toHaveBeenCalled();
+        },
+        expectVisibleWhenAllowed: () => {
+          expect(screen.getByText("Contracts in scope")).toBeInTheDocument();
+        }
+      });
     }
   });
 });
