@@ -19,6 +19,7 @@ const auditRiskBadgeViewed = vi.fn();
 const auditRiskQueueViewed = vi.fn();
 const auditFinancialIntelligenceViewed = vi.fn();
 const auditProcurementAnalyticsViewed = vi.fn();
+const contractsTableSpy = vi.fn();
 
 const redirectMock = vi.fn((location: string) => {
   throw new Error(`REDIRECT:${location}`);
@@ -110,9 +111,14 @@ vi.mock("@/lib/intelligence/audit", () => ({
   auditProcurementAnalyticsViewed
 }));
 
-vi.mock("@/lib/utils", () => ({
-  formatDate: () => "May 25, 2026"
-}));
+vi.mock("@/lib/utils", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/utils")>("@/lib/utils");
+
+  return {
+    ...actual,
+    formatDate: () => "May 25, 2026"
+  };
+});
 
 vi.mock("@/components/ui/badge", () => ({
   Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>
@@ -175,7 +181,10 @@ vi.mock("@/components/contracts/contract-filters", () => ({
 }));
 
 vi.mock("@/components/contracts/contracts-table", () => ({
-  ContractsTable: () => <div>Contracts table</div>
+  ContractsTable: (props: unknown) => {
+    contractsTableSpy(props);
+    return <div>Contracts table</div>;
+  }
 }));
 
 vi.mock("@/components/dashboard/risk-queue-filters", () => ({
@@ -366,6 +375,7 @@ function makeProcurementDashboard() {
 
 type SurfaceExpectation = {
   contractDetail: { badge: boolean; explanation: boolean };
+  contractsList: { badge: boolean; explanation: boolean };
   riskQueueAllowed: boolean;
   financialAllowed: boolean;
   procurementAllowed: boolean;
@@ -385,6 +395,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: false, explanation: false },
+      contractsList: { badge: false, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -399,6 +410,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: true, explanation: false },
+      contractsList: { badge: true, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -409,6 +421,7 @@ const BILLING_STATE_MATRIX: Array<{
     snapshot: makeBillingSnapshot(),
     expected: {
       contractDetail: { badge: true, explanation: true },
+      contractsList: { badge: true, explanation: true },
       riskQueueAllowed: true,
       financialAllowed: true,
       procurementAllowed: true
@@ -423,6 +436,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: false, explanation: false },
+      contractsList: { badge: false, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -437,6 +451,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: false, explanation: false },
+      contractsList: { badge: false, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -451,6 +466,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: false, explanation: false },
+      contractsList: { badge: false, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -464,6 +480,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: false, explanation: false },
+      contractsList: { badge: false, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -478,6 +495,7 @@ const BILLING_STATE_MATRIX: Array<{
     }),
     expected: {
       contractDetail: { badge: false, explanation: false },
+      contractsList: { badge: false, explanation: false },
       riskQueueAllowed: false,
       financialAllowed: false,
       procurementAllowed: false
@@ -487,6 +505,7 @@ const BILLING_STATE_MATRIX: Array<{
 
 beforeEach(() => {
   vi.clearAllMocks();
+  contractsTableSpy.mockReset();
   requireOrganization.mockResolvedValue({
     user: { id: "admin-1" },
     organizationId: "org-1",
@@ -528,6 +547,12 @@ async function renderContractDetailForCurrentBilling() {
   render(await Page({ params: { id: "contract-1" } }));
 }
 
+async function renderContractsListForCurrentBilling(searchParams: Record<string, string> = {}) {
+  cleanup();
+  const Page = (await import("@/app/dashboard/contracts/page")).default;
+  render(await Page({ searchParams }));
+}
+
 async function expectDashboardPageAccess(input: {
   pageImport:
     | "@/app/dashboard/risk-queue/page"
@@ -555,7 +580,7 @@ async function expectDashboardPageAccess(input: {
 
 describe("intelligence surface entitlement consistency", () => {
   for (const scenario of BILLING_STATE_MATRIX) {
-    it(`keeps contract detail, risk queue, financial intelligence, and procurement analytics aligned for ${scenario.name}`, async () => {
+    it(`keeps contract detail, contracts list, risk queue, financial intelligence, and procurement analytics aligned for ${scenario.name}`, async () => {
       getBillingSnapshot.mockResolvedValue(scenario.snapshot);
 
       await renderContractDetailForCurrentBilling();
@@ -582,6 +607,40 @@ describe("intelligence surface entitlement consistency", () => {
       } else {
         expect(auditRiskBadgeViewed).not.toHaveBeenCalled();
       }
+
+      vi.clearAllMocks();
+      contractsTableSpy.mockReset();
+      requireOrganization.mockResolvedValue({
+        user: { id: "admin-1" },
+        organizationId: "org-1",
+        role: "admin"
+      });
+      getBillingSnapshot.mockResolvedValue(scenario.snapshot);
+      getContracts.mockResolvedValue([makeContract()]);
+      getContractFacets.mockResolvedValue({
+        owners: [],
+        departments: [],
+        statusTags: []
+      });
+
+      await renderContractsListForCurrentBilling();
+      expect(screen.getByRole("heading", { name: "Contracts" })).toBeInTheDocument();
+      expect(getContracts).toHaveBeenCalledWith("org-1", "all", {
+        ownerUserId: undefined,
+        department: undefined,
+        statusTag: undefined
+      });
+      expect(getContractFacets).toHaveBeenCalledWith("org-1");
+      expect(contractsTableSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          riskViewer: {
+            userId: "admin-1",
+            role: "admin",
+            showRiskBadge: scenario.expected.contractsList.badge,
+            showRiskExplanation: scenario.expected.contractsList.explanation
+          }
+        })
+      );
 
       vi.clearAllMocks();
       requireOrganization.mockResolvedValue({
@@ -693,6 +752,33 @@ describe("intelligence surface entitlement consistency", () => {
     expect(screen.queryByText("Risk explanation drawer")).toBeInTheDocument();
 
     vi.clearAllMocks();
+    contractsTableSpy.mockReset();
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+    getContracts.mockResolvedValue([makeContract()]);
+    getContractFacets.mockResolvedValue({
+      owners: [],
+      departments: [],
+      statusTags: []
+    });
+
+    await renderContractsListForCurrentBilling();
+    expect(contractsTableSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        riskViewer: {
+          userId: "owner-1",
+          role: "owner",
+          showRiskBadge: true,
+          showRiskExplanation: true
+        }
+      })
+    );
+
+    vi.clearAllMocks();
     requireOrganization.mockResolvedValue({
       user: { id: "owner-1" },
       organizationId: "org-1",
@@ -751,5 +837,55 @@ describe("intelligence surface entitlement consistency", () => {
         expect(auditProcurementAnalyticsViewed).not.toHaveBeenCalled();
       }
     });
+  });
+
+  it("keeps contracts list risk visibility aligned with contract detail for admin, operator, and reviewer on growth", async () => {
+    const roleCases = [
+      { role: "admin", userId: "admin-1" },
+      { role: "operator", userId: "operator-1" },
+      { role: "reviewer", userId: "reviewer-1" }
+    ] as const;
+
+    for (const roleCase of roleCases) {
+      vi.clearAllMocks();
+      contractsTableSpy.mockReset();
+      requireOrganization.mockResolvedValue({
+        user: { id: roleCase.userId },
+        organizationId: "org-1",
+        role: roleCase.role
+      });
+      getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+      getContractById.mockResolvedValue(makeContract());
+      getOrganizationMembers.mockResolvedValue([
+        {
+          user_id: "owner-1",
+          user: { full_name: "Owner One", notification_email: "owner@example.com" }
+        }
+      ]);
+      getCounterparties.mockResolvedValue([]);
+      getContracts.mockResolvedValue([makeContract()]);
+      getContractFacets.mockResolvedValue({
+        owners: [],
+        departments: [],
+        statusTags: []
+      });
+      buildRiskQueueRow.mockReturnValue(makeRiskExplanation());
+      auditRiskBadgeViewed.mockResolvedValue(undefined);
+
+      await renderContractDetailForCurrentBilling();
+      expect(screen.getByText("Risk explanation drawer")).toBeInTheDocument();
+
+      await renderContractsListForCurrentBilling();
+      expect(contractsTableSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          riskViewer: {
+            userId: roleCase.userId,
+            role: roleCase.role,
+            showRiskBadge: true,
+            showRiskExplanation: true
+          }
+        })
+      );
+    }
   });
 });
