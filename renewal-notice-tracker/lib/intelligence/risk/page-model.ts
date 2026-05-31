@@ -1,4 +1,18 @@
 import type { RiskQueueView } from "@/lib/intelligence/risk/dashboard";
+import { buildRiskQueueView } from "@/lib/intelligence/risk/dashboard";
+import type { DashboardContractRow } from "@/lib/contracts/dashboard";
+import type {
+  ContractFacets,
+  CounterpartyRecord
+} from "@/lib/contracts/kernel-queries";
+
+export type RiskQueueSearchParams = {
+  owner?: string;
+  department?: string;
+  riskBand?: string;
+  dueWindow?: string;
+  trustStatus?: string;
+};
 
 export type RiskQueueViewedAuditPayload = {
   organizationId: string;
@@ -34,4 +48,44 @@ export function buildRiskQueueViewedAuditPayload(input: {
       dashboard.rows[0]?.explanationMetadata.input_data_version ??
       "trusted_workflow_state.v1"
   };
+}
+
+export function buildRiskQueueContractQueryOptions(searchParams: RiskQueueSearchParams) {
+  return {
+    ownerUserId: searchParams.owner,
+    department: searchParams.department
+  };
+}
+
+export function getDuplicateCounterpartyIdsForRiskQueue(
+  counterparties: CounterpartyRecord[]
+) {
+  return counterparties
+    .filter((counterparty) => counterparty.duplicate_suggestions.length > 0)
+    .map((counterparty) => counterparty.id);
+}
+
+export function buildRiskQueuePageModel(input: {
+  contracts: DashboardContractRow[];
+  facets: ContractFacets;
+  counterparties: CounterpartyRecord[];
+  searchParams: RiskQueueSearchParams;
+}): RiskQueueView {
+  return buildRiskQueueView({
+    contracts: input.contracts,
+    duplicateCounterpartyIds: getDuplicateCounterpartyIdsForRiskQueue(
+      input.counterparties
+    ),
+    filterOptions: {
+      owners: input.facets.owners,
+      departments: input.facets.departments
+    },
+    filters: {
+      ownerUserId: input.searchParams.owner,
+      department: input.searchParams.department,
+      riskBand: input.searchParams.riskBand,
+      dueWindowDays: input.searchParams.dueWindow,
+      trustStatus: input.searchParams.trustStatus
+    }
+  });
 }

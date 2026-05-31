@@ -34,7 +34,7 @@ import {
 import { reminderSchema } from "@/lib/validation/reminder";
 import { createAuditLog } from "@/lib/audit";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { splitEmails, uniqueEmails } from "@/lib/utils";
 import {
   getScopedContractMetadataId,
@@ -713,7 +713,7 @@ export async function createContractAction(formData: FormData) {
   const extension = file.name.split(".").pop() ?? "bin";
   const storagePath = `${organizationId}/${contract.id}/${randomUUID()}.${extension}`;
   const storageResult = await admin.storage
-    .from(env.SUPABASE_STORAGE_BUCKET)
+    .from(getAppConfig().supabase.storageBucket)
     .upload(storagePath, buffer, {
       contentType: file.type,
       upsert: false

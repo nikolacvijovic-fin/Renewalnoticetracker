@@ -15,7 +15,7 @@ import {
   enforceFeatureAccess,
   getCommercialRedirectCode
 } from "@/lib/billing/entitlements";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { SHIPPED_EXPORT_CLASSIFICATION } from "@/lib/product/action-matrix";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
 
@@ -66,7 +66,7 @@ export async function GET() {
   } catch (error) {
     if (error instanceof CommercialAccessError) {
       return NextResponse.redirect(
-        `${env.NEXT_PUBLIC_APP_URL}/dashboard/contracts?commercial=${getCommercialRedirectCode(error.feature, error.access.reason)}`,
+        `${getAppConfig().public.appUrl}/dashboard/contracts?commercial=${getCommercialRedirectCode(error.feature, error.access.reason)}`,
         { status: 303 }
       );
     }

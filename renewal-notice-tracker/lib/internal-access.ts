@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import type { InternalRole } from "@/lib/product/shipping-profile";
 import {
   SHIPPED_RUNTIME_ACTION_MATRIX,
@@ -28,7 +28,7 @@ function parseInternalAllowlist(value: string | undefined) {
 
 export function resolveInternalRoleForEmail(
   email: string | null | undefined,
-  allowlist = env.INTERNAL_OPERATOR_ALLOWLIST
+  allowlist = getAppConfig().internal.operatorAllowlist ?? undefined
 ) {
   if (!email) return null;
   const normalized = email.trim().toLowerCase();

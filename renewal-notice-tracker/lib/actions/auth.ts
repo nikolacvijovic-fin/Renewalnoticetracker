@@ -9,7 +9,7 @@ import {
   updatePasswordSchema
 } from "@/lib/validation/auth";
 import { normalizeAttributionValue } from "@/lib/trial";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 
 function authRedirect(path: string, message: string) {
   redirect(`${path}?message=${encodeURIComponent(message)}`);
@@ -46,10 +46,11 @@ export async function signInAction(formData: FormData) {
     cookieStore.set("marketing_campaign", campaign, { path: "/", httpOnly: true, sameSite: "lax" });
   }
   const supabase = createServerSupabaseClient();
+  const appUrl = getAppConfig().public.appUrl;
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.email,
     options: {
-      emailRedirectTo: `${env.NEXT_PUBLIC_APP_URL}/auth/callback`
+      emailRedirectTo: `${appUrl}/auth/callback`
     }
   });
 
@@ -74,11 +75,12 @@ export async function signUpAction(formData: FormData) {
     cookieStore.set("marketing_campaign", campaign, { path: "/", httpOnly: true, sameSite: "lax" });
   }
   const supabase = createServerSupabaseClient();
+  const appUrl = getAppConfig().public.appUrl;
   const { error } = await supabase.auth.signInWithOtp({
     email: parsed.email,
     options: {
       shouldCreateUser: true,
-      emailRedirectTo: `${env.NEXT_PUBLIC_APP_URL}/auth/callback`
+      emailRedirectTo: `${appUrl}/auth/callback`
     }
   });
 
@@ -94,8 +96,9 @@ export async function requestPasswordResetAction(formData: FormData) {
     email: formData.get("email")
   });
   const supabase = createServerSupabaseClient();
+  const appUrl = getAppConfig().public.appUrl;
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.email, {
-    redirectTo: `${env.NEXT_PUBLIC_APP_URL}/auth/update-password`
+    redirectTo: `${appUrl}/auth/update-password`
   });
 
   if (error) {

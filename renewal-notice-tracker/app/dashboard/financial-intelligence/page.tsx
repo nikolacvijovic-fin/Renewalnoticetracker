@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { getContracts } from "@/lib/contracts/kernel-queries";
-import { buildFinancialDashboardView } from "@/lib/intelligence/financial/dashboard";
-import { buildFinancialIntelligenceViewedAuditPayload } from "@/lib/intelligence/financial/page-model";
+import {
+  buildFinancialIntelligencePageModel,
+  buildFinancialIntelligenceViewedAuditPayload
+} from "@/lib/intelligence/financial/page-model";
 import { FinancialExposureCard } from "@/components/dashboard/financial-exposure-card";
 import { FinancialExposureBreakdown } from "@/components/dashboard/financial-exposure-breakdown";
 import { auditFinancialIntelligenceViewed } from "@/lib/intelligence/audit";
@@ -13,12 +15,13 @@ export default async function FinancialIntelligencePage() {
 
   const { organizationId } = context;
   const contracts = await getContracts(organizationId, "all");
-  const view = buildFinancialDashboardView(contracts);
+  const pageModel = buildFinancialIntelligencePageModel(contracts);
+  const { view } = pageModel;
   await auditFinancialIntelligenceViewed(
     buildFinancialIntelligenceViewedAuditPayload({
       organizationId,
       actorUserId: context.user.id,
-      contractCount: contracts.length,
+      contractCount: pageModel.contractCount,
       view
     })
   );

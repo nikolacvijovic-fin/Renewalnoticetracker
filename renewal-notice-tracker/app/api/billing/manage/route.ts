@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import {
   createRouteHandler,
   requireShippedActionRouteAuth,
@@ -40,6 +40,7 @@ export const POST = createRouteHandler(
 
     if (!capability.management.supported) {
       const policy = getBillingProviderPolicy(providerName);
+      const appUrl = getAppConfig().public.appUrl;
       await audit({
         organizationId,
         actorUserId: user.id,
@@ -54,7 +55,7 @@ export const POST = createRouteHandler(
       });
 
       return redirect(
-        `${env.NEXT_PUBLIC_APP_URL}/dashboard/settings?billing=contact-support&provider=${providerName}`
+        `${appUrl}/dashboard/settings?billing=contact-support&provider=${providerName}`
       );
     }
 
@@ -67,6 +68,7 @@ export const POST = createRouteHandler(
     });
 
     if (!session.supported || !session.url) {
+      const appUrl = getAppConfig().public.appUrl;
       await audit({
         organizationId,
         actorUserId: user.id,
@@ -79,7 +81,7 @@ export const POST = createRouteHandler(
       });
 
       return redirect(
-        `${env.NEXT_PUBLIC_APP_URL}/dashboard/settings?billing=contact-support&provider=${providerName}`
+        `${appUrl}/dashboard/settings?billing=contact-support&provider=${providerName}`
       );
     }
 

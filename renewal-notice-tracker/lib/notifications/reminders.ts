@@ -1,7 +1,6 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { sendReminderEmail } from "@/lib/email/send-reminder";
 import type { Json } from "@/lib/supabase/database.types";
-import { env } from "@/lib/env";
 import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
 import {
   buildDeliveryKey,

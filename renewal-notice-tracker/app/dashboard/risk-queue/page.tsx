@@ -8,8 +8,11 @@ import { RiskQueueFilters } from "@/components/dashboard/risk-queue-filters";
 import { RiskQueueTable } from "@/components/dashboard/risk-queue-table";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
-import { buildRiskQueueView } from "@/lib/intelligence/risk/dashboard";
-import { buildRiskQueueViewedAuditPayload } from "@/lib/intelligence/risk/page-model";
+import {
+  buildRiskQueueContractQueryOptions,
+  buildRiskQueuePageModel,
+  buildRiskQueueViewedAuditPayload
+} from "@/lib/intelligence/risk/page-model";
 import {
   auditRiskQueueViewed
 } from "@/lib/intelligence/audit";
@@ -30,30 +33,20 @@ export default async function RiskQueuePage({
 
   const { organizationId } = context;
   const [contracts, facets, counterparties] = await Promise.all([
-    getContracts(organizationId, "all", {
-      ownerUserId: searchParams.owner,
-      department: searchParams.department
-    }),
+    getContracts(
+      organizationId,
+      "all",
+      buildRiskQueueContractQueryOptions(searchParams)
+    ),
     getContractFacets(organizationId),
     getCounterparties(organizationId)
   ]);
 
-  const dashboard = buildRiskQueueView({
+  const dashboard = buildRiskQueuePageModel({
     contracts,
-    duplicateCounterpartyIds: counterparties
-      .filter((counterparty) => counterparty.duplicate_suggestions.length > 0)
-      .map((counterparty) => counterparty.id),
-    filterOptions: {
-      owners: facets.owners,
-      departments: facets.departments
-    },
-    filters: {
-      ownerUserId: searchParams.owner,
-      department: searchParams.department,
-      riskBand: searchParams.riskBand,
-      dueWindowDays: searchParams.dueWindow,
-      trustStatus: searchParams.trustStatus
-    }
+    facets,
+    counterparties,
+    searchParams
   });
   await auditRiskQueueViewed(
     buildRiskQueueViewedAuditPayload({

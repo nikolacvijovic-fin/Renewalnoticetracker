@@ -1,0 +1,101 @@
+import { describe, expect, it } from "vitest";
+import { ConfigValidationError, parseAppConfig } from "@/lib/config";
+
+function makeValidEnv(
+  overrides: Record<string, string | undefined> = {}
+): Record<string, string | undefined> {
+  return {
+    NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+    NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
+    SUPABASE_STORAGE_BUCKET: "contract-files",
+    OPENAI_API_KEY: "test-openai-key",
+    OPENAI_MODEL: "gpt-4.1-mini",
+    OCR_PROVIDER: "openai",
+    RESEND_API_KEY: "test-resend-key",
+    RESEND_FROM_EMAIL: "notifications@noticecontrol.com",
+    RESEND_WEBHOOK_SIGNING_SECRET: "test-resend-webhook-secret",
+    NOTICECONTROL_REPLY_TO_EMAIL: "support@noticecontrol.com",
+    NOTICECONTROL_SENDING_DOMAIN: "noticecontrol.com",
+    CRON_SHARED_SECRET: "test-cron-secret",
+    PADDLE_API_KEY: "test-paddle-key",
+    PADDLE_WEBHOOK_SECRET: "test-paddle-secret",
+    PADDLE_ENVIRONMENT: "sandbox",
+    PADDLE_STARTER_PRICE_ID: "price_starter",
+    PADDLE_GROWTH_PRICE_ID: "price_growth",
+    INTERNAL_HEALTH_SECRET: "test-health-secret",
+    INTERNAL_OCR_JOBS_SECRET: "test-ocr-secret",
+    INTERNAL_OPERATIONS_SECRET: "test-operations-secret",
+    INTERNAL_DESTRUCTIVE_OPS_SECRET: "test-destructive-secret",
+    INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: "test-destructive-signing-secret",
+    INTERNAL_OPERATOR_ALLOWLIST: "support@example.com:internal_support",
+    ...overrides
+  };
+}
+
+describe("runtime configuration", () => {
+  it("loads valid config into grouped operational concerns", () => {
+    const config = parseAppConfig(makeValidEnv());
+
+    expect(config.public).toEqual({
+      appUrl: "http://localhost:3000",
+      supabaseUrl: "http://localhost:54321",
+      supabaseAnonKey: "test-anon-key"
+    });
+    expect(config.supabase).toMatchObject({
+      serviceRoleKey: "test-service-key",
+      storageBucket: "contract-files"
+    });
+    expect(config.internal).toMatchObject({
+      cronSharedSecret: "test-cron-secret",
+      destructiveOpsSigningSecret: "test-destructive-signing-secret"
+    });
+    expect(config.billing).toMatchObject({
+      paddleEnvironment: "sandbox",
+      paddleGrowthPriceId: "price_growth"
+    });
+  });
+
+  it("fails clearly when required secrets are missing", () => {
+    const env = makeValidEnv();
+    delete env.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET;
+
+    expect(() => parseAppConfig(env)).toThrow(ConfigValidationError);
+    expect(() => parseAppConfig(env)).toThrow(/INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET/i);
+  });
+
+  it("fails clearly when required URLs are malformed", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          NEXT_PUBLIC_APP_URL: "not-a-url"
+        })
+      )
+    ).toThrow(/NEXT_PUBLIC_APP_URL.*url/i);
+  });
+
+  it("fails clearly when enum-like config is invalid", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          PADDLE_ENVIRONMENT: "staging"
+        })
+      )
+    ).toThrow(/PADDLE_ENVIRONMENT/i);
+  });
+
+  it("treats blank optional config as absent while still requiring critical values", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        OCR_OPENAI_API_KEY: "",
+        NOTICECONTROL_EMAIL_ACTION_SECRET: "",
+        PADDLE_API_KEY: ""
+      })
+    );
+
+    expect(config.ocr.openaiApiKey).toBeNull();
+    expect(config.email.actionSecret).toBeNull();
+    expect(config.billing.paddleApiKey).toBeNull();
+  });
+});

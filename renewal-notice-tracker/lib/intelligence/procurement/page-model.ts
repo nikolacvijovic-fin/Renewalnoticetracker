@@ -2,7 +2,19 @@ import type {
   ProcurementAnalyticsDashboard,
   ProcurementAnalyticsRow
 } from "@/lib/intelligence/procurement/query-helpers";
+import {
+  normalizeProcurementDueWindow,
+  normalizeProcurementTrustFilter
+} from "@/lib/intelligence/procurement/query-helpers";
 import type { IntelligenceTrustLevel } from "@/lib/intelligence/shared/types";
+
+export type ProcurementAnalyticsSearchParams = {
+  department?: string;
+  owner?: string;
+  counterparty?: string;
+  dueWindow?: string;
+  trustStatus?: string;
+};
 
 export type ProcurementDashboardActionItem = {
   key: string;
@@ -51,6 +63,18 @@ export function buildProcurementAnalyticsViewedAuditPayload(input: {
     lowConfidenceContractCount: input.dashboard.lowConfidenceContractCount,
     warningCount: input.dashboard.combinedWarnings.length,
     calculationVersion: "procurement_analytics.v1"
+  };
+}
+
+export function buildProcurementAnalyticsDashboardQuery(
+  searchParams: ProcurementAnalyticsSearchParams
+) {
+  return {
+    department: searchParams.department,
+    ownerUserId: searchParams.owner,
+    counterpartyName: searchParams.counterparty,
+    dueWindowDays: normalizeProcurementDueWindow(searchParams.dueWindow),
+    trustStatus: normalizeProcurementTrustFilter(searchParams.trustStatus)
   };
 }
 

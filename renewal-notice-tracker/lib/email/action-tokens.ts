@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 
 export const PHASE1_EMAIL_ACTIONS = ["acknowledge", "decision"] as const;
 export type Phase1EmailAction = (typeof PHASE1_EMAIL_ACTIONS)[number];
@@ -30,7 +30,8 @@ export class ReminderEmailActionTokenError extends Error {
 }
 
 function getSigningSecret() {
-  return env.NOTICECONTROL_EMAIL_ACTION_SECRET?.trim() || env.CRON_SHARED_SECRET;
+  const config = getAppConfig();
+  return config.email.actionSecret?.trim() || config.internal.cronSharedSecret;
 }
 
 function encodeBase64Url(input: string) {

@@ -1,14 +1,12 @@
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import type { BillingProviderName } from "@/lib/billing/types";
-
-const paddleEnvironments = new Set(["sandbox", "production"]);
 
 export function getBillingDefaultProvider(): BillingProviderName {
   return "paddle";
 }
 
 export function getBillingReturnUrls() {
-  const baseUrl = env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const baseUrl = getAppConfig().public.appUrl.replace(/\/$/, "");
   return {
     successUrl: `${baseUrl}/dashboard/settings`,
     cancelUrl: `${baseUrl}/pricing`,
@@ -17,27 +15,24 @@ export function getBillingReturnUrls() {
 }
 
 export function getPaddleConfig() {
-  const apiKey = env.PADDLE_API_KEY;
-  const webhookSecret = env.PADDLE_WEBHOOK_SECRET;
-  const environment = env.PADDLE_ENVIRONMENT ?? "sandbox";
-  const starterPriceId = env.PADDLE_STARTER_PRICE_ID;
-  const growthPriceId = env.PADDLE_GROWTH_PRICE_ID;
+  const {
+    paddleApiKey: apiKey,
+    paddleWebhookSecret: webhookSecret,
+    paddleEnvironment: environment,
+    paddleStarterPriceId: starterPriceId,
+    paddleGrowthPriceId: growthPriceId
+  } = getAppConfig().billing;
 
   if (!apiKey || !webhookSecret || !starterPriceId || !growthPriceId) {
     throw new Error("Missing Paddle billing configuration env vars.");
   }
 
-  if (!paddleEnvironments.has(environment)) {
-    throw new Error("Invalid Paddle environment.");
-  }
-
-  const envValue = environment as "sandbox" | "production";
-  const apiBaseUrl = envValue === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
+  const apiBaseUrl = environment === "sandbox" ? "https://sandbox-api.paddle.com" : "https://api.paddle.com";
 
   return {
     apiKey,
     webhookSecret,
-    environment: envValue,
+    environment,
     apiBaseUrl,
     starterPriceId,
     growthPriceId

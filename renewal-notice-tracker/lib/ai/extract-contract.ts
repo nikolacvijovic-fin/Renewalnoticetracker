@@ -1,16 +1,17 @@
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { extractedFieldSchema, computeNeedsReview } from "@/lib/validation/contract";
 
 function getOpenAIClient() {
-  return new OpenAI({ apiKey: env.OPENAI_API_KEY });
+  return new OpenAI({ apiKey: getAppConfig().ai.openaiApiKey });
 }
 
 export async function extractContractMetadata(documentText: string) {
   const openai = getOpenAIClient();
+  const config = getAppConfig();
   const response = await openai.beta.chat.completions.parse({
-    model: env.OPENAI_MODEL,
+    model: config.ai.openaiModel,
     temperature: 0,
     response_format: zodResponseFormat(extractedFieldSchema, "contract_metadata"),
     messages: [

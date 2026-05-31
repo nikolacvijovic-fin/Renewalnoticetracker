@@ -10,7 +10,7 @@ import {
   type ActiveOrganizationContext
 } from "@/lib/auth";
 import { sanitizeInternalError } from "@/lib/errors";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import {
   hasValidDestructiveInternalRequestAuth,
   hasValidInternalRouteSecret,
@@ -350,7 +350,7 @@ export function requireDestructiveInternalRouteAuth<TRouteContext>(): RouteAuthR
 }
 
 export function requireCronSecretRouteAuth<TRouteContext>(
-  secret = env.CRON_SHARED_SECRET,
+  secret = getAppConfig().internal.cronSharedSecret,
   headerName = "x-cron-secret"
 ): RouteAuthResolver<{ purpose: "cron" }, TRouteContext> {
   return ({ request }) => {

@@ -1,8 +1,6 @@
 import Link from "next/link";
 import {
-  getProcurementAnalyticsDashboard,
-  normalizeProcurementDueWindow,
-  normalizeProcurementTrustFilter
+  getProcurementAnalyticsDashboard
 } from "@/lib/intelligence/procurement/query-helpers";
 import { ProcurementAnalyticsFilters } from "@/components/dashboard/procurement-analytics-filters";
 import { ProcurementActionList } from "@/components/dashboard/procurement-action-list";
@@ -10,6 +8,7 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { Button } from "@/components/ui/button";
 import { auditProcurementAnalyticsViewed } from "@/lib/intelligence/audit";
 import {
+  buildProcurementAnalyticsDashboardQuery,
   buildProcurementAnalyticsPageModel,
   buildProcurementAnalyticsViewedAuditPayload
 } from "@/lib/intelligence/procurement/page-model";
@@ -29,13 +28,10 @@ export default async function ProcurementAnalyticsPage({
   const context = await requireIntelligencePageContext("procurement_dashboard");
 
   const { organizationId } = context;
-  const dashboard = await getProcurementAnalyticsDashboard(organizationId, {
-    department: searchParams.department,
-    ownerUserId: searchParams.owner,
-    counterpartyName: searchParams.counterparty,
-    dueWindowDays: normalizeProcurementDueWindow(searchParams.dueWindow),
-    trustStatus: normalizeProcurementTrustFilter(searchParams.trustStatus)
-  });
+  const dashboard = await getProcurementAnalyticsDashboard(
+    organizationId,
+    buildProcurementAnalyticsDashboardQuery(searchParams)
+  );
   await auditProcurementAnalyticsViewed(
     buildProcurementAnalyticsViewedAuditPayload({
       organizationId,

@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { buildFinancialIntelligenceViewedAuditPayload } from "@/lib/intelligence/financial/page-model";
-import { buildProcurementAnalyticsPageModel, buildProcurementAnalyticsViewedAuditPayload } from "@/lib/intelligence/procurement/page-model";
-import { buildRiskQueueViewedAuditPayload } from "@/lib/intelligence/risk/page-model";
+import {
+  buildFinancialIntelligencePageModel,
+  buildFinancialIntelligenceViewedAuditPayload
+} from "@/lib/intelligence/financial/page-model";
+import {
+  buildProcurementAnalyticsDashboardQuery,
+  buildProcurementAnalyticsPageModel,
+  buildProcurementAnalyticsViewedAuditPayload
+} from "@/lib/intelligence/procurement/page-model";
+import {
+  buildRiskQueueContractQueryOptions,
+  buildRiskQueuePageModel,
+  buildRiskQueueViewedAuditPayload,
+  getDuplicateCounterpartyIdsForRiskQueue
+} from "@/lib/intelligence/risk/page-model";
+import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 import type { FinancialDashboardView } from "@/lib/intelligence/financial/dashboard";
 import type {
   ProcurementAnalyticsDashboard,
@@ -11,6 +24,98 @@ import type {
 import type { RiskQueueView } from "@/lib/intelligence/risk/dashboard";
 
 describe("intelligence dashboard page models", () => {
+  it("builds risk queue filters and duplicate-counterparty scope outside the page", () => {
+    const contract = {
+      id: "contract-1",
+      status: "active",
+      cycle_status: "awaiting_acknowledgment",
+      status_tag: "active",
+      owner_user_id: "owner-1",
+      owner_name: "Owner One",
+      department: "Legal",
+      renewal_decision_status: "undecided",
+      created_at: "2026-05-16T00:00:00.000Z",
+      counterparty_id: "counterparty-1",
+      contract_metadata: {
+        contract_title: "MSA",
+        counterparty_name: "Acme",
+        renewal_date: "2099-05-25",
+        expiration_date: "2099-06-20",
+        notice_deadline_date: "2099-05-20",
+        auto_renewal: true,
+        needs_review: false,
+        field_confidence: 0.95,
+        has_weak_evidence: false,
+        accepted_unverified_risk_requested: false,
+        contract_value_amount: 100000,
+        contract_value_currency: "USD",
+        contract_value_period: "annual",
+        price_change_trigger: null,
+        payment_trigger: null,
+        financial_data_trust_status: "high"
+      }
+    } satisfies DashboardContractRow;
+    const searchParams = {
+      owner: "owner-1",
+      department: "Legal",
+      riskBand: "critical",
+      dueWindow: "30",
+      trustStatus: "verified"
+    };
+
+    expect(buildRiskQueueContractQueryOptions(searchParams)).toEqual({
+      ownerUserId: "owner-1",
+      department: "Legal"
+    });
+    expect(
+      getDuplicateCounterpartyIdsForRiskQueue([
+        {
+          id: "counterparty-1",
+          name: "Acme",
+          raw_counterparty_name: "Acme",
+          normalized_counterparty_name: "acme",
+          contract_count: 1,
+          alias_names: [],
+          duplicate_suggestions: [
+            { id: "counterparty-2", raw_counterparty_name: "ACME Inc", score: 88 }
+          ]
+        },
+        {
+          id: "counterparty-3",
+          name: "Globex",
+          raw_counterparty_name: "Globex",
+          normalized_counterparty_name: "globex",
+          contract_count: 1,
+          alias_names: [],
+          duplicate_suggestions: []
+        }
+      ])
+    ).toEqual(["counterparty-1"]);
+
+    const pageModel = buildRiskQueuePageModel({
+      contracts: [contract],
+      facets: {
+        owners: [{ user_id: "owner-1", label: "Owner One" }],
+        departments: ["Legal"],
+        statusTags: ["active"]
+      },
+      counterparties: [],
+      searchParams
+    });
+
+    expect(pageModel.filters).toEqual({
+      ownerUserId: "owner-1",
+      department: "Legal",
+      riskBand: "critical",
+      dueWindowDays: "30",
+      trustStatus: "verified"
+    });
+    expect(pageModel.filterOptions).toMatchObject({
+      owners: [{ user_id: "owner-1", label: "Owner One" }],
+      departments: ["Legal"]
+    });
+  });
+
   it("builds the risk queue viewed audit payload from rendered queue state", () => {
     const dashboard = {
       rows: [
@@ -97,6 +202,84 @@ describe("intelligence dashboard page models", () => {
       lowTrustContractCount: 2,
       warningCount: 1,
       calculationVersion: "financial_exposure.v1"
+    });
+  });
+
+  it("builds the financial page model from contracts before rendering or audit", () => {
+    const contract = {
+      id: "contract-1",
+      status: "active",
+      cycle_status: "open",
+      status_tag: "active",
+      owner_user_id: "owner-1",
+      owner_name: "Owner One",
+      department: "Legal",
+      renewal_decision_status: "undecided",
+      created_at: "2026-05-16T00:00:00.000Z",
+      contract_metadata: {
+        contract_title: "MSA",
+        counterparty_name: "Acme",
+        renewal_date: "2026-06-15",
+        expiration_date: null,
+        notice_deadline_date: "2026-06-01",
+        auto_renewal: true,
+        needs_review: false,
+        field_confidence: 0.95,
+        contract_value_amount: 100000,
+        contract_value_currency: "USD",
+        contract_value_period: "annual",
+        price_change_trigger: null,
+        payment_trigger: null,
+        financial_data_trust_status: "high"
+      }
+    } satisfies DashboardContractRow;
+
+    const pageModel = buildFinancialIntelligencePageModel([contract]);
+
+    expect(pageModel.contractCount).toBe(1);
+    expect(pageModel.view.cards.length).toBeGreaterThan(0);
+    expect(
+      buildFinancialIntelligenceViewedAuditPayload({
+        organizationId: "org-1",
+        actorUserId: "admin-1",
+        contractCount: pageModel.contractCount,
+        view: pageModel.view
+      })
+    ).toMatchObject({
+      organizationId: "org-1",
+      actorUserId: "admin-1",
+      contractCount: 1
+    });
+  });
+
+  it("normalizes procurement dashboard query state outside the page", () => {
+    expect(
+      buildProcurementAnalyticsDashboardQuery({
+        department: "Legal",
+        owner: "owner-1",
+        counterparty: "Acme",
+        dueWindow: "90",
+        trustStatus: "low_confidence"
+      })
+    ).toEqual({
+      department: "Legal",
+      ownerUserId: "owner-1",
+      counterpartyName: "Acme",
+      dueWindowDays: 90,
+      trustStatus: "low_confidence"
+    });
+
+    expect(
+      buildProcurementAnalyticsDashboardQuery({
+        dueWindow: "not-a-window",
+        trustStatus: "not-a-trust-filter"
+      })
+    ).toEqual({
+      department: undefined,
+      ownerUserId: undefined,
+      counterpartyName: undefined,
+      dueWindowDays: null,
+      trustStatus: "all"
     });
   });
 

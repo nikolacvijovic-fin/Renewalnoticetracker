@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { NextRequest } from "next/server";
 import { sanitizeInternalError } from "@/lib/errors";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { resolveSafeAppRedirectPath } from "@/lib/auth-guards";
 
 export function resolveSafeAuthRedirect(next: string | null | undefined) {
@@ -16,9 +16,10 @@ export async function GET(request: NextRequest) {
   const response = NextResponse.redirect(new URL(next, request.url));
 
   if (code) {
+    const config = getAppConfig();
     const supabase = createServerClient(
-      env.NEXT_PUBLIC_SUPABASE_URL,
-      env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      config.supabase.url,
+      config.supabase.anonKey,
       {
         cookies: {
           get(name: string) {

@@ -1,7 +1,7 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { createAuditLog } from "@/lib/audit";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import {
   type Phase1EmailAction,
   ReminderEmailActionTokenError,
@@ -67,7 +67,7 @@ function getRecipientIdentities(reminder: JoinedReminderRecord) {
 }
 
 function buildContractUrl(contractId: string) {
-  return `${env.NEXT_PUBLIC_APP_URL}/dashboard/contracts/${contractId}`;
+  return `${getAppConfig().public.appUrl}/dashboard/contracts/${contractId}`;
 }
 
 export async function executeReminderEmailAction(

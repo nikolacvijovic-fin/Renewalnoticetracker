@@ -101,6 +101,7 @@ vi.mock("@/lib/contracts/shipped-reminder-policy", () => ({
 vi.mock("@/lib/intelligence/risk/dashboard", () => ({
   buildRiskQueueRow,
   buildRiskQueueView,
+  createRiskWorkflowSubjectFromDashboardContract: (contract: unknown) => contract,
   getRiskConfidenceLabel: (value: string) => value
 }));
 
@@ -241,9 +242,11 @@ function makeBillingSnapshot(
   };
 }
 
-function makeContract() {
+function makeBaseContract() {
   return {
     id: "contract-1",
+    status: "active",
+    created_at: "2026-05-24T00:00:00.000Z",
     updated_at: "2026-05-25T00:00:00.000Z",
     owner_user_id: "owner-1",
     owner_name: "Owner One",
@@ -284,6 +287,23 @@ function makeContract() {
     renewal_decisions: [],
     extracted_field_evidence: [],
     processing_errors: []
+  };
+}
+
+function makeContract(
+  overrides: Partial<ReturnType<typeof makeBaseContract>> = {},
+  metadataOverrides: Partial<ReturnType<typeof makeBaseContract>["contract_metadata"]> = {}
+) {
+  const contract = makeBaseContract();
+
+  return {
+    ...contract,
+    ...overrides,
+    contract_metadata: {
+      ...contract.contract_metadata,
+      ...metadataOverrides,
+      ...(overrides.contract_metadata ?? {})
+    }
   };
 }
 
@@ -965,6 +985,82 @@ describe("intelligence surface entitlement consistency", () => {
         })
       );
     }
+  });
+
+  it("keeps contracts list owner-scoped risk visibility aligned with shared access and contract detail", async () => {
+    const ownedContract = makeContract(
+      {
+        id: "contract-owned",
+        owner_user_id: "owner-1",
+        owner_name: "Owner One"
+      },
+      {
+        contract_title: "Owned Contract"
+      }
+    );
+    const foreignContract = makeContract(
+      {
+        id: "contract-foreign",
+        owner_user_id: "owner-2",
+        owner_name: "Someone Else"
+      },
+      {
+        contract_title: "Foreign Contract"
+      }
+    );
+
+    requireOrganization.mockResolvedValue({
+      user: { id: "owner-1" },
+      organizationId: "org-1",
+      role: "owner"
+    });
+    getBillingSnapshot.mockResolvedValue(makeBillingSnapshot());
+    getContractById.mockResolvedValue(ownedContract);
+    getContracts.mockResolvedValue([ownedContract, foreignContract]);
+    getContractFacets.mockResolvedValue({
+      owners: [],
+      departments: [],
+      statusTags: []
+    });
+    const sharedRiskViewer = await getSharedContractsListRiskViewerExpectation({
+      userId: "owner-1",
+      role: "owner"
+    });
+
+    await renderContractDetailForCurrentBilling();
+    expect(screen.getByText("Risk explanation drawer")).toBeInTheDocument();
+
+    await renderContractsListForCurrentBilling();
+    expect(contractsTableSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contracts: [ownedContract, foreignContract],
+        riskViewer: sharedRiskViewer
+      })
+    );
+    expect(sharedRiskViewer).toEqual({
+      userId: "owner-1",
+      role: "owner",
+      showRiskBadge: true,
+      showRiskExplanation: true
+    });
+
+    const { ContractsTable: ActualContractsTable } = await vi.importActual<
+      typeof import("@/components/contracts/contracts-table")
+    >("@/components/contracts/contracts-table");
+
+    cleanup();
+    render(
+      <ActualContractsTable
+        contracts={[ownedContract, foreignContract]}
+        riskViewer={sharedRiskViewer}
+      />
+    );
+
+    expect(screen.getByText("Owned Contract")).toBeInTheDocument();
+    expect(screen.getByText("Foreign Contract")).toBeInTheDocument();
+    expect(screen.getAllByText("Risk explanation drawer")).toHaveLength(1);
+    expect(screen.getByText("high")).toBeInTheDocument();
+    expect(screen.queryByText("Risk badge high")).not.toBeInTheDocument();
   });
 
   it("keeps portfolio dashboard role gates aligned with user-visible page behavior on growth", async () => {

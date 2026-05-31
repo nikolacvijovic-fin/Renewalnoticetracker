@@ -1,63 +1,7 @@
-import { z } from "zod";
+import { getAppConfig } from "@/lib/config";
 
-const envSchema = z.object({
-  NEXT_PUBLIC_APP_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
-  SUPABASE_STORAGE_BUCKET: z.string().min(1).default("contract-files"),
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL: z.string().min(1).default("gpt-4.1-mini"),
-  OCR_PROVIDER: z.string().optional(),
-  OCR_OPENAI_API_KEY: z.string().min(1).optional(),
-  OCR_OPENAI_MODEL: z.string().min(1).optional(),
-  RESEND_API_KEY: z.string().min(1),
-  RESEND_FROM_EMAIL: z.string().email(),
-  RESEND_WEBHOOK_SIGNING_SECRET: z.string().min(1).optional(),
-  NOTICECONTROL_REPLY_TO_EMAIL: z.string().email().optional(),
-  NOTICECONTROL_SENDING_DOMAIN: z.string().min(1).optional(),
-  NOTICECONTROL_EMAIL_ACTION_SECRET: z.string().min(1).optional(),
-  CRON_SHARED_SECRET: z.string().min(1),
-  PADDLE_API_KEY: z.string().min(1).optional(),
-  PADDLE_WEBHOOK_SECRET: z.string().min(1).optional(),
-  PADDLE_ENVIRONMENT: z.string().optional(),
-  PADDLE_STARTER_PRICE_ID: z.string().min(1).optional(),
-  PADDLE_GROWTH_PRICE_ID: z.string().min(1).optional(),
-  INTERNAL_HEALTH_SECRET: z.string().min(1),
-  INTERNAL_OCR_JOBS_SECRET: z.string().min(1),
-  INTERNAL_OPERATIONS_SECRET: z.string().min(1),
-  INTERNAL_DESTRUCTIVE_OPS_SECRET: z.string().min(1),
-  INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: z.string().min(1),
-  INTERNAL_OPERATOR_ALLOWLIST: z.string().optional()
-});
+const config = getAppConfig();
 
-export const env = envSchema.parse({
-  NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET,
-  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-  OPENAI_MODEL: process.env.OPENAI_MODEL,
-  OCR_PROVIDER: process.env.OCR_PROVIDER,
-  OCR_OPENAI_API_KEY: process.env.OCR_OPENAI_API_KEY,
-  OCR_OPENAI_MODEL: process.env.OCR_OPENAI_MODEL,
-  RESEND_API_KEY: process.env.RESEND_API_KEY,
-  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
-  RESEND_WEBHOOK_SIGNING_SECRET: process.env.RESEND_WEBHOOK_SIGNING_SECRET,
-  NOTICECONTROL_REPLY_TO_EMAIL: process.env.NOTICECONTROL_REPLY_TO_EMAIL,
-  NOTICECONTROL_SENDING_DOMAIN: process.env.NOTICECONTROL_SENDING_DOMAIN,
-  NOTICECONTROL_EMAIL_ACTION_SECRET: process.env.NOTICECONTROL_EMAIL_ACTION_SECRET,
-  CRON_SHARED_SECRET: process.env.CRON_SHARED_SECRET,
-  PADDLE_API_KEY: process.env.PADDLE_API_KEY,
-  PADDLE_WEBHOOK_SECRET: process.env.PADDLE_WEBHOOK_SECRET,
-  PADDLE_ENVIRONMENT: process.env.PADDLE_ENVIRONMENT,
-  PADDLE_STARTER_PRICE_ID: process.env.PADDLE_STARTER_PRICE_ID,
-  PADDLE_GROWTH_PRICE_ID: process.env.PADDLE_GROWTH_PRICE_ID,
-  INTERNAL_HEALTH_SECRET: process.env.INTERNAL_HEALTH_SECRET,
-  INTERNAL_OCR_JOBS_SECRET: process.env.INTERNAL_OCR_JOBS_SECRET,
-  INTERNAL_OPERATIONS_SECRET: process.env.INTERNAL_OPERATIONS_SECRET,
-  INTERNAL_DESTRUCTIVE_OPS_SECRET: process.env.INTERNAL_DESTRUCTIVE_OPS_SECRET,
-  INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: process.env.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET,
-  INTERNAL_OPERATOR_ALLOWLIST: process.env.INTERNAL_OPERATOR_ALLOWLIST
-});
+// Compatibility view for older call sites. New runtime code should prefer
+// the grouped config from "@/lib/config" so config ownership stays obvious.
+export const env = config.raw;

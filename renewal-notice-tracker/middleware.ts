@@ -4,15 +4,16 @@ import {
   shouldRedirectAwayFromAuth,
   shouldRedirectToAuth
 } from "@/lib/auth-guards";
-import { env } from "@/lib/env";
+import { getPublicConfig } from "@/lib/config";
 
 export async function middleware(request: NextRequest) {
   // Middleware is intentionally limited to coarse redirect posture. Session truth for
   // authorization still belongs to server actions, routes, and page loaders.
   const response = NextResponse.next();
+  const config = getPublicConfig();
   const supabase = createServerClient(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    config.supabaseUrl,
+    config.supabaseAnonKey,
     {
       cookies: {
         get(name: string) {

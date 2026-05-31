@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { normalizeExtractedText } from "@/lib/extractors/file-text";
 import type { OcrProvider, OcrProviderResult } from "@/lib/ocr/types";
 
@@ -32,8 +32,9 @@ export class OpenAiOcrProvider implements OcrProvider {
     mimeType: string;
     asynchronousPreferred?: boolean;
   }): Promise<OcrProviderResult> {
-    const apiKey = env.OCR_OPENAI_API_KEY ?? env.OPENAI_API_KEY;
-    const model = env.OCR_OPENAI_MODEL ?? env.OPENAI_MODEL;
+    const config = getAppConfig();
+    const apiKey = config.ocr.openaiApiKey ?? config.ai.openaiApiKey;
+    const model = config.ocr.openaiModel ?? config.ai.openaiModel;
 
     if (input.asynchronousPreferred) {
       return {

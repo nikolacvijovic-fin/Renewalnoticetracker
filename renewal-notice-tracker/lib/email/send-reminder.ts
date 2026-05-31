@@ -1,11 +1,11 @@
 import { Resend } from "resend";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { LEGAL_DISCLAIMER } from "@/lib/constants";
 import {
   buildReminderEmailPayload
 } from "@/lib/email/policy";
 
-const resend = new Resend(env.RESEND_API_KEY);
+const resend = new Resend(getAppConfig().email.resendApiKey);
 
 export async function sendReminderEmail(params: {
   organizationId: string;
@@ -19,6 +19,7 @@ export async function sendReminderEmail(params: {
   reminderType: string;
   userId?: string | null;
 }) {
+  const config = getAppConfig();
   const payload = buildReminderEmailPayload({
     organizationId: params.organizationId,
     recipientIdentity: params.recipientIdentity,
@@ -29,9 +30,9 @@ export async function sendReminderEmail(params: {
     counterpartyName: params.counterpartyName,
     remindAt: params.remindAt,
     reminderTypeLabel: params.reminderType.replaceAll("_", " "),
-    appUrl: env.NEXT_PUBLIC_APP_URL,
+    appUrl: config.public.appUrl,
     legalDisclaimer: LEGAL_DISCLAIMER,
-    replyToEmail: env.NOTICECONTROL_REPLY_TO_EMAIL
+    replyToEmail: config.email.replyToEmail ?? undefined
   });
 
   return resend.emails.send({

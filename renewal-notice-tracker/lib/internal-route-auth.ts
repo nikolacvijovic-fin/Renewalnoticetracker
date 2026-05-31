@@ -1,21 +1,21 @@
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 export const INTERNAL_ROUTE_SECRET_CONFIG = {
   health: {
-    envKey: "INTERNAL_HEALTH_SECRET",
+    configKey: "healthSecret",
     headerName: "x-internal-health-secret"
   },
   ocr_jobs: {
-    envKey: "INTERNAL_OCR_JOBS_SECRET",
+    configKey: "ocrJobsSecret",
     headerName: "x-internal-ocr-secret"
   },
   operations: {
-    envKey: "INTERNAL_OPERATIONS_SECRET",
+    configKey: "operationsSecret",
     headerName: "x-internal-operations-secret"
   },
   destructive: {
-    envKey: "INTERNAL_DESTRUCTIVE_OPS_SECRET",
+    configKey: "destructiveOpsSecret",
     headerName: "x-internal-destructive-ops-secret"
   }
 } as const;
@@ -35,7 +35,7 @@ export function hasValidInternalRouteSecret(
 ) {
   const config = INTERNAL_ROUTE_SECRET_CONFIG[purpose];
   const providedSecret = request.headers.get(config.headerName);
-  const expectedSecret = env[config.envKey];
+  const expectedSecret = getAppConfig().internal[config.configKey];
 
   return Boolean(providedSecret) && providedSecret === expectedSecret;
 }
@@ -52,7 +52,7 @@ function buildDestructiveSignaturePayload(input: DestructiveSignatureInput) {
 }
 
 export function createDestructiveInternalRequestSignature(input: DestructiveSignatureInput) {
-  return createHmac("sha256", env.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET)
+  return createHmac("sha256", getAppConfig().internal.destructiveOpsSigningSecret)
     .update(buildDestructiveSignaturePayload(input))
     .digest("hex");
 }

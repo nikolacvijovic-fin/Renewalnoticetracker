@@ -1,11 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/database.types";
-import { env } from "@/lib/env";
+import { getAppConfig } from "@/lib/config";
 
 export function createAdminSupabaseClient() {
+  const config = getAppConfig();
+
   return createClient<Database>(
-    env.NEXT_PUBLIC_SUPABASE_URL,
-    env.SUPABASE_SERVICE_ROLE_KEY,
+    config.supabase.url,
+    config.supabase.serviceRoleKey,
     {
       auth: {
         autoRefreshToken: false,
