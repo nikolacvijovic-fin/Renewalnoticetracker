@@ -12,6 +12,10 @@ import {
 import { sanitizeInternalError } from "@/lib/errors";
 import { getAppConfig } from "@/lib/config";
 import {
+  logServerError,
+  logServerWarn
+} from "@/lib/observability/server-logger";
+import {
   hasValidDestructiveInternalRequestAuth,
   hasValidInternalRouteSecret,
   type InternalRouteSecretPurpose
@@ -213,6 +217,55 @@ function buildErrorResponse(error: RouteHttpError, requestId: string) {
   }
 
   return withRequestId(NextResponse.json(body, { status: error.status }), requestId);
+}
+
+function getRouteActor(auth: unknown) {
+  const maybeAuth = auth as {
+    organizationId?: string | null;
+    user?: { id?: string | null } | null;
+  } | undefined;
+
+  return {
+    organizationId: maybeAuth?.organizationId ?? null,
+    actorUserId: maybeAuth?.user?.id ?? null
+  };
+}
+
+function logRouteFailure(input: {
+  url: URL;
+  requestId: string;
+  auth?: unknown;
+  error: unknown;
+  normalizedError: RouteHttpError;
+}) {
+  const actor = getRouteActor(input.auth);
+  const metadata = {
+    status: input.normalizedError.status,
+    code: input.normalizedError.code,
+    pathname: input.url.pathname
+  };
+
+  if (input.normalizedError.code.startsWith("ERR_INTERNAL_")) {
+    logServerWarn({
+      event: "internal_route_auth_failed",
+      route: input.url.pathname,
+      requestId: input.requestId,
+      metadata
+    });
+    return;
+  }
+
+  if (input.normalizedError.status >= 500) {
+    logServerError({
+      event: "route_unexpected_error",
+      route: input.url.pathname,
+      organizationId: actor.organizationId,
+      actorUserId: actor.actorUserId,
+      requestId: input.requestId,
+      metadata,
+      error: input.error
+    });
+  }
 }
 
 export function parseJsonBody<T = unknown>(
@@ -455,6 +508,13 @@ export function createRouteHandler<
       return responseWithRequestId;
     } catch (error) {
       const normalizedError = normalizeRouteError(error, requestId, options.mapError);
+      logRouteFailure({
+        url,
+        requestId,
+        auth,
+        error,
+        normalizedError
+      });
       await options.instrumentation?.onError?.({
         ...baseContext,
         auth,

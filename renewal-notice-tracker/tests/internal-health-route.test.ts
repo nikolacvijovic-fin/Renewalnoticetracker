@@ -11,7 +11,11 @@ describe("internal health route", () => {
     const response = await GET(new Request("http://localhost/api/internal/health"));
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Unauthorized",
+      code: "ERR_INTERNAL_AUTH_REQUIRED_001",
+      requestId: expect.any(String)
+    });
   });
 
   it("does not accept the secret via query string fallback", async () => {

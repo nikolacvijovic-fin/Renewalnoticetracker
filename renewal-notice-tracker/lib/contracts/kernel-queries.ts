@@ -1,6 +1,11 @@
 import type { ContractFilter } from "@/lib/constants";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
-import type { ExportRow } from "@/lib/contracts/export";
+import {
+  buildExportRows,
+  resolveExportPreset,
+  type ExportPresetId,
+  type ExportRow
+} from "@/lib/contracts/export";
 import type { Database } from "@/lib/supabase/database.types";
 import {
   calculateDashboardMetrics,
@@ -60,36 +65,14 @@ type ContractDetailRecord = ContractRow & {
   renewal_decisions: RenewalDecisionRow[];
 };
 
-type ExportContractRow = Pick<
-  ContractRow,
-  "department" | "status_tag" | "owner_user_id"
-> & {
+type ExportContractRow = DashboardContractRow & {
   contract_metadata:
-    | Pick<
-        ContractMetadataRow,
-        | "contract_title"
-        | "counterparty_name"
-        | "contract_type"
-        | "expiration_date"
-        | "notice_deadline_date"
-        | "auto_renewal"
-        | "payment_terms"
-        | "needs_review"
-      >
-    | Array<
-        Pick<
-          ContractMetadataRow,
-          | "contract_title"
-          | "counterparty_name"
-          | "contract_type"
-          | "expiration_date"
-          | "notice_deadline_date"
-          | "auto_renewal"
-          | "payment_terms"
-          | "needs_review"
-        >
-      >
+    | (ContractMetadataRow & DashboardContractRow["contract_metadata"])
+    | Array<ContractMetadataRow & NonNullable<DashboardContractRow["contract_metadata"]>>
     | null;
+  reminders?: Array<Pick<ReminderRow, "remind_at" | "status" | "created_at">> | null;
+  notes?: Array<Pick<NoteRow, "body" | "author_user_id" | "created_at">> | null;
+  renewal_decisions?: Array<Pick<RenewalDecisionRow, "status" | "decision_date" | "summary" | "created_at">> | null;
 };
 
 function firstMetadata<T>(metadata: T | T[] | null | undefined): T | null {
@@ -405,7 +388,11 @@ export async function getOrganizationBilling(organizationId: string) {
   return data;
 }
 
-export async function getExportRows(organizationId: string): Promise<ExportRow[]> {
+export async function getExportRows(
+  organizationId: string,
+  presetId: ExportPresetId = "basic_contract_register"
+): Promise<ExportRow[]> {
+  const preset = resolveExportPreset(presetId);
   const supabase = createServerSupabaseClient();
   const [contracts, members] = await Promise.all([
     supabase
@@ -413,18 +400,46 @@ export async function getExportRows(organizationId: string): Promise<ExportRow[]
       .select(
         `
         id,
+        status,
+        cycle_status,
         department,
         status_tag,
         owner_user_id,
+        renewal_decision_status,
+        created_at,
+        counterparty_id,
         contract_metadata (
           contract_title,
           counterparty_name,
           contract_type,
+          renewal_date,
           expiration_date,
           notice_deadline_date,
           auto_renewal,
           payment_terms,
-          needs_review
+          needs_review,
+          has_weak_evidence,
+          accepted_unverified_risk_requested,
+          contract_value_amount,
+          contract_value_currency,
+          financial_data_trust_status,
+          price_change_trigger
+        ),
+        reminders (
+          remind_at,
+          status,
+          created_at
+        ),
+        renewal_decisions (
+          status,
+          decision_date,
+          summary,
+          created_at
+        ),
+        notes (
+          body,
+          author_user_id,
+          created_at
         )
       `
       )
@@ -441,22 +456,10 @@ export async function getExportRows(organizationId: string): Promise<ExportRow[]
     ] as const)
   );
 
-  return ((contracts.data ?? []) as ExportContractRow[]).map((contract) => {
-    const metadata = firstMetadata(contract.contract_metadata);
-
-    return {
-      contract_title: metadata?.contract_title ?? "",
-      counterparty_name: metadata?.counterparty_name ?? "",
-      contract_type: metadata?.contract_type ?? "",
-      owner_name: ownerMap.get(contract.owner_user_id ?? "") ?? "Unassigned",
-      department: contract.department ?? "",
-      status_tag: contract.status_tag,
-      expiration_date: metadata?.expiration_date ?? "",
-      notice_deadline_date: metadata?.notice_deadline_date ?? "",
-      auto_renewal: metadata?.auto_renewal ? "Yes" : "No",
-      payment_terms: metadata?.payment_terms ?? "",
-      needs_review: metadata?.needs_review ? "Yes" : "No"
-    };
+  return buildExportRows({
+    preset,
+    contracts: (contracts.data ?? []) as ExportContractRow[],
+    ownerLabelsByUserId: ownerMap
   });
 }
 

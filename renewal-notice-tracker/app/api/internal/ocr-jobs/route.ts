@@ -1,17 +1,31 @@
-import { NextResponse } from "next/server";
-import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
+import { z } from "zod";
+import {
+  createRouteHandler,
+  parseJsonBodyWithSchema,
+  requireInternalRouteAuth
+} from "@/lib/http";
 import { processPendingOcrJobs } from "@/lib/ocr/jobs";
 
-export async function POST(request: Request) {
-  if (!hasValidInternalRouteSecret(request, "ocr_jobs")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+const ocrJobsRequestSchema = z.object({
+  limit: z.number().int().min(1).max(25).optional().default(5)
+});
 
-  try {
-    const body = (await request.json().catch(() => ({}))) as { limit?: number };
-    const results = await processPendingOcrJobs(body.limit ?? 5);
-    return NextResponse.json({ results }, { status: 200 });
-  } catch {
-    return NextResponse.json({ error: "OCR job processing failed." }, { status: 500 });
+export const POST = createRouteHandler(
+  {
+    auth: requireInternalRouteAuth("ocr_jobs"),
+    parse: async ({ request }) => {
+      if (!request.headers.get("content-type") && !request.headers.get("content-length")) {
+        return { limit: 5 };
+      }
+
+      return parseJsonBodyWithSchema(request, ocrJobsRequestSchema, {
+        message: "Invalid OCR job request.",
+        code: "ERR_OCR_JOB_REQUEST_INVALID"
+      });
+    }
+  },
+  async ({ input, json }) => {
+    const results = await processPendingOcrJobs(input.limit);
+    return json({ results }, { status: 200 });
   }
-}
+);

@@ -6,6 +6,7 @@ import { extractContractMetadata } from "@/lib/ai/extract-contract";
 import { buildEvidenceRows } from "@/lib/contracts/evidence";
 import { sanitizeInternalError } from "@/lib/errors";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
+import { logServerWarn } from "@/lib/observability/server-logger";
 
 type OcrJobRow = {
   id: string;
@@ -93,6 +94,43 @@ async function getScopedMetadataIdForAdmin(contractId: string, organizationId: s
   return metadataId;
 }
 
+export async function getScopedOcrContractFileForJob(input: {
+  contractId: string;
+  organizationId: string;
+  contractFileId: string;
+}) {
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin
+    .from("contracts")
+    .select("contract_files(id, file_name, mime_type)")
+    .eq("id", input.contractId)
+    .eq("organization_id", input.organizationId)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  const typed = data as
+    | {
+        contract_files:
+          | Array<{ id: string; file_name: string; mime_type: string }>
+          | { id: string; file_name: string; mime_type: string }
+          | null;
+      }
+    | null;
+  const files = Array.isArray(typed?.contract_files)
+    ? typed.contract_files
+    : typed?.contract_files
+      ? [typed.contract_files]
+      : [];
+  const file = files.find((row) => row.id === input.contractFileId);
+
+  if (!file) {
+    throw new Error("Contract file not found for scoped OCR job.");
+  }
+
+  return file;
+}
+
 export async function processPendingOcrJobs(limit = 5) {
   const admin = createAdminSupabaseClient();
   const { data, error } = await admin
@@ -110,13 +148,11 @@ export async function processPendingOcrJobs(limit = 5) {
     if (!claimed) continue;
 
     try {
-      const { data: fileRow, error: fileError } = await admin
-        .from("contract_files")
-        .select("file_name, mime_type")
-        .eq("id", claimed.contract_file_id)
-        .eq("contract_id", claimed.contract_id)
-        .single();
-      if (fileError) throw fileError;
+      const fileRow = await getScopedOcrContractFileForJob({
+        contractId: claimed.contract_id,
+        organizationId: claimed.organization_id,
+        contractFileId: claimed.contract_file_id
+      });
 
       const provider = getOcrProvider();
       const result = await provider.performOcr({
@@ -236,6 +272,18 @@ export async function processPendingOcrJobs(limit = 5) {
       results.push({ id: claimed.id, status: "completed" });
     } catch (error) {
       const message = sanitizeInternalError(error);
+      logServerWarn({
+        event: "ocr_job_failed",
+        organizationId: claimed.organization_id,
+        route: "ocr_job_worker",
+        metadata: {
+          job_id: claimed.id,
+          contract_id: claimed.contract_id,
+          status:
+            claimed.attempts + 1 >= 2 ? "failed_terminal" : "retry_pending"
+        },
+        error
+      });
       await recordProcessingError({
         organizationId: claimed.organization_id,
         contractId: claimed.contract_id,

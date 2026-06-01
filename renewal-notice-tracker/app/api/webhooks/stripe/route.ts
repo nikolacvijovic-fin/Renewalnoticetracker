@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
+import { createRouteHandler } from "@/lib/http";
 
-export async function POST() {
-  return NextResponse.json(
-    { error: "Legacy billing webhook disabled in shipped-first runtime." },
-    { status: 410 }
-  );
-}
+export const POST = createRouteHandler(
+  {},
+  ({ json }) =>
+    json(
+      { error: "Legacy billing webhook disabled in shipped-first runtime." },
+      { status: 410 }
+    )
+);

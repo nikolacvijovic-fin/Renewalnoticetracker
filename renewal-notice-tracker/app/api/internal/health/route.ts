@@ -1,10 +1,11 @@
-import { NextResponse } from "next/server";
-import { hasValidInternalRouteSecret } from "@/lib/internal-route-auth";
+import {
+  createRouteHandler,
+  requireInternalRouteAuth
+} from "@/lib/http";
 
-export async function GET(request: Request) {
-  if (!hasValidInternalRouteSecret(request, "health")) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  return NextResponse.json({ ok: true, mode: "secret-check" });
-}
+export const GET = createRouteHandler(
+  {
+    auth: requireInternalRouteAuth("health")
+  },
+  ({ json }) => json({ ok: true, mode: "secret-check" })
+);

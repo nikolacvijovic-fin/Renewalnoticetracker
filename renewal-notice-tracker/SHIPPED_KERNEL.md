@@ -25,7 +25,7 @@ It includes only:
 - trusted reminders with a fixed shipped schedule
 - acknowledgment
 - decision and cycle actions
-- CSV/XLSX export
+- CSV/XLSX export through explicit export presets: basic export is shipped by default, workflow/notes/intelligence exports are gated premium presets, and audit export is deferred until hardened
 - per-contract ICS export
 - minimal settings for profile, billing, and workspace control
 - internal rescue console for internal roles only

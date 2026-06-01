@@ -62,8 +62,12 @@ describe("billing webhooks", () => {
     const payPalRoute = await import("@/app/api/webhooks/billing/paypal/route");
     const stripeRoute = await import("@/app/api/webhooks/stripe/route");
 
-    const payPalResponse = await payPalRoute.POST();
-    const stripeResponse = await stripeRoute.POST();
+    const payPalResponse = await payPalRoute.POST(
+      new Request("http://localhost/api/webhooks/billing/paypal", { method: "POST" })
+    );
+    const stripeResponse = await stripeRoute.POST(
+      new Request("http://localhost/api/webhooks/stripe", { method: "POST" })
+    );
 
     expect(payPalResponse.status).toBe(410);
     expect(stripeResponse.status).toBe(410);

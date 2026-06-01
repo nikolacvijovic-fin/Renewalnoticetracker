@@ -51,6 +51,11 @@ describe("email action route", () => {
     });
 
     expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toMatchObject({
+      error: "Email action could not be completed.",
+      code: "ERR_EMAIL_ACTION_EXPIRED",
+      requestId: expect.any(String)
+    });
   });
 
   it("denies wrong-action tokens and cross-org access safely", async () => {
@@ -64,6 +69,11 @@ describe("email action route", () => {
     });
 
     expect(wrongActionResponse.status).toBe(403);
+    await expect(wrongActionResponse.json()).resolves.toMatchObject({
+      error: "Email action could not be completed.",
+      code: "ERR_EMAIL_ACTION_INVALID",
+      requestId: expect.any(String)
+    });
 
     executeReminderEmailAction.mockRejectedValueOnce(
       new ReminderEmailActionAccessError("wrong org", 403)
@@ -74,5 +84,10 @@ describe("email action route", () => {
     });
 
     expect(wrongOrgResponse.status).toBe(403);
+    await expect(wrongOrgResponse.json()).resolves.toMatchObject({
+      error: "Email action could not be completed.",
+      code: "ERR_EMAIL_ACTION_ACCESS_DENIED",
+      requestId: expect.any(String)
+    });
   });
 });

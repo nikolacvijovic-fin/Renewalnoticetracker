@@ -13,7 +13,7 @@ Current status:
 - Pass with evidence. The shipped runtime is narrowed to the vendor-side renewal-control loop and current-scope docs reject deferred feature language.
 
 Pass condition:
-- customer-visible runtime only supports upload/import, P0 review, owner assignment, trusted reminders, acknowledgment, decision, closure, minimal exports, minimal settings, and narrow reporting
+- customer-visible runtime only supports upload/import, P0 review, owner assignment, trusted reminders, acknowledgment, decision, closure, safe tiered export presets, minimal settings, and narrow reporting
 
 Blocking tests:
 - `tests/current-product-truth-docs.test.ts`
