@@ -32,7 +32,7 @@ function sanitizeLogValue(value: unknown): unknown {
   if (value instanceof Error) {
     return {
       name: value.name,
-      message: value.message
+      message: "[REDACTED]"
     };
   }
 

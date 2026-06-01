@@ -13,8 +13,12 @@ describe("operational maturity boundaries", () => {
     const standardizedRoutes = [
       "app/api/internal/health/route.ts",
       "app/api/internal/ocr-jobs/route.ts",
+      "app/api/internal/workspace-deletion/route.ts",
       "app/api/email-actions/[action]/[token]/route.ts",
+      "app/api/cron/send-reminders/route.ts",
       "app/api/cron/monthly-digest/route.ts",
+      "app/api/intelligence/risk/contracts/[id]/explanation-view/route.ts",
+      "app/api/webhooks/billing/paddle/route.ts",
       "app/api/webhooks/billing/paypal/route.ts",
       "app/api/webhooks/stripe/route.ts"
     ];
@@ -23,6 +27,23 @@ describe("operational maturity boundaries", () => {
       const source = readProjectFile(route);
       expect(source, route).toContain("createRouteHandler");
       expect(source, route).not.toContain("NextResponse.json");
+    }
+  });
+
+  it("documents named monitoring signals for critical operational failures", () => {
+    const source = readProjectFile("docs/OPERATIONAL_MATURITY.md");
+    const requiredSignals = [
+      "reminder_dispatch_failed",
+      "export_failed",
+      "ocr_job_failed",
+      "billing_webhook_failed",
+      "workspace_deletion_attempted",
+      "workspace_deletion_route_failed",
+      "internal_route_auth_failed"
+    ];
+
+    for (const signal of requiredSignals) {
+      expect(source, signal).toContain(signal);
     }
   });
 
@@ -36,5 +57,16 @@ describe("operational maturity boundaries", () => {
     expect(helper).toContain('.eq("id", input.contractId)');
     expect(helper).toContain('.eq("organization_id", input.organizationId)');
     expect(helper).toContain("input.contractFileId");
+  });
+
+  it("keeps export query shape preset-aware and bounded for synchronous scale", () => {
+    const source = readProjectFile("lib/contracts/kernel-queries.ts");
+
+    expect(source).toContain("function getExportSelectForPreset");
+    expect(source).toContain('presetId === "notes_and_decisions_export"');
+    expect(source).toContain('notes (');
+    expect(source).toContain("EXPORT_SYNC_ROW_LIMIT");
+    expect(source).toContain(".range(0, EXPORT_SYNC_ROW_LIMIT - 1)");
+    expect(source).toContain(".eq(\"organization_id\", organizationId)");
   });
 });

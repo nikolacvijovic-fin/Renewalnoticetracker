@@ -10,6 +10,10 @@ import {
   routeServerError,
   routeValidationError
 } from "@/lib/http";
+import {
+  logServerError,
+  logServerInfo
+} from "@/lib/observability/server-logger";
 
 export const POST = createRouteHandler(
   {
@@ -60,6 +64,27 @@ export const POST = createRouteHandler(
       }
 
       return null;
+    },
+    instrumentation: {
+      onRequest: ({ requestId, url }) => {
+        logServerInfo({
+          event: "workspace_deletion_attempted",
+          route: url.pathname,
+          requestId
+        });
+      },
+      onError: ({ requestId, url, normalizedError, error }) => {
+        logServerError({
+          event: "workspace_deletion_route_failed",
+          route: url.pathname,
+          requestId,
+          metadata: {
+            status: normalizedError.status,
+            code: normalizedError.code
+          },
+          error
+        });
+      }
     }
   },
   async ({ input, json }) => {

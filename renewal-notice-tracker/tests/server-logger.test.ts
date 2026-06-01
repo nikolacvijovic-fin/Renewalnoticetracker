@@ -58,4 +58,19 @@ describe("structured server logger", () => {
     );
     spy.mockRestore();
   });
+
+  it("redacts error messages so thrown contract or OCR details cannot leak", () => {
+    const entry = buildServerLogEntry("error", {
+      event: "ocr_job_failed",
+      route: "/api/internal/ocr-jobs",
+      error: new Error("raw contract text and extracted evidence should not be logged")
+    });
+
+    expect(JSON.stringify(entry)).not.toContain("raw contract text");
+    expect(JSON.stringify(entry)).not.toContain("extracted evidence should not be logged");
+    expect(entry.error).toMatchObject({
+      name: "Error",
+      message: "[REDACTED]"
+    });
+  });
 });

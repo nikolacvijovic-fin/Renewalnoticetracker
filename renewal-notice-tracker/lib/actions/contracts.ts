@@ -80,7 +80,10 @@ import {
 } from "@/lib/contracts/lifecycle";
 import { buildEvidenceRows } from "@/lib/contracts/evidence";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
-import { sanitizeInternalError } from "@/lib/errors";
+import {
+  sanitizeInternalError,
+  sanitizeSensitiveProcessingError
+} from "@/lib/errors";
 import { REMINDER_RETRY_POLICY, RENEWAL_CYCLE_STATUSES } from "@/lib/constants";
 import {
   type BillingSnapshot,
@@ -878,14 +881,14 @@ export async function createContractAction(formData: FormData) {
       }
       finalStatus = "needs_review";
     } catch (error) {
-      metadata = fallbackMetadata(contractTitle, sanitizeInternalError(error));
+      metadata = fallbackMetadata(contractTitle, sanitizeSensitiveProcessingError("extraction"));
       finalStatus = "extraction_failed";
       await recordProcessingError({
         organizationId,
         contractId: contract.id,
         contractFileId: contractFile.id,
         stage: "field_extraction",
-        message: sanitizeInternalError(error),
+        message: sanitizeSensitiveProcessingError("extraction"),
         details: { file_name: file.name }
       });
     }
@@ -2432,7 +2435,10 @@ export async function createNoteAction(contractId: string, formData: FormData) {
     action: "note.created",
     entityType: "note",
     entityId: note.id,
-    details: { body_preview: body.slice(0, 120) }
+    details: {
+      note_length: body.length,
+      body_redacted: true
+    }
   });
 
   revalidatePath(`/dashboard/contracts/${contractId}`);

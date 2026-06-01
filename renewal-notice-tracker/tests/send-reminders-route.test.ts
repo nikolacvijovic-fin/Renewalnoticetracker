@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const processDueRemindersMock = vi.fn();
+const logServerError = vi.fn();
+const logServerWarn = vi.fn();
 
 vi.mock("@/lib/notifications/reminders", () => ({
   processDueReminders: processDueRemindersMock
+}));
+
+vi.mock("@/lib/observability/server-logger", () => ({
+  logServerError,
+  logServerWarn
 }));
 
 describe("send reminders cron route", () => {
@@ -80,6 +87,15 @@ describe("send reminders cron route", () => {
         error: "Reminder processing failed.",
         code: "ERR_REMINDER_PROCESSING_FAILED_001",
         requestId: expect.any(String)
+      })
+    );
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "reminder_dispatch_failed",
+        metadata: expect.objectContaining({
+          code: "ERR_REMINDER_PROCESSING_FAILED_001",
+          status: 500
+        })
       })
     );
   });

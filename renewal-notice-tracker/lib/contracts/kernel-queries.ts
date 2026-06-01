@@ -2,6 +2,8 @@ import type { ContractFilter } from "@/lib/constants";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   buildExportRows,
+  ExportScaleLimitError,
+  EXPORT_SYNC_ROW_LIMIT,
   resolveExportPreset,
   type ExportPresetId,
   type ExportRow
@@ -74,6 +76,69 @@ type ExportContractRow = DashboardContractRow & {
   notes?: Array<Pick<NoteRow, "body" | "author_user_id" | "created_at">> | null;
   renewal_decisions?: Array<Pick<RenewalDecisionRow, "status" | "decision_date" | "summary" | "created_at">> | null;
 };
+
+const EXPORT_BASE_SELECT = `
+  id,
+  status,
+  cycle_status,
+  department,
+  status_tag,
+  owner_user_id,
+  renewal_decision_status,
+  created_at,
+  counterparty_id,
+  contract_metadata (
+    contract_title,
+    counterparty_name,
+    contract_type,
+    renewal_date,
+    expiration_date,
+    notice_deadline_date,
+    auto_renewal,
+    payment_terms,
+    needs_review,
+    has_weak_evidence,
+    accepted_unverified_risk_requested,
+    contract_value_amount,
+    contract_value_currency,
+    financial_data_trust_status,
+    price_change_trigger
+  )
+`;
+
+const EXPORT_WORKFLOW_SELECT = `
+  ${EXPORT_BASE_SELECT},
+  reminders (
+    remind_at,
+    status,
+    created_at
+  ),
+  renewal_decisions (
+    status,
+    decision_date,
+    summary,
+    created_at
+  )
+`;
+
+function getExportSelectForPreset(presetId: ExportPresetId) {
+  if (presetId === "notes_and_decisions_export") {
+    return `
+      ${EXPORT_WORKFLOW_SELECT},
+      notes (
+        body,
+        author_user_id,
+        created_at
+      )
+    `;
+  }
+
+  if (presetId === "workflow_export" || presetId === "intelligence_export") {
+    return EXPORT_WORKFLOW_SELECT;
+  }
+
+  return EXPORT_BASE_SELECT;
+}
 
 function firstMetadata<T>(metadata: T | T[] | null | undefined): T | null {
   if (Array.isArray(metadata)) {
@@ -397,57 +462,21 @@ export async function getExportRows(
   const [contracts, members] = await Promise.all([
     supabase
       .from("contracts")
-      .select(
-        `
-        id,
-        status,
-        cycle_status,
-        department,
-        status_tag,
-        owner_user_id,
-        renewal_decision_status,
-        created_at,
-        counterparty_id,
-        contract_metadata (
-          contract_title,
-          counterparty_name,
-          contract_type,
-          renewal_date,
-          expiration_date,
-          notice_deadline_date,
-          auto_renewal,
-          payment_terms,
-          needs_review,
-          has_weak_evidence,
-          accepted_unverified_risk_requested,
-          contract_value_amount,
-          contract_value_currency,
-          financial_data_trust_status,
-          price_change_trigger
-        ),
-        reminders (
-          remind_at,
-          status,
-          created_at
-        ),
-        renewal_decisions (
-          status,
-          decision_date,
-          summary,
-          created_at
-        ),
-        notes (
-          body,
-          author_user_id,
-          created_at
-        )
-      `
-      )
-      .eq("organization_id", organizationId),
+      .select(getExportSelectForPreset(preset.id), { count: "exact" })
+      .eq("organization_id", organizationId)
+      .order("updated_at", { ascending: false })
+      .range(0, EXPORT_SYNC_ROW_LIMIT - 1),
     getOrganizationMembers(organizationId)
   ]);
 
   if (contracts.error) throw contracts.error;
+  if ((contracts.count ?? 0) > EXPORT_SYNC_ROW_LIMIT) {
+    throw new ExportScaleLimitError({
+      presetId: preset.id,
+      rowCount: contracts.count ?? 0,
+      maxRows: EXPORT_SYNC_ROW_LIMIT
+    });
+  }
 
   const ownerMap = new Map(
     members.map((member) => [
@@ -458,7 +487,7 @@ export async function getExportRows(
 
   return buildExportRows({
     preset,
-    contracts: (contracts.data ?? []) as ExportContractRow[],
+    contracts: (contracts.data ?? []) as unknown as ExportContractRow[],
     ownerLabelsByUserId: ownerMap
   });
 }

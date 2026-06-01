@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import {
   ActiveOrganizationRequiredError,
   OrganizationAuthorizationError,
@@ -17,6 +18,7 @@ import {
   assertExportFormatSupported,
   buildExportAuditDetails,
   ExportPresetSelectionError,
+  ExportScaleLimitError,
   resolveExportPreset,
   toCsv,
   toXlsxBuffer,
@@ -32,6 +34,11 @@ import {
   IntelligenceAuthorizationError,
   IntelligencePlanAccessError
 } from "@/lib/intelligence/access";
+import {
+  logServerError,
+  logServerWarn
+} from "@/lib/observability/server-logger";
+import { ROUTE_REQUEST_ID_HEADER } from "@/lib/http";
 
 function getPresetFromRequest(request?: Request) {
   if (!request) return resolveExportPreset(null);
@@ -43,6 +50,90 @@ function buildCommercialRedirect(error: CommercialAccessError) {
     `${getAppConfig().public.appUrl}/dashboard/contracts?commercial=${getCommercialRedirectCode(error.feature, error.access.reason)}`,
     { status: 303 }
   );
+}
+
+function getExportRouteRequestId(request?: Request) {
+  return request?.headers.get(ROUTE_REQUEST_ID_HEADER)?.trim() || randomUUID();
+}
+
+function withExportRequestId(response: NextResponse, requestId: string) {
+  if (!response.headers.get(ROUTE_REQUEST_ID_HEADER)) {
+    response.headers.set(ROUTE_REQUEST_ID_HEADER, requestId);
+  }
+  return response;
+}
+
+function getExportRoutePath(request?: Request) {
+  return request ? new URL(request.url).pathname : "/dashboard/contracts/export";
+}
+
+function logExportDenied(input: {
+  request?: Request;
+  requestId: string;
+  preset: ExportPreset;
+  format: ExportFormat;
+  context?: NonNullable<Awaited<ReturnType<typeof getActiveOrganizationContextOrNull>>> | null;
+  reason: string;
+}) {
+  logServerWarn({
+    event: "export_denied",
+    route: getExportRoutePath(input.request),
+    organizationId: input.context?.organizationId ?? null,
+    actorUserId: input.context?.user?.id ?? null,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      denied_reason: input.reason
+    }
+  });
+}
+
+function logExportFailed(input: {
+  request?: Request;
+  requestId: string;
+  preset: ExportPreset;
+  format: ExportFormat;
+  organizationId: string;
+  actorUserId: string;
+  error: unknown;
+}) {
+  logServerError({
+    event: "export_failed",
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format
+    },
+    error: input.error
+  });
+}
+
+function logExportTooLarge(input: {
+  request?: Request;
+  requestId: string;
+  preset: ExportPreset;
+  format: ExportFormat;
+  organizationId: string;
+  actorUserId: string;
+  error: ExportScaleLimitError;
+}) {
+  logServerWarn({
+    event: "export_too_large",
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      row_count: input.error.input.rowCount,
+      max_rows: input.error.input.maxRows
+    }
+  });
 }
 
 async function assertPresetAccess(input: {
@@ -128,16 +219,17 @@ export async function handleContractsExport(
   format: ExportFormat,
   request?: Request
 ) {
+  const requestId = getExportRouteRequestId(request);
   let preset: ExportPreset;
   try {
     preset = getPresetFromRequest(request);
     assertExportFormatSupported(preset, format);
   } catch (error) {
     if (error instanceof ExportPresetSelectionError) {
-      return NextResponse.json(
+      return withExportRequestId(NextResponse.json(
         { error: "Export preset is not available." },
         { status: 400 }
-      );
+      ), requestId);
     }
     throw error;
   }
@@ -165,82 +257,173 @@ export async function handleContractsExport(
     await assertPresetAccess({ context, preset, format });
   } catch (error) {
     if (error instanceof ActiveOrganizationRequiredError) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      logExportDenied({ request, requestId, preset, format, reason: "unauthorized" });
+      return withExportRequestId(
+        NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+        requestId
+      );
     }
     if (error instanceof OrganizationAuthorizationError) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      logExportDenied({ request, requestId, preset, format, context: auth, reason: "forbidden" });
+      return withExportRequestId(
+        NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+        requestId
+      );
     }
     if (error instanceof IntelligenceAuthorizationError) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      logExportDenied({
+        request,
+        requestId,
+        preset,
+        format,
+        context: auth,
+        reason: "intelligence_forbidden"
+      });
+      return withExportRequestId(
+        NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+        requestId
+      );
     }
     if (error instanceof IntelligencePlanAccessError) {
-      return NextResponse.redirect(
-        `${getAppConfig().public.appUrl}/dashboard/contracts?commercial=${getCommercialRedirectCode(error.feature, error.access.reason)}`,
-        { status: 303 }
+      logExportDenied({
+        request,
+        requestId,
+        preset,
+        format,
+        context: auth,
+        reason: error.access.reason
+      });
+      return withExportRequestId(
+        NextResponse.redirect(
+          `${getAppConfig().public.appUrl}/dashboard/contracts?commercial=${getCommercialRedirectCode(error.feature, error.access.reason)}`,
+          { status: 303 }
+        ),
+        requestId
       );
     }
     if (error instanceof CommercialAccessError) {
-      return buildCommercialRedirect(error);
+      logExportDenied({
+        request,
+        requestId,
+        preset,
+        format,
+        context: auth,
+        reason: error.access.reason
+      });
+      return withExportRequestId(buildCommercialRedirect(error), requestId);
     }
     throw error;
   }
 
   const { user, organizationId } = context;
-  const attemptedDetails = buildExportAuditDetails({ preset, format, rowCount: 0 });
-  await createAuditLog({
-    organizationId,
-    actorUserId: user.id,
-    action: "contracts.export_attempted",
-    entityType: "export",
-    details: attemptedDetails
-  });
-
-  const rows = await getExportRows(organizationId, preset.id);
-  const completedDetails = buildExportAuditDetails({
-    preset,
-    format,
-    rowCount: rows.length
-  });
-
-  await recordExportPersistence({
-    organizationId,
-    actorUserId: user.id,
-    preset,
-    format,
-    rowCount: rows.length
-  });
-
-  await createAuditLog({
-    organizationId,
-    actorUserId: user.id,
-    action: "contracts.exported",
-    entityType: "export",
-    details: completedDetails
-  });
-
-  await trackServerAnalyticsEvent({
-    organizationId,
-    actorUserId: user.id,
-    eventName: "export_requested",
-    sourceOfTruth: "event_and_state",
-    idempotencyKey: `export_requested:${format}:${preset.id}:${organizationId}:${rows.length}`,
-    properties: completedDetails
-  });
-
-  if (format === "csv") {
-    return new NextResponse(toCsv(rows, preset.columns), {
-      headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="contracts-${preset.id}.csv"`
-      }
+  try {
+    const attemptedDetails = buildExportAuditDetails({ preset, format, rowCount: 0 });
+    await createAuditLog({
+      organizationId,
+      actorUserId: user.id,
+      action: "contracts.export_attempted",
+      entityType: "export",
+      details: attemptedDetails
     });
-  }
 
-  return new NextResponse(toXlsxBuffer(rows, preset.columns), {
-    headers: {
-      "Content-Type":
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="contracts-${preset.id}.xlsx"`
+    const rows = await getExportRows(organizationId, preset.id);
+    const completedDetails = buildExportAuditDetails({
+      preset,
+      format,
+      rowCount: rows.length
+    });
+
+    await recordExportPersistence({
+      organizationId,
+      actorUserId: user.id,
+      preset,
+      format,
+      rowCount: rows.length
+    });
+
+    await createAuditLog({
+      organizationId,
+      actorUserId: user.id,
+      action: "contracts.exported",
+      entityType: "export",
+      details: completedDetails
+    });
+
+    await trackServerAnalyticsEvent({
+      organizationId,
+      actorUserId: user.id,
+      eventName: "export_requested",
+      sourceOfTruth: "event_and_state",
+      idempotencyKey: `export_requested:${format}:${preset.id}:${organizationId}:${rows.length}`,
+      properties: completedDetails
+    });
+
+    if (format === "csv") {
+      return withExportRequestId(
+        new NextResponse(toCsv(rows, preset.columns), {
+          headers: {
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename="contracts-${preset.id}.csv"`
+          }
+        }),
+        requestId
+      );
     }
-  });
+
+    return withExportRequestId(
+      new NextResponse(toXlsxBuffer(rows, preset.columns), {
+        headers: {
+          "Content-Type":
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "Content-Disposition": `attachment; filename="contracts-${preset.id}.xlsx"`
+        }
+      }),
+      requestId
+    );
+  } catch (error) {
+    if (error instanceof ExportScaleLimitError) {
+      logExportTooLarge({
+        request,
+        requestId,
+        preset,
+        format,
+        organizationId,
+        actorUserId: user.id,
+        error
+      });
+      return withExportRequestId(
+        NextResponse.json(
+          {
+            error: "Export is too large for synchronous download. Use a narrower export or request an operator-assisted background export.",
+            code: "ERR_EXPORT_TOO_LARGE_001",
+            requestId,
+            maxRows: error.input.maxRows
+          },
+          { status: 413 }
+        ),
+        requestId
+      );
+    }
+
+    logExportFailed({
+      request,
+      requestId,
+      preset,
+      format,
+      organizationId,
+      actorUserId: user.id,
+      error
+    });
+    return withExportRequestId(
+      NextResponse.json(
+        {
+          error: "Export could not be completed.",
+          code: "ERR_EXPORT_FAILED_001",
+          requestId
+        },
+        { status: 500 }
+      ),
+      requestId
+    );
+  }
 }

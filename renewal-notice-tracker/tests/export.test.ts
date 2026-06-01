@@ -2,71 +2,24 @@ import { describe, expect, it } from "vitest";
 import {
   buildExportRows,
   EXPORT_PRESETS,
+  EXPORT_DECISION_HISTORY_MAX_LENGTH,
+  EXPORT_NOTE_PREVIEW_MAX_LENGTH,
   resolveExportPreset,
-  sanitizeSpreadsheetValue,
   toCsv,
   toXlsxBuffer
 } from "@/lib/contracts/export";
-
-function makeContract(overrides: Record<string, unknown> = {}) {
-  return {
-    id: "contract-1",
-    status: "active",
-    cycle_status: "awaiting_decision",
-    status_tag: "active",
-    owner_user_id: "owner-1",
-    owner_name: "Jane Doe",
-    department: "Finance",
-    renewal_decision_status: "undecided",
-    created_at: "2026-05-01T00:00:00.000Z",
-    counterparty_id: "counterparty-1",
-    contract_metadata: {
-      contract_title: "MSA",
-      counterparty_name: "Acme",
-      contract_type: "MSA",
-      renewal_date: "2026-11-30",
-      expiration_date: "2026-12-31",
-      notice_deadline_date: "2026-12-01",
-      auto_renewal: true,
-      payment_terms: "Net 30",
-      needs_review: false,
-      contract_value_amount: 100000,
-      contract_value_currency: "USD",
-      financial_data_trust_status: "high",
-      price_change_trigger: "Annual increase"
-    },
-    reminders: [
-      {
-        remind_at: "2099-01-01T00:00:00.000Z",
-        status: "scheduled",
-        created_at: "2026-05-02T00:00:00.000Z"
-      }
-    ],
-    renewal_decisions: [
-      {
-        status: "renew",
-        decision_date: "2026-06-01",
-        summary: "Renewed",
-        created_at: "2026-06-01T00:00:00.000Z"
-      }
-    ],
-    notes: [
-      {
-        body: "=sensitive note text that should not appear in basic export",
-        author_user_id: "owner-1",
-        created_at: "2026-06-02T00:00:00.000Z"
-      }
-    ],
-    ...overrides
-  };
-}
+import { makeContract } from "./factories/domain";
+import {
+  expectExportPresetColumns,
+  expectSpreadsheetInjectionSanitized
+} from "./helpers/domain-assertions";
 
 const ownerLabelsByUserId = new Map([["owner-1", "Jane Doe"]]);
 
 describe("export presets", () => {
   it("defaults to the backward-compatible basic contract register", () => {
     expect(resolveExportPreset(undefined).id).toBe("basic_contract_register");
-    expect(EXPORT_PRESETS.basic_contract_register.columns.map((column) => column.key)).toEqual([
+    expectExportPresetColumns(EXPORT_PRESETS.basic_contract_register.columns, [
       "contract_title",
       "counterparty_name",
       "contract_type",
@@ -85,13 +38,24 @@ describe("export presets", () => {
   it("keeps notes and intelligence out of the default basic export", () => {
     const rows = buildExportRows({
       preset: EXPORT_PRESETS.basic_contract_register,
-      contracts: [makeContract()] as never,
+      contracts: [
+        makeContract({
+          extracted_text: "raw contract text should never export",
+          processing_errors: [{ error_message: "hidden processing failure" }],
+          audit_logs: [{ details: { provider_payload: "hidden provider payload" } }]
+        })
+      ] as never,
       ownerLabelsByUserId
     });
 
     expect(Object.keys(rows[0] ?? {})).not.toContain("latest_note_preview");
     expect(Object.keys(rows[0] ?? {})).not.toContain("risk_band");
+    expect(Object.keys(rows[0] ?? {})).not.toContain("extracted_text");
+    expect(Object.keys(rows[0] ?? {})).not.toContain("processing_errors");
+    expect(Object.keys(rows[0] ?? {})).not.toContain("audit_logs");
     expect(JSON.stringify(rows[0] ?? {})).not.toContain("sensitive note text");
+    expect(JSON.stringify(rows[0] ?? {})).not.toContain("raw contract text");
+    expect(JSON.stringify(rows[0] ?? {})).not.toContain("hidden provider payload");
   });
 
   it("includes workflow fields only in the workflow export", () => {
@@ -125,6 +89,42 @@ describe("export presets", () => {
       decision_history_summary: "renew on 2026-06-01"
     });
     expect(csv).toContain("'=sensitive note text");
+  });
+
+  it("bounds note previews and decision summaries for large rich exports", () => {
+    const longNote = `=${"sensitive note ".repeat(40)}`;
+    const manyDecisions = Array.from({ length: 60 }, (_, index) => ({
+      id: `decision-${index}`,
+      status: "defer",
+      decision_date: `2026-06-${String((index % 28) + 1).padStart(2, "0")}`,
+      summary: "Deferred",
+      created_at: `2026-06-${String((index % 28) + 1).padStart(2, "0")}T00:00:00.000Z`
+    }));
+
+    const rows = buildExportRows({
+      preset: EXPORT_PRESETS.notes_and_decisions_export,
+      contracts: [
+        makeContract({
+          notes: [
+            {
+              id: "note-long",
+              body: longNote,
+              author_user_id: "owner-1",
+              created_at: "2026-06-03T00:00:00.000Z"
+            }
+          ],
+          renewal_decisions: manyDecisions
+        })
+      ] as never,
+      ownerLabelsByUserId
+    });
+
+    expect(String(rows[0]?.latest_note_preview).length).toBeLessThanOrEqual(
+      EXPORT_NOTE_PREVIEW_MAX_LENGTH
+    );
+    expect(String(rows[0]?.decision_history_summary).length).toBeLessThanOrEqual(
+      EXPORT_DECISION_HISTORY_MAX_LENGTH
+    );
   });
 
   it("includes risk and financial fields only in intelligence export", () => {
@@ -173,10 +173,10 @@ describe("export serialization", () => {
   });
 
   it("sanitizes spreadsheet formula prefixes for every string field", () => {
-    expect(sanitizeSpreadsheetValue("=cmd|'/C calc'!A0")).toBe("'=cmd|'/C calc'!A0");
-    expect(sanitizeSpreadsheetValue("+Danger")).toBe("'+Danger");
-    expect(sanitizeSpreadsheetValue("@Injected")).toBe("'@Injected");
-    expect(sanitizeSpreadsheetValue("-Owner")).toBe("'-Owner");
+    expectSpreadsheetInjectionSanitized("=cmd|'/C calc'!A0");
+    expectSpreadsheetInjectionSanitized("+Danger");
+    expectSpreadsheetInjectionSanitized("@Injected");
+    expectSpreadsheetInjectionSanitized("-Owner");
   });
 
   it("applies the same spreadsheet sanitization to xlsx exports", () => {

@@ -6,6 +6,7 @@ import {
   routeServerError
 } from "@/lib/http";
 import { processDueReminders } from "@/lib/notifications/reminders";
+import { logServerError } from "@/lib/observability/server-logger";
 
 export const POST = createRouteHandler(
   {
@@ -18,7 +19,22 @@ export const POST = createRouteHandler(
             "Reminder processing failed.",
             "ERR_REMINDER_PROCESSING_FAILED_001"
           )
-        : null
+        : null,
+    instrumentation: {
+      onError: ({ requestId, url, normalizedError, error }) => {
+        if (normalizedError.status < 500) return;
+        logServerError({
+          event: "reminder_dispatch_failed",
+          route: url.pathname,
+          requestId,
+          metadata: {
+            status: normalizedError.status,
+            code: normalizedError.code
+          },
+          error
+        });
+      }
+    }
   },
   async ({ json }) => {
     const until = addMinutes(new Date(), 15).toISOString();

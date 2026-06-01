@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { makeActiveOrganizationContext } from "./factories/domain";
+import { expectEntitlementDeniedResponse } from "./helpers/domain-assertions";
 
 const getOrganizationContextOrNull = vi.fn();
 const getExportRows = vi.fn();
@@ -7,6 +9,8 @@ const createAdminSupabaseClient = vi.fn();
 const enforceFeatureAccess = vi.fn();
 const assertCanAccessIntelligenceSurface = vi.fn();
 const assertCanUseShippedAction = vi.fn();
+const logServerError = vi.fn();
+const logServerWarn = vi.fn();
 const OrganizationAuthorizationError = class OrganizationAuthorizationError extends Error {};
 const ActiveOrganizationRequiredError = class ActiveOrganizationRequiredError extends Error {};
 
@@ -56,6 +60,11 @@ vi.mock("@/lib/intelligence/access", () => ({
   IntelligencePlanAccessError: class IntelligencePlanAccessError extends Error {}
 }));
 
+vi.mock("@/lib/observability/server-logger", () => ({
+  logServerError,
+  logServerWarn
+}));
+
 function makeRequest(path: string) {
   return new Request(`http://localhost:3000${path}`);
 }
@@ -63,11 +72,7 @@ function makeRequest(path: string) {
 describe("export routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    getOrganizationContextOrNull.mockResolvedValue({
-      user: { id: "user-1" },
-      organizationId: "org-1",
-      role: "owner"
-    });
+    getOrganizationContextOrNull.mockResolvedValue(makeActiveOrganizationContext());
     getExportRows.mockResolvedValue([]);
     createAuditLog.mockResolvedValue(undefined);
     createAdminSupabaseClient.mockReturnValue({
@@ -105,11 +110,12 @@ describe("export routes", () => {
   });
 
   it("allows workflow export only through its explicit preset", async () => {
-    getOrganizationContextOrNull.mockResolvedValue({
-      user: { id: "operator-1" },
-      organizationId: "org-1",
-      role: "operator"
-    });
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
 
     const { GET } = await import("@/app/dashboard/contracts/export/csv/route");
     await GET(makeRequest("/dashboard/contracts/export/csv?preset=workflow_export"));
@@ -145,11 +151,12 @@ describe("export routes", () => {
   });
 
   it("requires intelligence access before reading intelligence export payload", async () => {
-    getOrganizationContextOrNull.mockResolvedValue({
-      user: { id: "reviewer-1" },
-      organizationId: "org-1",
-      role: "reviewer"
-    });
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "reviewer-1" },
+        role: "reviewer"
+      })
+    );
 
     const { GET } = await import("@/app/dashboard/contracts/export/xlsx/route");
     await GET(makeRequest("/dashboard/contracts/export/xlsx?preset=intelligence_export"));
@@ -172,11 +179,12 @@ describe("export routes", () => {
   });
 
   it("rejects unknown roles before reading any export payload", async () => {
-    getOrganizationContextOrNull.mockResolvedValue({
-      user: { id: "user-2" },
-      organizationId: "org-1",
-      role: "member"
-    });
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "user-2" },
+        role: "member"
+      })
+    );
 
     const { GET } = await import("@/app/dashboard/contracts/export/csv/route");
     const response = await GET(makeRequest("/dashboard/contracts/export/csv"));
@@ -200,17 +208,18 @@ describe("export routes", () => {
     const { GET } = await import("@/app/dashboard/contracts/export/xlsx/route");
     const response = await GET(makeRequest("/dashboard/contracts/export/xlsx"));
 
+    await expectEntitlementDeniedResponse(response);
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toContain("commercial=billing.export_upgrade_required");
     expect(getExportRows).not.toHaveBeenCalled();
   });
 
   it("preserves tenant isolation by passing only the active organization into row generation", async () => {
-    getOrganizationContextOrNull.mockResolvedValue({
-      user: { id: "user-1" },
-      organizationId: "org-tenant-safe",
-      role: "owner"
-    });
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        organizationId: "org-tenant-safe"
+      })
+    );
 
     const { GET } = await import("@/app/dashboard/contracts/export/xlsx/route");
     await GET(makeRequest("/dashboard/contracts/export/xlsx"));
@@ -219,11 +228,12 @@ describe("export routes", () => {
   });
 
   it("records preset, format, row count, included sections, actor, org, and sensitivity in audit evidence", async () => {
-    getOrganizationContextOrNull.mockResolvedValue({
-      user: { id: "operator-1" },
-      organizationId: "org-1",
-      role: "operator"
-    });
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
     getExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
 
     const { GET } = await import("@/app/dashboard/contracts/export/csv/route");
@@ -241,6 +251,90 @@ describe("export routes", () => {
           included_sections: ["contract_register", "workflow", "reminders", "decisions"],
           sensitive_sections_included: false,
           exported_at: expect.any(String)
+        })
+      })
+    );
+  });
+
+  it("returns a safe structured error and logs export failures without exposing payload details", async () => {
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
+    getExportRows.mockRejectedValue(
+      new Error("raw contract text, full note, and extracted evidence should not leak")
+    );
+
+    const { GET } = await import("@/app/dashboard/contracts/export/csv/route");
+    const response = await GET(
+      makeRequest("/dashboard/contracts/export/csv?preset=workflow_export")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual(
+      expect.objectContaining({
+        error: "Export could not be completed.",
+        code: "ERR_EXPORT_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
+    expect(JSON.stringify(body)).not.toContain("raw contract text");
+    expect(JSON.stringify(body)).not.toContain("full note");
+    expect(JSON.stringify(body)).not.toContain("extracted evidence");
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "export_failed",
+        organizationId: "org-1",
+        actorUserId: "operator-1",
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          format: "csv"
+        })
+      })
+    );
+  });
+
+  it("returns a safe 413 when a synchronous export exceeds the row limit", async () => {
+    const { ExportScaleLimitError, EXPORT_SYNC_ROW_LIMIT } = await import("@/lib/contracts/export");
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
+    getExportRows.mockRejectedValue(
+      new ExportScaleLimitError({
+        presetId: "workflow_export",
+        rowCount: EXPORT_SYNC_ROW_LIMIT + 1,
+        maxRows: EXPORT_SYNC_ROW_LIMIT
+      })
+    );
+
+    const { GET } = await import("@/app/dashboard/contracts/export/csv/route");
+    const response = await GET(
+      makeRequest("/dashboard/contracts/export/csv?preset=workflow_export")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(413);
+    expect(body).toEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("too large for synchronous download"),
+        code: "ERR_EXPORT_TOO_LARGE_001",
+        maxRows: EXPORT_SYNC_ROW_LIMIT,
+        requestId: expect.any(String)
+      })
+    );
+    expect(logServerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "export_too_large",
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          row_count: EXPORT_SYNC_ROW_LIMIT + 1,
+          max_rows: EXPORT_SYNC_ROW_LIMIT
         })
       })
     );

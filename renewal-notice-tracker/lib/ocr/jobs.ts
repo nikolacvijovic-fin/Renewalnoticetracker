@@ -4,7 +4,7 @@ import { getOcrProvider } from "@/lib/ocr/provider";
 import { normalizeOcrOutput, applyOcrReviewRequirements } from "@/lib/ocr/normalize-ocr-output";
 import { extractContractMetadata } from "@/lib/ai/extract-contract";
 import { buildEvidenceRows } from "@/lib/contracts/evidence";
-import { sanitizeInternalError } from "@/lib/errors";
+import { sanitizeSensitiveProcessingError } from "@/lib/errors";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
 import { logServerWarn } from "@/lib/observability/server-logger";
 
@@ -271,7 +271,7 @@ export async function processPendingOcrJobs(limit = 5) {
 
       results.push({ id: claimed.id, status: "completed" });
     } catch (error) {
-      const message = sanitizeInternalError(error);
+      const message = sanitizeSensitiveProcessingError("ocr");
       logServerWarn({
         event: "ocr_job_failed",
         organizationId: claimed.organization_id,

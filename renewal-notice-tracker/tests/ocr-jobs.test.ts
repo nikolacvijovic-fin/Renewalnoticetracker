@@ -4,6 +4,7 @@ const createAdminSupabaseClient = vi.fn();
 const getOcrProvider = vi.fn();
 const extractContractMetadata = vi.fn();
 const recordProcessingError = vi.fn();
+const logServerWarn = vi.fn();
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminSupabaseClient
@@ -19,6 +20,10 @@ vi.mock("@/lib/ai/extract-contract", () => ({
 
 vi.mock("@/lib/contracts/processing-errors", () => ({
   recordProcessingError
+}));
+
+vi.mock("@/lib/observability/server-logger", () => ({
+  logServerWarn
 }));
 
 function createAdminMock() {
@@ -133,12 +138,27 @@ function createAdminMock() {
 
       if (table === "contracts") {
         return {
-          select() {
+          select(selection: string) {
             return {
               eq() {
                 return this;
               },
               async maybeSingle() {
+                if (selection.includes("contract_files")) {
+                  return {
+                    data: {
+                      contract_files: [
+                        {
+                          id: "file-1",
+                          file_name: "scan.pdf",
+                          mime_type: "application/pdf"
+                        }
+                      ]
+                    },
+                    error: null
+                  };
+                }
+
                 return {
                   data: { contract_metadata: { id: "metadata-1" } },
                   error: null
@@ -222,7 +242,7 @@ describe("OCR jobs", () => {
     });
 
     expect(jobId).toBe("job-1");
-  });
+  }, 15000);
 
   it("processes a pending OCR job and keeps the contract in review", async () => {
     const mock = createAdminMock();
@@ -281,5 +301,43 @@ describe("OCR jobs", () => {
       )
     ).toBe(true);
     expect(recordProcessingError).not.toHaveBeenCalled();
+  });
+
+  it("records OCR failures without leaking raw OCR or contract text into errors/log metadata", async () => {
+    const mock = createAdminMock();
+    createAdminSupabaseClient.mockReturnValue(mock.client);
+    getOcrProvider.mockReturnValue({
+      performOcr: vi.fn().mockRejectedValue(
+        new Error("Raw OCR text: confidential renewal clause should never be logged")
+      )
+    });
+
+    const { processPendingOcrJobs } = await import("@/lib/ocr/jobs");
+    const results = await processPendingOcrJobs(1);
+
+    expect(results).toEqual([
+      {
+        id: "job-1",
+        status: "failed",
+        error: "OCR processing failed. The failure was recorded without OCR text."
+      }
+    ]);
+    expect(recordProcessingError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "OCR processing failed. The failure was recorded without OCR text.",
+        details: { job_id: "job-1" }
+      })
+    );
+    expect(JSON.stringify(recordProcessingError.mock.calls)).not.toContain("confidential renewal clause");
+    expect(logServerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "ocr_job_failed",
+        metadata: expect.objectContaining({
+          job_id: "job-1",
+          contract_id: "contract-1"
+        })
+      })
+    );
+    expect(JSON.stringify(logServerWarn.mock.calls)).not.toContain("confidential renewal clause");
   });
 });

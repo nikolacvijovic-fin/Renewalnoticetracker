@@ -41,6 +41,26 @@ export type ExportPreset = {
   selectable: boolean;
 };
 
+export const EXPORT_SYNC_ROW_LIMIT = 5000;
+export const EXPORT_BACKGROUND_EXPORT_THRESHOLD = EXPORT_SYNC_ROW_LIMIT;
+export const EXPORT_NOTE_PREVIEW_MAX_LENGTH = 160;
+export const EXPORT_DECISION_HISTORY_MAX_LENGTH = 500;
+
+export class ExportScaleLimitError extends Error {
+  constructor(
+    public readonly input: {
+      presetId: ExportPresetId;
+      rowCount: number;
+      maxRows: number;
+    }
+  ) {
+    super(
+      `Export preset "${input.presetId}" has ${input.rowCount} rows, above the synchronous limit of ${input.maxRows}.`
+    );
+    this.name = "ExportScaleLimitError";
+  }
+}
+
 const BASIC_COLUMNS = [
   { key: "contract_title", label: "Contract title" },
   { key: "counterparty_name", label: "Counterparty" },
@@ -252,7 +272,16 @@ function selectLatestReminder(reminders: ExportContractRecord["reminders"]) {
 
 function truncateNotePreview(value: string | null | undefined) {
   const cleaned = (value ?? "").replace(/\s+/g, " ").trim();
-  return cleaned.length > 160 ? `${cleaned.slice(0, 157)}...` : cleaned;
+  return cleaned.length > EXPORT_NOTE_PREVIEW_MAX_LENGTH
+    ? `${cleaned.slice(0, EXPORT_NOTE_PREVIEW_MAX_LENGTH - 3)}...`
+    : cleaned;
+}
+
+function truncateDecisionHistorySummary(value: string) {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  return cleaned.length > EXPORT_DECISION_HISTORY_MAX_LENGTH
+    ? `${cleaned.slice(0, EXPORT_DECISION_HISTORY_MAX_LENGTH - 3)}...`
+    : cleaned;
 }
 
 function buildBasicFields(contract: ExportContractRecord, ownerLabelsByUserId: Map<string, string>) {
@@ -303,12 +332,14 @@ function buildNotesAndDecisionsFields(
     latest_note_date: latestNote?.created_at ?? "",
     latest_note_author: ownerLabelsByUserId.get(latestNote?.author_user_id ?? "") ?? "",
     latest_note_preview: truncateNotePreview(latestNote?.body),
-    decision_history_summary: decisions
-      .map((decision) => [decision.status, decision.decision_date ?? decision.created_at]
+    decision_history_summary: truncateDecisionHistorySummary(
+      decisions
+        .map((decision) => [decision.status, decision.decision_date ?? decision.created_at]
+          .filter(Boolean)
+          .join(" on "))
         .filter(Boolean)
-        .join(" on "))
-      .filter(Boolean)
-      .join("; ")
+        .join("; ")
+    )
   };
 }
 

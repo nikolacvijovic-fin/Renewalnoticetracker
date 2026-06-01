@@ -1,10 +1,19 @@
 import crypto from "crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const logServerError = vi.fn();
+const logServerWarn = vi.fn();
+
+vi.mock("@/lib/observability/server-logger", () => ({
+  logServerError,
+  logServerWarn
+}));
+
 describe("billing webhooks", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    vi.clearAllMocks();
     process.env.PADDLE_API_KEY = "paddle-key";
     process.env.PADDLE_WEBHOOK_SECRET = "paddle-secret";
     process.env.PADDLE_ENVIRONMENT = "sandbox";
@@ -71,5 +80,38 @@ describe("billing webhooks", () => {
 
     expect(payPalResponse.status).toBe(410);
     expect(stripeResponse.status).toBe(410);
+  });
+
+  it("returns a safe error and logs a named event when Paddle webhook processing fails", async () => {
+    const paddleRoute = await import("@/app/api/webhooks/billing/paddle/route");
+    const response = await paddleRoute.POST(
+      new Request("http://localhost/api/webhooks/billing/paddle", {
+        method: "POST",
+        body: JSON.stringify({
+          provider_payload: "raw provider payload should not be surfaced"
+        })
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual(
+      expect.objectContaining({
+        error: "Invalid webhook",
+        code: "ERR_WEBHOOK_INVALID_001",
+        requestId: expect.any(String)
+      })
+    );
+    expect(JSON.stringify(body)).not.toContain("raw provider payload");
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "billing_webhook_failed",
+        metadata: expect.objectContaining({
+          provider: "paddle",
+          code: "ERR_WEBHOOK_INVALID_001",
+          status: 400
+        })
+      })
+    );
   });
 });

@@ -6,11 +6,20 @@ import {
 } from "@/lib/internal-route-auth";
 
 const executeWorkspaceDeletionRequest = vi.fn();
+const logServerError = vi.fn();
+const logServerInfo = vi.fn();
+const logServerWarn = vi.fn();
 class WorkspaceDeletionExecutionError extends Error {}
 
 vi.mock("@/lib/organization/workspace-deletion", () => ({
   WorkspaceDeletionExecutionError,
   executeWorkspaceDeletionRequest
+}));
+
+vi.mock("@/lib/observability/server-logger", () => ({
+  logServerError,
+  logServerInfo,
+  logServerWarn
 }));
 
 describe("workspace deletion internal route", () => {
@@ -51,6 +60,20 @@ describe("workspace deletion internal route", () => {
 
     expect(response.status).toBe(401);
     expect(executeWorkspaceDeletionRequest).not.toHaveBeenCalled();
+    expect(logServerInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "workspace_deletion_attempted"
+      })
+    );
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "workspace_deletion_route_failed",
+        metadata: expect.objectContaining({
+          code: "ERR_INTERNAL_DESTRUCTIVE_AUTH_001",
+          status: 401
+        })
+      })
+    );
   });
 
   it("executes an authorized workspace deletion request", async () => {
@@ -241,5 +264,14 @@ describe("workspace deletion internal route", () => {
       })
     );
     expect(executeWorkspaceDeletionRequest).toHaveBeenCalledWith("delete-1");
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "workspace_deletion_route_failed",
+        metadata: expect.objectContaining({
+          code: "ERR_WORKSPACE_DELETION_FAILED_001",
+          status: 500
+        })
+      })
+    );
   });
 });

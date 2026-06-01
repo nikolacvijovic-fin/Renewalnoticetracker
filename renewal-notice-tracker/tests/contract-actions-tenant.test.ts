@@ -6,6 +6,7 @@ const requireScopedContract = vi.fn();
 const getBillingSnapshot = vi.fn();
 const createServerSupabaseClient = vi.fn();
 const revalidatePath = vi.fn();
+const createAuditLog = vi.fn();
 
 vi.mock("@/lib/auth", async () => {
   const actual = await vi.importActual<typeof import("@/lib/auth")>("@/lib/auth");
@@ -40,6 +41,10 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient
 }));
 
+vi.mock("@/lib/audit", () => ({
+  createAuditLog
+}));
+
 vi.mock("next/cache", () => ({
   revalidatePath
 }));
@@ -58,6 +63,7 @@ describe("contract action tenant enforcement", () => {
       role: "operator"
     });
     requireScopedContract.mockRejectedValue(new Error("Contract not found for active organization."));
+    createAuditLog.mockResolvedValue({ ok: true });
   });
 
   it(
@@ -92,6 +98,46 @@ describe("contract action tenant enforcement", () => {
     expect(requireScopedContract).toHaveBeenCalledWith("foreign-contract-id", "org-1");
     expect(createServerSupabaseClient).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("audits note creation without storing raw note text or previews", async () => {
+    requireScopedContract.mockResolvedValueOnce({ id: "contract-1", organization_id: "org-1" });
+    const insert = vi.fn(() => ({
+      select: vi.fn(() => ({
+        single: vi.fn().mockResolvedValue({ data: { id: "note-1" }, error: null })
+      }))
+    }));
+    createServerSupabaseClient.mockReturnValue({
+      from: vi.fn((table: string) => {
+        expect(table).toBe("notes");
+        return { insert };
+      })
+    });
+    const privateNote = "Private renewal negotiation note should not enter audit details";
+    const formData = new FormData();
+    formData.append("body", privateNote);
+
+    const { createNoteAction } = await import("@/lib/actions/contracts");
+    await createNoteAction("contract-1", formData);
+
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contract_id: "contract-1",
+        organization_id: "org-1",
+        body: privateNote
+      })
+    );
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "note.created",
+        details: {
+          note_length: privateNote.length,
+          body_redacted: true
+        }
+      })
+    );
+    expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain(privateNote);
+    expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain("body_preview");
   });
 
   it("stops review updates before any writes when the contract is outside the active org", async () => {
