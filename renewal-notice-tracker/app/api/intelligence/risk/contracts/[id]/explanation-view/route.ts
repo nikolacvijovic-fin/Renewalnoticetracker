@@ -19,6 +19,7 @@ import {
   auditRiskExplanationViewed,
   type RiskExplanationAuditSurface
 } from "@/lib/intelligence/audit";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 function isRiskExplanationAuditSurface(value: unknown): value is RiskExplanationAuditSurface {
   return value === "contract_detail" || value === "contracts_table" || value === "risk_queue";
@@ -102,6 +103,27 @@ export const POST = createRouteHandler<
       }
 
       return null;
+    },
+    instrumentation: {
+      onError: ({ auth, input, requestId, url, normalizedError }) => {
+        if (normalizedError.status !== 403) return;
+        void emitOperationalEvent({
+          eventName: "intelligence_access_denied",
+          severity: "P3",
+          sensitivity: "customer_sensitive",
+          alert: false,
+          route: url.pathname,
+          organizationId: auth?.organizationId ?? null,
+          actorUserId: auth?.user.id ?? null,
+          requestId,
+          metadata: {
+            surface: "risk_explanation",
+            source_surface: input?.sourceSurface ?? "unknown",
+            status: normalizedError.status,
+            code: normalizedError.code
+          }
+        });
+      }
     }
   },
   async ({ auth: context, input: body, routeContext, noContent }) => {

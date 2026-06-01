@@ -7,6 +7,7 @@ import {
 } from "@/lib/http";
 import { processDueReminders } from "@/lib/notifications/reminders";
 import { logServerError } from "@/lib/observability/server-logger";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 export const POST = createRouteHandler(
   {
@@ -25,6 +26,19 @@ export const POST = createRouteHandler(
         if (normalizedError.status < 500) return;
         logServerError({
           event: "reminder_dispatch_failed",
+          route: url.pathname,
+          requestId,
+          metadata: {
+            status: normalizedError.status,
+            code: normalizedError.code
+          },
+          error
+        });
+        void emitOperationalEvent({
+          eventName: "reminder_dispatch_failed",
+          severity: "P1",
+          sensitivity: "customer_sensitive",
+          alert: true,
           route: url.pathname,
           requestId,
           metadata: {

@@ -7,6 +7,7 @@ import { buildEvidenceRows } from "@/lib/contracts/evidence";
 import { sanitizeSensitiveProcessingError } from "@/lib/errors";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
 import { logServerWarn } from "@/lib/observability/server-logger";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 type OcrJobRow = {
   id: string;
@@ -276,6 +277,21 @@ export async function processPendingOcrJobs(limit = 5) {
         event: "ocr_job_failed",
         organizationId: claimed.organization_id,
         route: "ocr_job_worker",
+        metadata: {
+          job_id: claimed.id,
+          contract_id: claimed.contract_id,
+          status:
+            claimed.attempts + 1 >= 2 ? "failed_terminal" : "retry_pending"
+        },
+        error
+      });
+      void emitOperationalEvent({
+        eventName: "ocr_job_failed",
+        severity: "P2",
+        sensitivity: "customer_sensitive",
+        alert: true,
+        organizationId: claimed.organization_id,
+        action: "ocr_job_worker",
         metadata: {
           job_id: claimed.id,
           contract_id: claimed.contract_id,

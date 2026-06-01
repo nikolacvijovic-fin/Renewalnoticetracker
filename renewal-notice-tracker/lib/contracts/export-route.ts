@@ -38,6 +38,7 @@ import {
   logServerError,
   logServerWarn
 } from "@/lib/observability/server-logger";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { ROUTE_REQUEST_ID_HEADER } from "@/lib/http";
 
 function getPresetFromRequest(request?: Request) {
@@ -110,6 +111,22 @@ function logExportFailed(input: {
     },
     error: input.error
   });
+  void emitOperationalEvent({
+    eventName: "export_failed",
+    severity: "P2",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: true,
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      sensitive_sections_included: input.preset.sensitiveSectionsIncluded
+    },
+    error: input.error
+  });
 }
 
 function logExportTooLarge(input: {
@@ -132,6 +149,23 @@ function logExportTooLarge(input: {
       format: input.format,
       row_count: input.error.input.rowCount,
       max_rows: input.error.input.maxRows
+    }
+  });
+  void emitOperationalEvent({
+    eventName: "export_too_large",
+    severity: "P3",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: false,
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      row_count: input.error.input.rowCount,
+      max_rows: input.error.input.maxRows,
+      sensitive_sections_included: input.preset.sensitiveSectionsIncluded
     }
   });
 }

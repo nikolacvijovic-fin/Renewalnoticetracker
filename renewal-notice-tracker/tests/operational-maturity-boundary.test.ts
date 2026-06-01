@@ -31,7 +31,10 @@ describe("operational maturity boundaries", () => {
   });
 
   it("documents named monitoring signals for critical operational failures", () => {
-    const source = readProjectFile("docs/OPERATIONAL_MATURITY.md");
+    const source = [
+      readProjectFile("docs/OPERATIONAL_MATURITY.md"),
+      readProjectFile("docs/OPERATIONAL_EVENT_INVENTORY.md")
+    ].join("\n");
     const requiredSignals = [
       "reminder_dispatch_failed",
       "export_failed",

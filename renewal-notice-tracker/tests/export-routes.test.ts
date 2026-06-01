@@ -10,6 +10,7 @@ const enforceFeatureAccess = vi.fn();
 const assertCanAccessIntelligenceSurface = vi.fn();
 const assertCanUseShippedAction = vi.fn();
 const logServerError = vi.fn();
+const logServerInfo = vi.fn();
 const logServerWarn = vi.fn();
 const OrganizationAuthorizationError = class OrganizationAuthorizationError extends Error {};
 const ActiveOrganizationRequiredError = class ActiveOrganizationRequiredError extends Error {};
@@ -62,6 +63,7 @@ vi.mock("@/lib/intelligence/access", () => ({
 
 vi.mock("@/lib/observability/server-logger", () => ({
   logServerError,
+  logServerInfo,
   logServerWarn
 }));
 

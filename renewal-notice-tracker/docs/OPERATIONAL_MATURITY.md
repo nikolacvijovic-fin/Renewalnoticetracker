@@ -64,6 +64,8 @@ Never log secrets, auth tokens, cookies, payment provider payload secrets, raw c
 
 ## Monitoring Readiness Map
 
+Monitoring currently emits through `lib/observability/monitoring.ts` into structured server logs. See `docs/OPERATIONAL_EVENT_INVENTORY.md` for the event inventory and P0/P1/P2/P3 severity policy.
+
 Critical events and current signal sources:
 
 | Event | Source route/action | Audit event | Analytics event | Log event | Severity | Owner response |

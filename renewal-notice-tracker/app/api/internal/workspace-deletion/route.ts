@@ -14,6 +14,7 @@ import {
   logServerError,
   logServerInfo
 } from "@/lib/observability/server-logger";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 export const POST = createRouteHandler(
   {
@@ -76,6 +77,19 @@ export const POST = createRouteHandler(
       onError: ({ requestId, url, normalizedError, error }) => {
         logServerError({
           event: "workspace_deletion_route_failed",
+          route: url.pathname,
+          requestId,
+          metadata: {
+            status: normalizedError.status,
+            code: normalizedError.code
+          },
+          error
+        });
+        void emitOperationalEvent({
+          eventName: "workspace_deletion_route_failed",
+          severity: "P1",
+          sensitivity: "restricted",
+          alert: true,
           route: url.pathname,
           requestId,
           metadata: {

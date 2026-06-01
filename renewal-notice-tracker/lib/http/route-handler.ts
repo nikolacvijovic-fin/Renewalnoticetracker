@@ -15,6 +15,7 @@ import {
   logServerError,
   logServerWarn
 } from "@/lib/observability/server-logger";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import {
   hasValidDestructiveInternalRequestAuth,
   hasValidInternalRouteSecret,
@@ -248,6 +249,15 @@ function logRouteFailure(input: {
   if (input.normalizedError.code.startsWith("ERR_INTERNAL_")) {
     logServerWarn({
       event: "internal_route_auth_failed",
+      route: input.url.pathname,
+      requestId: input.requestId,
+      metadata
+    });
+    void emitOperationalEvent({
+      eventName: "internal_route_auth_failed",
+      severity: "P2",
+      sensitivity: "internal",
+      alert: true,
       route: input.url.pathname,
       requestId: input.requestId,
       metadata
