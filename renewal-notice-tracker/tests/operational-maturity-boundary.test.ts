@@ -13,6 +13,7 @@ describe("operational maturity boundaries", () => {
     const standardizedRoutes = [
       "app/api/internal/health/route.ts",
       "app/api/internal/ocr-jobs/route.ts",
+      "app/api/internal/export-jobs/route.ts",
       "app/api/internal/workspace-deletion/route.ts",
       "app/api/email-actions/[action]/[token]/route.ts",
       "app/api/cron/send-reminders/route.ts",
@@ -69,7 +70,10 @@ describe("operational maturity boundaries", () => {
     expect(source).toContain('presetId === "notes_and_decisions_export"');
     expect(source).toContain('notes (');
     expect(source).toContain("EXPORT_SYNC_ROW_LIMIT");
-    expect(source).toContain(".range(0, EXPORT_SYNC_ROW_LIMIT - 1)");
+    expect(source).toContain("options?.maxRows ?? EXPORT_SYNC_ROW_LIMIT");
+    expect(source).toContain(".range(0, maxRows - 1)");
+    expect(source).toContain("EXPORT_BACKGROUND_ROW_LIMIT");
+    expect(source).toContain("getBackgroundExportRows");
     expect(source).toContain(".eq(\"organization_id\", organizationId)");
   });
 });

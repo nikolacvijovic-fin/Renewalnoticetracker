@@ -8,7 +8,6 @@ import {
 } from "@/lib/auth";
 import {
   CommercialAccessError,
-  enforceFeatureAccess,
   getCommercialRedirectCode
 } from "@/lib/billing/entitlements";
 import { createAuditLog } from "@/lib/audit";
@@ -30,7 +29,6 @@ import { buildExportRequestEvidence } from "@/lib/commercial/privacy-operations"
 import { getAppConfig } from "@/lib/config";
 import { SHIPPED_EXPORT_CLASSIFICATION } from "@/lib/product/action-matrix";
 import {
-  assertCanAccessIntelligenceSurface,
   IntelligenceAuthorizationError,
   IntelligencePlanAccessError
 } from "@/lib/intelligence/access";
@@ -40,6 +38,7 @@ import {
 } from "@/lib/observability/server-logger";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { ROUTE_REQUEST_ID_HEADER } from "@/lib/http";
+import { assertContractExportPresetAccess } from "@/lib/contracts/export-access";
 
 function getPresetFromRequest(request?: Request) {
   if (!request) return resolveExportPreset(null);
@@ -170,48 +169,6 @@ function logExportTooLarge(input: {
   });
 }
 
-async function assertPresetAccess(input: {
-  context: NonNullable<Awaited<ReturnType<typeof getActiveOrganizationContextOrNull>>>;
-  preset: ExportPreset;
-  format: ExportFormat;
-}) {
-  if (!input.preset.allowedRoles.includes(input.context.role)) {
-    await createAuditLog({
-      organizationId: input.context.organizationId,
-      actorUserId: input.context.user.id,
-      action: "contracts.export_denied",
-      entityType: "export",
-      details: {
-        export_preset: input.preset.id,
-        format: input.format,
-        denied_reason: "role_not_allowed",
-        role: input.context.role
-      }
-    });
-    throw new OrganizationAuthorizationError("export_contracts", input.context.role);
-  }
-
-  if (input.preset.requiredCommercialFeature) {
-    await enforceFeatureAccess({
-      organizationId: input.context.organizationId,
-      actorUserId: input.context.user.id,
-      feature: input.preset.requiredCommercialFeature,
-      context: {
-        format: input.format,
-        export_preset: input.preset.id,
-        source: "export_route"
-      }
-    });
-  }
-
-  if (input.preset.id === "intelligence_export") {
-    await assertCanAccessIntelligenceSurface({
-      context: input.context,
-      surface: "risk_queue"
-    });
-  }
-}
-
 async function recordExportPersistence(input: {
   organizationId: string;
   actorUserId: string;
@@ -288,7 +245,12 @@ export async function handleContractsExport(
         });
       }
     });
-    await assertPresetAccess({ context, preset, format });
+    await assertContractExportPresetAccess({
+      context,
+      preset,
+      format,
+      source: "export_route"
+    });
   } catch (error) {
     if (error instanceof ActiveOrganizationRequiredError) {
       logExportDenied({ request, requestId, preset, format, reason: "unauthorized" });
@@ -428,10 +390,16 @@ export async function handleContractsExport(
       return withExportRequestId(
         NextResponse.json(
           {
-            error: "Export is too large for synchronous download. Use a narrower export or request an operator-assisted background export.",
-            code: "ERR_EXPORT_TOO_LARGE_001",
+            error: "Export is too large for synchronous download. Create a background export request instead.",
+            code: "ERR_EXPORT_BACKGROUND_REQUIRED_001",
             requestId,
-            maxRows: error.input.maxRows
+            maxRows: error.input.maxRows,
+            backgroundExport: {
+              method: "POST",
+              path: "/api/exports/contracts",
+              preset: preset.id,
+              format
+            }
           },
           { status: 413 }
         ),

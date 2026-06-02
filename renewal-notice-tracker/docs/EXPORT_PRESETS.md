@@ -49,5 +49,22 @@ NoticeControl exports are now explicit presets, not one implicit export shape. T
 - `/dashboard/contracts/export/xlsx`
 - `/dashboard/contracts/export/csv?preset=workflow_export`
 - `/dashboard/contracts/export/xlsx?preset=notes_and_decisions_export`
+- `POST /api/exports/contracts` with `{ "preset": "workflow_export", "format": "csv" }` creates a queued background export request.
+- `GET /api/exports/contracts/{id}` returns org-scoped background export status metadata only.
+- `POST /api/internal/export-jobs` processes a bounded number of queued exports behind the operations internal secret.
 
 Unsupported or deferred presets fail safely before export payload generation.
+
+## Background Export Workflow
+
+Synchronous CSV/XLSX downloads remain capped at `5000` rows. When a synchronous export exceeds that cap, the route returns `ERR_EXPORT_BACKGROUND_REQUIRED_001` with the background request endpoint to use.
+
+Background exports currently:
+- reuse `data_export_requests`
+- move through `queued`, `processing`, `completed`, or `failed`
+- enforce the same preset, role, billing, shipped-action, and intelligence gates before request creation
+- generate and sanitize CSV/XLSX payloads during processing
+- record row count, included sections, sensitive-section flag, format, preset, actor, organization, and safe failure code/category
+- audit request, completion, and failure events
+
+Durable artifact storage and customer download links are intentionally deferred. Completed background requests report `downloadAvailable: false` and `artifactStorage: deferred` until a storage/retention policy is shipped.

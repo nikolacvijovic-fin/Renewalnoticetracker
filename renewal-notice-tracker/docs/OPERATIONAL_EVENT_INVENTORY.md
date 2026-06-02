@@ -9,6 +9,8 @@ Monitoring currently emits through structured server logs via `lib/observability
 | `export_denied` | `lib/contracts/export-route.ts` | structured log + audit where applicable | org/user when auth resolved | customer_sensitive | no single alert | P3 |
 | `export_failed` | `lib/contracts/export-route.ts` | structured log + monitoring | org/user, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_too_large` | `lib/contracts/export-route.ts` | structured log + monitoring | org/user, preset, format, row count | customer_sensitive for rich presets | no | P3 |
+| `export_background_failed` | `lib/contracts/background-exports.ts` | structured log + monitoring + audit | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
+| `export_jobs_route_failed` | `app/api/internal/export-jobs/route.ts` | monitoring + route error | request ID, route | internal | yes | P2 |
 | `reminder_dispatch_failed` | `app/api/cron/send-reminders/route.ts` | structured log + monitoring | request ID, route | customer_sensitive | yes | P1 |
 | `ocr_job_failed` | `lib/ocr/jobs.ts` | structured log + monitoring + processing error | org, contract ID, job ID | customer_sensitive | yes | P2 |
 | `billing_webhook_failed` | `app/api/webhooks/billing/paddle/route.ts` | structured log + monitoring | request ID, provider | restricted | yes | P1 |
@@ -17,6 +19,9 @@ Monitoring currently emits through structured server logs via `lib/observability
 | `intelligence_access_denied` | risk explanation route and future sensitive intelligence routes | monitoring | org/user when auth resolved, surface | customer_sensitive | no single alert | P3 |
 | `contracts.export_attempted` | export route | audit | org/user, preset, format | customer_sensitive if rich preset | no | P3 |
 | `contracts.exported` | export route | audit + analytics after success | org/user, preset, row count, sections | customer_sensitive if rich preset | no | P3 |
+| `contracts.export_background_requested` | background export request creation | audit | org/user, request ID, preset, format, sections | customer_sensitive if rich preset | no | P3 |
+| `contracts.export_background_completed` | background export processor | audit | org/user, request ID, preset, format, row count | customer_sensitive if rich preset | no | P3 |
+| `contracts.export_background_failed` | background export processor | audit | org/user, request ID, safe failure code/category | customer_sensitive if rich preset | yes if repeated | P2 |
 | `contracts.export_denied` | export route | audit | org/user, preset, denied reason | customer_sensitive | no single alert | P3 |
 | `export_requested` | export route | analytics after success only | org/user, preset, row count | internal/customer_sensitive by preset | no | P3 |
 | `reminders.preview_denied` | reminders API | audit | org/user, denied reason | internal | spike only | P3 |
@@ -61,4 +66,3 @@ Monitoring currently emits through structured server logs via `lib/observability
 ## Alert Data Safety
 
 Alerts must never contain secrets, tokens, raw contract text, full notes, OCR output, extracted evidence, billing provider payloads, uploaded document contents, cookies, or internal diagnostic payloads. Use IDs, counts, status, preset names, route/action, request ID, and redacted error names instead.
-

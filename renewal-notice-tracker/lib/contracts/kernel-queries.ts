@@ -2,6 +2,7 @@ import type { ContractFilter } from "@/lib/constants";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   buildExportRows,
+  EXPORT_BACKGROUND_ROW_LIMIT,
   ExportScaleLimitError,
   EXPORT_SYNC_ROW_LIMIT,
   resolveExportPreset,
@@ -400,9 +401,10 @@ export async function getScopedContractMetadataId(contractId: string, organizati
 }
 
 export async function getOrganizationMembers(
-  organizationId: string
+  organizationId: string,
+  client: ReturnType<typeof createServerSupabaseClient> = createServerSupabaseClient()
 ): Promise<OrganizationMember[]> {
-  const supabase = createServerSupabaseClient();
+  const supabase = client;
   const [{ data: memberships, error: membershipError }, { data: users, error: usersError }] =
     await Promise.all([
       supabase
@@ -455,26 +457,31 @@ export async function getOrganizationBilling(organizationId: string) {
 
 export async function getExportRows(
   organizationId: string,
-  presetId: ExportPresetId = "basic_contract_register"
+  presetId: ExportPresetId = "basic_contract_register",
+  options?: {
+    maxRows?: number;
+    client?: ReturnType<typeof createServerSupabaseClient>;
+  }
 ): Promise<ExportRow[]> {
   const preset = resolveExportPreset(presetId);
-  const supabase = createServerSupabaseClient();
+  const maxRows = options?.maxRows ?? EXPORT_SYNC_ROW_LIMIT;
+  const supabase = options?.client ?? createServerSupabaseClient();
   const [contracts, members] = await Promise.all([
     supabase
       .from("contracts")
       .select(getExportSelectForPreset(preset.id), { count: "exact" })
       .eq("organization_id", organizationId)
       .order("updated_at", { ascending: false })
-      .range(0, EXPORT_SYNC_ROW_LIMIT - 1),
-    getOrganizationMembers(organizationId)
+      .range(0, maxRows - 1),
+    getOrganizationMembers(organizationId, supabase)
   ]);
 
   if (contracts.error) throw contracts.error;
-  if ((contracts.count ?? 0) > EXPORT_SYNC_ROW_LIMIT) {
+  if ((contracts.count ?? 0) > maxRows) {
     throw new ExportScaleLimitError({
       presetId: preset.id,
       rowCount: contracts.count ?? 0,
-      maxRows: EXPORT_SYNC_ROW_LIMIT
+      maxRows
     });
   }
 
@@ -489,6 +496,19 @@ export async function getExportRows(
     preset,
     contracts: (contracts.data ?? []) as unknown as ExportContractRow[],
     ownerLabelsByUserId: ownerMap
+  });
+}
+
+export async function getBackgroundExportRows(
+  organizationId: string,
+  presetId: ExportPresetId,
+  options?: {
+    client?: ReturnType<typeof createServerSupabaseClient>;
+  }
+) {
+  return getExportRows(organizationId, presetId, {
+    maxRows: EXPORT_BACKGROUND_ROW_LIMIT,
+    client: options?.client
   });
 }
 

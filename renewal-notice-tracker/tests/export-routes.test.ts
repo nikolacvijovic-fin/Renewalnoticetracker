@@ -325,9 +325,15 @@ describe("export routes", () => {
     expect(body).toEqual(
       expect.objectContaining({
         error: expect.stringContaining("too large for synchronous download"),
-        code: "ERR_EXPORT_TOO_LARGE_001",
+        code: "ERR_EXPORT_BACKGROUND_REQUIRED_001",
         maxRows: EXPORT_SYNC_ROW_LIMIT,
-        requestId: expect.any(String)
+        requestId: expect.any(String),
+        backgroundExport: {
+          method: "POST",
+          path: "/api/exports/contracts",
+          preset: "workflow_export",
+          format: "csv"
+        }
       })
     );
     expect(logServerWarn).toHaveBeenCalledWith(
