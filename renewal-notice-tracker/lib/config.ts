@@ -20,6 +20,7 @@ const rawEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmptyString,
   SUPABASE_SERVICE_ROLE_KEY: nonEmptyString,
   SUPABASE_STORAGE_BUCKET: nonEmptyString.default("contract-files"),
+  SUPABASE_EXPORTS_BUCKET: nonEmptyString.default("export-artifacts"),
   OPENAI_API_KEY: nonEmptyString,
   OPENAI_MODEL: nonEmptyString.default("gpt-4.1-mini"),
   OCR_PROVIDER: optionalEnum(["openai", "mock"]),
@@ -61,6 +62,7 @@ export type AppConfig = {
     anonKey: string;
     serviceRoleKey: string;
     storageBucket: string;
+    exportStorageBucket: string;
   };
   ai: {
     openaiApiKey: string;
@@ -137,7 +139,8 @@ export function parseAppConfig(
       url: raw.NEXT_PUBLIC_SUPABASE_URL,
       anonKey: raw.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       serviceRoleKey: raw.SUPABASE_SERVICE_ROLE_KEY,
-      storageBucket: raw.SUPABASE_STORAGE_BUCKET
+      storageBucket: raw.SUPABASE_STORAGE_BUCKET,
+      exportStorageBucket: raw.SUPABASE_EXPORTS_BUCKET
     },
     ai: {
       openaiApiKey: raw.OPENAI_API_KEY,

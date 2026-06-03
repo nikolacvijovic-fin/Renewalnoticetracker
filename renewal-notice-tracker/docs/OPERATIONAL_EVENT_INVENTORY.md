@@ -10,6 +10,8 @@ Monitoring currently emits through structured server logs via `lib/observability
 | `export_failed` | `lib/contracts/export-route.ts` | structured log + monitoring | org/user, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_too_large` | `lib/contracts/export-route.ts` | structured log + monitoring | org/user, preset, format, row count | customer_sensitive for rich presets | no | P3 |
 | `export_background_failed` | `lib/contracts/background-exports.ts` | structured log + monitoring + audit | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
+| `export_background_download_failed` | `lib/contracts/background-exports.ts` | monitoring + route error | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
+| `export_background_cleanup_failed` | `lib/contracts/background-exports.ts` cleanup | monitoring | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_jobs_route_failed` | `app/api/internal/export-jobs/route.ts` | monitoring + route error | request ID, route | internal | yes | P2 |
 | `reminder_dispatch_failed` | `app/api/cron/send-reminders/route.ts` | structured log + monitoring | request ID, route | customer_sensitive | yes | P1 |
 | `ocr_job_failed` | `lib/ocr/jobs.ts` | structured log + monitoring + processing error | org, contract ID, job ID | customer_sensitive | yes | P2 |
@@ -22,6 +24,8 @@ Monitoring currently emits through structured server logs via `lib/observability
 | `contracts.export_background_requested` | background export request creation | audit | org/user, request ID, preset, format, sections | customer_sensitive if rich preset | no | P3 |
 | `contracts.export_background_completed` | background export processor | audit | org/user, request ID, preset, format, row count | customer_sensitive if rich preset | no | P3 |
 | `contracts.export_background_failed` | background export processor | audit | org/user, request ID, safe failure code/category | customer_sensitive if rich preset | yes if repeated | P2 |
+| `contracts.export_background_downloaded` | background export download route | audit | org/user, request ID, preset, format, row count, artifact size | customer_sensitive if rich preset | no | P3 |
+| `contracts.export_background_expired` | background export cleanup | audit | org/user, request ID, preset, format, artifact size | customer_sensitive if rich preset | no | P3 |
 | `contracts.export_denied` | export route | audit | org/user, preset, denied reason | customer_sensitive | no single alert | P3 |
 | `export_requested` | export route | analytics after success only | org/user, preset, row count | internal/customer_sensitive by preset | no | P3 |
 | `reminders.preview_denied` | reminders API | audit | org/user, denied reason | internal | spike only | P3 |

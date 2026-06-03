@@ -51,7 +51,9 @@ NoticeControl exports are now explicit presets, not one implicit export shape. T
 - `/dashboard/contracts/export/xlsx?preset=notes_and_decisions_export`
 - `POST /api/exports/contracts` with `{ "preset": "workflow_export", "format": "csv" }` creates a queued background export request.
 - `GET /api/exports/contracts/{id}` returns org-scoped background export status metadata only.
+- `GET /api/exports/contracts/{id}/download` downloads a completed, unexpired background export artifact.
 - `POST /api/internal/export-jobs` processes a bounded number of queued exports behind the operations internal secret.
+- `POST /api/internal/export-jobs` with `{ "mode": "cleanup_expired" }` removes expired artifacts and marks requests expired.
 
 Unsupported or deferred presets fail safely before export payload generation.
 
@@ -64,7 +66,15 @@ Background exports currently:
 - move through `queued`, `processing`, `completed`, or `failed`
 - enforce the same preset, role, billing, shipped-action, and intelligence gates before request creation
 - generate and sanitize CSV/XLSX payloads during processing
-- record row count, included sections, sensitive-section flag, format, preset, actor, organization, and safe failure code/category
+- store generated artifacts in a private Supabase storage bucket configured by `SUPABASE_EXPORTS_BUCKET`
+- record row count, included sections, sensitive-section flag, format, preset, actor, organization, artifact size, checksum, content type, filename, expiry, and safe failure code/category
 - audit request, completion, and failure events
+- audit downloads and expiration cleanup
 
-Durable artifact storage and customer download links are intentionally deferred. Completed background requests report `downloadAvailable: false` and `artifactStorage: deferred` until a storage/retention policy is shipped.
+Background export artifacts expire after seven days. Status responses expose `downloadAvailable`, `expiresAt`, `artifactSizeBytes`, `filename`, completion/failure timestamps, and safe failure codes. They never expose storage bucket names or object paths.
+
+Still deferred:
+- scheduled exports
+- customer API export automation
+- audit export packaging
+- data warehouse or external sync

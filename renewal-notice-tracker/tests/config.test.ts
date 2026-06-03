@@ -10,6 +10,7 @@ function makeValidEnv(
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
     SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
     SUPABASE_STORAGE_BUCKET: "contract-files",
+    SUPABASE_EXPORTS_BUCKET: "export-artifacts",
     OPENAI_API_KEY: "test-openai-key",
     OPENAI_MODEL: "gpt-4.1-mini",
     OCR_PROVIDER: "openai",
@@ -45,7 +46,8 @@ describe("runtime configuration", () => {
     });
     expect(config.supabase).toMatchObject({
       serviceRoleKey: "test-service-key",
-      storageBucket: "contract-files"
+      storageBucket: "contract-files",
+      exportStorageBucket: "export-artifacts"
     });
     expect(config.internal).toMatchObject({
       cronSharedSecret: "test-cron-secret",

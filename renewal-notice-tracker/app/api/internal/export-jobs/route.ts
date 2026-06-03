@@ -4,21 +4,26 @@ import {
   RouteHttpError,
   routeServerError
 } from "@/lib/http";
-import { processQueuedContractExportRequests } from "@/lib/contracts/background-exports";
+import {
+  cleanupExpiredBackgroundExportArtifacts,
+  processQueuedContractExportRequests
+} from "@/lib/contracts/background-exports";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 async function parseOptionalLimit(request: Request) {
   const text = await request.text();
-  if (!text.trim()) return { limit: 3 };
+  if (!text.trim()) return { limit: 3, mode: "process" as const };
 
   try {
-    const parsed = JSON.parse(text) as { limit?: unknown };
+    const parsed = JSON.parse(text) as { limit?: unknown; mode?: unknown };
     const limit = Number(parsed.limit ?? 3);
+    const mode = parsed.mode === "cleanup_expired" ? "cleanup_expired" : "process";
     return {
-      limit: Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 10) : 3
+      limit: Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 10) : 3,
+      mode
     };
   } catch {
-    return { limit: 3 };
+    return { limit: 3, mode: "process" as const };
   }
 }
 
@@ -54,17 +59,13 @@ export const POST = createRouteHandler(
     }
   },
   async ({ input, json }) => {
-    const result = await processQueuedContractExportRequests({
-      limit: input.limit
-    });
+    const result =
+      input.mode === "cleanup_expired"
+        ? await cleanupExpiredBackgroundExportArtifacts({ limit: input.limit })
+        : await processQueuedContractExportRequests({
+            limit: input.limit
+          });
 
-    return json({
-      ok: result.ok,
-      requestedLimit: result.requestedLimit,
-      claimed: result.claimed,
-      completed: result.completed,
-      failed: result.failed,
-      skipped: result.skipped
-    });
+    return json(result);
   }
 );

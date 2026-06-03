@@ -28,7 +28,9 @@ Text bounds:
 - decision history summary is capped at `500` characters
 - spreadsheet injection sanitization applies to all string fields
 
-Background export request processing now exists for larger preset exports. It uses `data_export_requests`, claims queued work through `/api/internal/export-jobs`, generates bounded CSV/XLSX payloads, and records safe completion/failure metadata. Durable artifact storage and customer download URLs remain deferred, so completed background requests currently expose metadata only.
+Background export request processing now exists for larger preset exports. It uses `data_export_requests`, claims queued work through `/api/internal/export-jobs`, generates bounded CSV/XLSX payloads, stores artifacts in the private `SUPABASE_EXPORTS_BUCKET`, and records safe completion/failure metadata. Completed, unexpired artifacts are downloaded through `/api/exports/contracts/{id}/download`; storage paths and bucket names are never returned to customers.
+
+Artifacts expire after seven days. Internal operations can run cleanup through `/api/internal/export-jobs` with `{ "mode": "cleanup_expired" }`, which deletes the private artifact and marks the request `expired`.
 
 Background exports become necessary when customers need:
 - more than `5000` rows
@@ -37,7 +39,7 @@ Background exports become necessary when customers need:
 - scheduled exports
 - very large XLSX files
 
-Full note history, audit export packaging, scheduled exports, and durable download storage remain operational follow-ups, not shipped scope in this pass.
+Full note history, audit export packaging, scheduled exports, and data warehouse sync remain operational follow-ups, not shipped scope in this pass.
 
 ## Intelligence Calculation Assumptions
 
@@ -72,6 +74,7 @@ Recommended high-confidence indexes:
 - `exports(organization_id, created_at desc)`
 - `data_export_requests(organization_id, requested_at desc)`
 - `data_export_requests(export_scope, status, requested_at)` for background worker claims
+- private Supabase storage bucket for `SUPABASE_EXPORTS_BUCKET`
 - `organizations(billing_provider, billing_customer_id)`
 - `organizations(billing_subscription_id)`
 
@@ -81,7 +84,7 @@ Avoid speculative indexes on rarely filtered columns. Every index adds write ove
 
 - Contract detail still loads many adjacent records; keep large raw payloads out of customer UI and consider pagination for audit/notes if they grow.
 - Procurement analytics currently builds several summaries in memory; materialized summaries may be needed for very large portfolios.
-- XLSX generation is memory-bound; background exports are bounded at the worker layer and still need durable artifact storage before customer download links ship.
+- XLSX generation is memory-bound; background exports are bounded at the worker layer and artifacts expire after seven days.
 - OCR and reminder jobs should keep bounded batch sizes and explicit retry/failure semantics.
 
 ## Deferred Scale Features

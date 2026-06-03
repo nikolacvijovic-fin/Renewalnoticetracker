@@ -77,6 +77,20 @@ function makeUpdateQuery(capture: (value: unknown) => void) {
   return chain;
 }
 
+function makeStorageMock(overrides?: {
+  upload?: ReturnType<typeof vi.fn>;
+  download?: ReturnType<typeof vi.fn>;
+  remove?: ReturnType<typeof vi.fn>;
+}) {
+  return {
+    from: vi.fn(() => ({
+      upload: overrides?.upload ?? vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null }),
+      download: overrides?.download ?? vi.fn(),
+      remove: overrides?.remove ?? vi.fn().mockResolvedValue({ data: [], error: null })
+    }))
+  };
+}
+
 describe("background contract exports", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -84,8 +98,9 @@ describe("background contract exports", () => {
     emitOperationalEvent.mockResolvedValue({});
   });
 
-  it("moves queued exports through processing to completed with safe metadata only", async () => {
+  it("stores generated artifacts before marking exports completed", async () => {
     const writes: unknown[] = [];
+    const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
     const claimed = {
       ...queuedExport,
       status: "processing",
@@ -96,6 +111,7 @@ describe("background contract exports", () => {
       }
     };
     const admin = {
+      storage: makeStorageMock({ upload }),
       from: vi
         .fn()
         .mockReturnValueOnce(makeListQuery([queuedExport]))
@@ -136,10 +152,25 @@ describe("background contract exports", () => {
           export_preset: "workflow_export",
           status: "completed",
           row_count: 1,
-          artifact_storage: "deferred",
-          download_available: false,
-          artifact_size_bytes: expect.any(Number)
+          artifact_storage: "stored",
+          download_available: true,
+          artifact_size_bytes: expect.any(Number),
+          storage_bucket: "export-artifacts",
+          storage_object_path: expect.stringContaining("org-1/contract-exports/export-request-1/"),
+          checksum_sha256: expect.any(String),
+          content_type: "text/csv; charset=utf-8",
+          file_extension: "csv",
+          filename: "contracts-workflow_export-export-request-1.csv",
+          expires_at: expect.any(String)
         })
+      })
+    );
+    expect(upload).toHaveBeenCalledWith(
+      expect.stringContaining("org-1/contract-exports/export-request-1/"),
+      expect.any(String),
+      expect.objectContaining({
+        contentType: "text/csv; charset=utf-8",
+        upsert: false
       })
     );
     expect(createAuditLog).toHaveBeenCalledWith(
@@ -149,14 +180,19 @@ describe("background contract exports", () => {
         details: expect.objectContaining({
           export_preset: "workflow_export",
           row_count: 1,
-          download_available: false
+          download_available: true,
+          artifact_storage: "stored"
         })
       })
     );
   });
 
-  it("marks processing failures failed and emits safe monitoring metadata", async () => {
+  it("marks storage failures failed and emits safe monitoring metadata", async () => {
     const writes: unknown[] = [];
+    const upload = vi.fn().mockResolvedValue({
+      data: null,
+      error: new Error("SENSITIVE_EXPORT_PAYLOAD_MARKER")
+    });
     const claimed = {
       ...queuedExport,
       status: "processing",
@@ -167,6 +203,7 @@ describe("background contract exports", () => {
       }
     };
     const admin = {
+      storage: makeStorageMock({ upload }),
       from: vi
         .fn()
         .mockReturnValueOnce(makeListQuery([queuedExport]))
@@ -174,9 +211,7 @@ describe("background contract exports", () => {
         .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
     };
     createAdminSupabaseClient.mockReturnValue(admin);
-    getBackgroundExportRows.mockRejectedValue(
-      new Error("raw contract text and full note must not be exposed")
-    );
+    getBackgroundExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
 
     const { processQueuedContractExportRequests } = await import(
       "@/lib/contracts/background-exports"
@@ -196,13 +231,13 @@ describe("background contract exports", () => {
         evidence_json: expect.objectContaining({
           export_preset: "workflow_export",
           status: "failed",
-          failure_code: "ERR_EXPORT_BACKGROUND_FAILED_001",
-          failure_category: "background_export_processing_failed"
+          artifact_storage: "failed",
+          failure_code: "ERR_EXPORT_BACKGROUND_STORAGE_FAILED_001",
+          failure_category: "background_export_storage_failed"
         })
       })
     );
-    expect(JSON.stringify(writes)).not.toContain("raw contract text");
-    expect(JSON.stringify(writes)).not.toContain("full note");
+    expect(JSON.stringify(writes)).not.toContain("SENSITIVE_EXPORT_PAYLOAD_MARKER");
     expect(emitOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "export_background_failed",
@@ -211,8 +246,131 @@ describe("background contract exports", () => {
         metadata: expect.objectContaining({
           export_request_id: "export-request-1",
           export_preset: "workflow_export",
-          failure_code: "ERR_EXPORT_BACKGROUND_FAILED_001"
+          failure_code: "ERR_EXPORT_BACKGROUND_STORAGE_FAILED_001"
         })
+      })
+    );
+  });
+
+  it("returns downloadable artifact bytes without exposing storage paths", async () => {
+    const download = vi.fn().mockResolvedValue({
+      data: Buffer.from("contract_title\nMSA"),
+      error: null
+    });
+    const admin = {
+      storage: makeStorageMock({ download }),
+      from: vi.fn(() => ({
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        maybeSingle: vi.fn().mockResolvedValue({
+          data: {
+            ...queuedExport,
+            status: "completed",
+            completed_at: "2026-06-02T10:05:00.000Z",
+            evidence_json: {
+              ...queuedExport.evidence_json,
+              status: "completed",
+              artifact_storage: "stored",
+              download_available: true,
+              storage_bucket: "export-artifacts",
+              storage_object_path: "org-1/contract-exports/export-request-1/private.csv",
+              filename: "contracts-workflow_export-export-request-1.csv",
+              content_type: "text/csv; charset=utf-8",
+              artifact_size_bytes: 18,
+              expires_at: "2099-01-01T00:00:00.000Z"
+            }
+          },
+          error: null
+        })
+      }))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+
+    const { downloadBackgroundContractExportArtifact } = await import(
+      "@/lib/contracts/background-exports"
+    );
+    const artifact = await downloadBackgroundContractExportArtifact({
+      organizationId: "org-1",
+      actorUserId: "user-1",
+      requestId: "export-request-1"
+    });
+
+    expect(artifact).toEqual(
+      expect.objectContaining({
+        filename: "contracts-workflow_export-export-request-1.csv",
+        contentType: "text/csv; charset=utf-8",
+        artifactSizeBytes: 18
+      })
+    );
+    expect(artifact.body.toString("utf8")).toContain("MSA");
+    expect(JSON.stringify(artifact)).not.toContain("storage_object_path");
+    expect(JSON.stringify(artifact)).not.toContain("private.csv");
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "contracts.export_background_downloaded",
+        details: expect.not.objectContaining({
+          storage_object_path: expect.anything()
+        })
+      })
+    );
+  });
+
+  it("cleans up expired artifacts and marks requests expired", async () => {
+    const writes: unknown[] = [];
+    const remove = vi.fn().mockResolvedValue({ data: [], error: null });
+    const expiredExport = {
+      ...queuedExport,
+      status: "completed",
+      completed_at: "2026-06-02T10:05:00.000Z",
+      evidence_json: {
+        ...queuedExport.evidence_json,
+        status: "completed",
+        artifact_storage: "stored",
+        storage_bucket: "export-artifacts",
+        storage_object_path: "org-1/contract-exports/export-request-1/private.csv",
+        expires_at: "2000-01-01T00:00:00.000Z",
+        artifact_size_bytes: 18
+      }
+    };
+    const admin = {
+      storage: makeStorageMock({ remove }),
+      from: vi
+        .fn()
+        .mockReturnValueOnce(makeListQuery([expiredExport]))
+        .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+
+    const { cleanupExpiredBackgroundExportArtifacts } = await import(
+      "@/lib/contracts/background-exports"
+    );
+    const result = await cleanupExpiredBackgroundExportArtifacts({ limit: 1 });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        expired: 1,
+        deleted: 1,
+        failed: 0
+      })
+    );
+    expect(remove).toHaveBeenCalledWith([
+      "org-1/contract-exports/export-request-1/private.csv"
+    ]);
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        status: "expired",
+        evidence_json: expect.objectContaining({
+          status: "expired",
+          artifact_storage: "expired",
+          download_available: false
+        })
+      })
+    );
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "contracts.export_background_expired",
+        entityId: "export-request-1"
       })
     );
   });
