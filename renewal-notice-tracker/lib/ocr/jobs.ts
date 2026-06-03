@@ -20,6 +20,13 @@ type OcrJobRow = {
   attempts: number;
 };
 
+export const OCR_DEFAULT_BATCH_LIMIT = 5;
+export const OCR_MAX_BATCH_LIMIT = 25;
+
+function normalizeOcrBatchLimit(limit: number) {
+  return Math.min(Math.max(Math.trunc(limit), 1), OCR_MAX_BATCH_LIMIT);
+}
+
 export async function enqueueOcrJob(input: {
   organizationId: string;
   contractId: string;
@@ -132,14 +139,15 @@ export async function getScopedOcrContractFileForJob(input: {
   return file;
 }
 
-export async function processPendingOcrJobs(limit = 5) {
+export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
+  const batchLimit = normalizeOcrBatchLimit(limit);
   const admin = createAdminSupabaseClient();
   const { data, error } = await admin
     .from("ocr_jobs")
     .select("id, organization_id, contract_id, contract_file_id, provider, status, detection_reason, attempts")
     .in("status", ["pending", "retry_pending"])
     .order("queued_at", { ascending: true })
-    .limit(limit);
+    .limit(batchLimit);
 
   if (error) throw error;
   const results: Array<{ id: string; status: string; error?: string }> = [];

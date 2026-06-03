@@ -114,8 +114,12 @@ function buildReminderProcessingClient(input?: {
                 return {
                   or() {
                     return {
-                      async order() {
-                        return { data: selectedReminders, error: null };
+                      order() {
+                        return {
+                          async limit() {
+                            return { data: selectedReminders, error: null };
+                          }
+                        };
                       }
                     };
                   }

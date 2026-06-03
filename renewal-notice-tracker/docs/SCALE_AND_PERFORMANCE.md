@@ -27,6 +27,7 @@ Text bounds:
 - latest note preview is capped at `160` characters
 - decision history summary is capped at `500` characters
 - spreadsheet injection sanitization applies to all string fields
+- background export artifacts fail safely above `50 MiB` with `ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001`
 
 Background export request processing now exists for larger preset exports. It uses `data_export_requests`, claims queued work through `/api/internal/export-jobs`, generates bounded CSV/XLSX payloads, stores artifacts in the private `SUPABASE_EXPORTS_BUCKET`, and records safe completion/failure metadata. Completed, unexpired artifacts are downloaded through `/api/exports/contracts/{id}/download`; storage paths and bucket names are never returned to customers.
 
@@ -47,6 +48,7 @@ Intelligence dashboards should reuse shared page models and calculation helpers.
 
 Performance assumptions:
 - calculations run over active-organization contract rows only
+- page models should accept already-scoped arrays and avoid page-local recalculation drift
 - missing financial values produce warnings rather than fake precision
 - multi-currency aggregation stays blocked without conversion policy
 - low-trust data lowers confidence rather than becoming high-confidence output
@@ -70,10 +72,11 @@ Recommended high-confidence indexes:
 - `reminders(organization_id, status, remind_at)` if reminders carry organization scope in the schema
 - `notes(contract_id, created_at desc)`
 - `renewal_decisions(contract_id, decision_date desc, created_at desc)`
-- `audit_logs(organization_id, entity_type, created_at desc)`
 - `exports(organization_id, created_at desc)`
 - `data_export_requests(organization_id, requested_at desc)`
 - `data_export_requests(export_scope, status, requested_at)` for background worker claims
+- `ocr_jobs(status, queued_at)`
+- `audit_logs(organization_id, entity_type, created_at desc)`
 - private Supabase storage bucket for `SUPABASE_EXPORTS_BUCKET`
 - `organizations(billing_provider, billing_customer_id)`
 - `organizations(billing_subscription_id)`
@@ -85,7 +88,36 @@ Avoid speculative indexes on rarely filtered columns. Every index adds write ove
 - Contract detail still loads many adjacent records; keep large raw payloads out of customer UI and consider pagination for audit/notes if they grow.
 - Procurement analytics currently builds several summaries in memory; materialized summaries may be needed for very large portfolios.
 - XLSX generation is memory-bound; background exports are bounded at the worker layer and artifacts expire after seven days.
-- OCR and reminder jobs should keep bounded batch sizes and explicit retry/failure semantics.
+- Reminder dispatch is capped per run and ordered by retry/due time.
+- OCR jobs are capped per run and ordered by queue time.
+
+## Practical Load-Test Plan
+
+No runtime load-test harness is shipped yet. Use k6 or Artillery against a staging-like environment with production-equivalent Supabase limits.
+
+Recommended data sets:
+- 500 contracts, 5 owners, 10 departments, 2 reminders per contract
+- 5,000 contracts, 50 owners, 50 departments, 5 reminders per contract
+- 5,000 contracts with 20 notes and 10 renewal decisions per contract for rich export stress
+- OCR queue with 500 pending jobs
+- reminder queue with 5,000 due or retry-pending reminders
+
+Workflows to test:
+- dashboard home and contracts list load
+- contract detail load for contracts with many notes/reminders/decisions
+- risk queue, financial intelligence, and procurement analytics render
+- synchronous export below `5000` rows
+- background export request, processing, status, download, and cleanup
+- reminder dispatch cron
+- OCR jobs internal route
+- billing webhook replay validation
+
+Success criteria:
+- user-facing pages avoid unbounded relation scans
+- sync exports return or fail with the documented limit code
+- background exports complete within operational batch windows or fail with safe codes
+- reminder/OCR routes process only bounded batches
+- no logs, monitoring events, or route errors include raw contract text, notes, OCR output, storage paths, or provider secrets
 
 ## Deferred Scale Features
 

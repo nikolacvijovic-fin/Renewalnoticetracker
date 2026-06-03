@@ -16,6 +16,7 @@ import {
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
 
 export const REMINDER_PROCESSING_LEASE_MS = 15 * 60 * 1000;
+export const REMINDER_DISPATCH_BATCH_LIMIT = 50;
 const STALE_REMINDER_RESCUE_MESSAGE =
   "Reminder processing lease expired. Returned to retry_pending for rescue.";
 
@@ -84,7 +85,8 @@ export async function processDueReminders(untilIso: string) {
     )
     .in("status", ["pending", "retry_pending"])
     .or(`next_retry_at.lte.${untilIso},and(next_retry_at.is.null,remind_at.lte.${untilIso})`)
-    .order("next_retry_at", { ascending: true });
+    .order("next_retry_at", { ascending: true })
+    .limit(REMINDER_DISPATCH_BATCH_LIMIT);
 
   if (error) throw error;
 

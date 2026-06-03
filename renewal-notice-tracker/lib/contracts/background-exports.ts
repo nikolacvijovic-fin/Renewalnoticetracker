@@ -3,6 +3,7 @@ import type { ActiveOrganizationContext } from "@/lib/auth";
 import { createHash } from "node:crypto";
 import { getAppConfig } from "@/lib/config";
 import {
+  EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES,
   ExportScaleLimitError,
   resolveExportPreset,
   toCsv,
@@ -49,6 +50,16 @@ class ExportArtifactStorageError extends Error {
   constructor(public readonly cause: unknown) {
     super("Background export artifact storage failed.");
     this.name = "ExportArtifactStorageError";
+  }
+}
+
+class ExportArtifactSizeError extends Error {
+  constructor(
+    public readonly artifactSizeBytes: number,
+    public readonly maxBytes: number
+  ) {
+    super("Background export artifact exceeded the safe size limit.");
+    this.name = "ExportArtifactSizeError";
   }
 }
 
@@ -195,6 +206,15 @@ function getFailureEvidence(error: unknown) {
     return {
       failureCode: "ERR_EXPORT_BACKGROUND_STORAGE_FAILED_001",
       failureCategory: "background_export_storage_failed"
+    };
+  }
+
+  if (error instanceof ExportArtifactSizeError) {
+    return {
+      failureCode: "ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001",
+      failureCategory: "background_export_artifact_too_large",
+      artifactSizeBytes: error.artifactSizeBytes,
+      maxArtifactSizeBytes: error.maxBytes
     };
   }
 
@@ -437,13 +457,15 @@ async function markExportFailed(input: {
       rowCount: failure.rowCount,
       artifactStorageStatus:
         input.error instanceof ExportArtifactStorageError ? "failed" : "pending",
+      artifactSizeBytes: failure.artifactSizeBytes,
       failureCode: failure.failureCode,
       failureCategory: failure.failureCategory,
       requestedAt: input.row.requested_at,
       processingStartedAt: evidence.processing_started_at as string | undefined,
       failedAt
     }),
-    max_rows: failure.maxRows
+    max_rows: failure.maxRows,
+    max_artifact_size_bytes: failure.maxArtifactSizeBytes
   };
 
   await checkedPrivilegedWrite(
@@ -521,8 +543,14 @@ async function processOneBackgroundExport(row: DataExportRequestRow) {
       format === "csv"
         ? toCsv(rows, preset.columns)
         : toXlsxBuffer(rows, preset.columns);
-      const artifactSizeBytes =
+    const artifactSizeBytes =
       typeof artifact === "string" ? Buffer.byteLength(artifact, "utf8") : artifact.length;
+    if (artifactSizeBytes > EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES) {
+      throw new ExportArtifactSizeError(
+        artifactSizeBytes,
+        EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES
+      );
+    }
     const bucket = getAppConfig().supabase.exportStorageBucket;
     const filename = getSafeExportFilename({
       requestId: claimed.id,
