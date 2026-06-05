@@ -6,7 +6,9 @@ import {
   EXPORT_BACKGROUND_ROW_LIMIT,
   EXPORT_DECISION_HISTORY_MAX_LENGTH,
   EXPORT_NOTE_PREVIEW_MAX_LENGTH,
-  EXPORT_SYNC_ROW_LIMIT
+  EXPORT_SYNC_ROW_LIMIT,
+  EXPORT_XLSX_COMPLEXITY_SCORE_LIMIT,
+  EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT
 } from "@/lib/contracts/export";
 import {
   OCR_DEFAULT_BATCH_LIMIT,
@@ -30,6 +32,25 @@ describe("scale and performance boundaries", () => {
     expect(EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES).toBe(50 * 1024 * 1024);
     expect(EXPORT_NOTE_PREVIEW_MAX_LENGTH).toBe(160);
     expect(EXPORT_DECISION_HISTORY_MAX_LENGTH).toBe(500);
+    expect(EXPORT_XLSX_COMPLEXITY_SCORE_LIMIT).toBe(1_000_000);
+    expect(EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT).toBe(7500);
+  });
+
+  it("keeps organization member lookups scoped through memberships", () => {
+    const kernelQueries = readProjectFile("lib/contracts/kernel-queries.ts");
+    const legacyQueries = readProjectFile("lib/contracts/queries.ts");
+
+    expect(kernelQueries).toContain("user:users(id, full_name, notification_email)");
+    expect(kernelQueries).toContain('.from("memberships")');
+    expect(kernelQueries).not.toContain('.from("users").select("id, full_name, notification_email")');
+
+    expect(legacyQueries).toContain(
+      "user:users(id, full_name, notification_email, monthly_digest_enabled)"
+    );
+    expect(legacyQueries).toContain('.from("memberships")');
+    expect(legacyQueries).not.toContain(
+      '.from("users").select("id, full_name, notification_email, monthly_digest_enabled")'
+    );
   });
 
   it("keeps reminder and OCR workers bounded", () => {
@@ -72,6 +93,8 @@ describe("scale and performance boundaries", () => {
       "500 contracts",
       "5,000 contracts",
       "ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001",
+      "ERR_EXPORT_XLSX_TOO_LARGE_001",
+      "ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001",
       "k6 or Artillery",
       "background export request, processing, status, download, and cleanup",
       "reminder/OCR routes process only bounded batches"

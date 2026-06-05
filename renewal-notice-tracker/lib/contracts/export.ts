@@ -47,6 +47,8 @@ export const EXPORT_BACKGROUND_ROW_LIMIT = 25000;
 export const EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES = 50 * 1024 * 1024;
 export const EXPORT_NOTE_PREVIEW_MAX_LENGTH = 160;
 export const EXPORT_DECISION_HISTORY_MAX_LENGTH = 500;
+export const EXPORT_XLSX_COMPLEXITY_SCORE_LIMIT = 1_000_000;
+export const EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT = 7500;
 
 export class ExportScaleLimitError extends Error {
   constructor(
@@ -60,6 +62,25 @@ export class ExportScaleLimitError extends Error {
       `Export preset "${input.presetId}" has ${input.rowCount} rows, above the synchronous limit of ${input.maxRows}.`
     );
     this.name = "ExportScaleLimitError";
+  }
+}
+
+export class ExportGenerationPreflightError extends Error {
+  constructor(
+    public readonly input: {
+      presetId: ExportPresetId;
+      format: ExportFormat;
+      rowCount: number;
+      complexityScore: number;
+      maxComplexityScore: number;
+      reason: "xlsx_complexity_limit" | "xlsx_text_heavy_limit";
+      recommendation: "use_csv_or_reduce_scope";
+    }
+  ) {
+    super(
+      `Export preset "${input.presetId}" is too large for safe ${input.format.toUpperCase()} generation.`
+    );
+    this.name = "ExportGenerationPreflightError";
   }
 }
 
@@ -388,6 +409,63 @@ export function buildExportRows(input: ExportBuildInput): ExportRow[] {
 
     return pickPresetColumns(row, input.preset);
   });
+}
+
+function getXlsxPresetComplexityWeight(preset: ExportPreset) {
+  if (preset.id === "notes_and_decisions_export") return 7;
+  if (preset.id === "intelligence_export") return 5;
+  if (preset.id === "workflow_export") return 4;
+  return 2;
+}
+
+export function estimateExportGenerationComplexity(input: {
+  preset: ExportPreset;
+  format: ExportFormat;
+  rowCount: number;
+}) {
+  const formatWeight = input.format === "xlsx" ? getXlsxPresetComplexityWeight(input.preset) : 1;
+  return input.rowCount * input.preset.columns.length * formatWeight;
+}
+
+export function assertExportGenerationPreflight(input: {
+  preset: ExportPreset;
+  format: ExportFormat;
+  rows: readonly ExportRow[];
+}) {
+  const rowCount = input.rows.length;
+  const complexityScore = estimateExportGenerationComplexity({
+    preset: input.preset,
+    format: input.format,
+    rowCount
+  });
+
+  if (
+    input.format === "xlsx" &&
+    input.preset.id === "notes_and_decisions_export" &&
+    rowCount > EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT
+  ) {
+    throw new ExportGenerationPreflightError({
+      presetId: input.preset.id,
+      format: input.format,
+      rowCount,
+      complexityScore,
+      maxComplexityScore: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT,
+      reason: "xlsx_text_heavy_limit",
+      recommendation: "use_csv_or_reduce_scope"
+    });
+  }
+
+  if (input.format === "xlsx" && complexityScore > EXPORT_XLSX_COMPLEXITY_SCORE_LIMIT) {
+    throw new ExportGenerationPreflightError({
+      presetId: input.preset.id,
+      format: input.format,
+      rowCount,
+      complexityScore,
+      maxComplexityScore: EXPORT_XLSX_COMPLEXITY_SCORE_LIMIT,
+      reason: "xlsx_complexity_limit",
+      recommendation: "use_csv_or_reduce_scope"
+    });
+  }
 }
 
 export function toCsv(rows: ExportRow[], columns?: readonly ExportColumnDefinition[]) {

@@ -347,4 +347,76 @@ describe("export routes", () => {
       })
     );
   });
+
+  it("rejects oversized rich XLSX before persistence or workbook generation while CSV remains viable", async () => {
+    const { EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT } = await import("@/lib/contracts/export");
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
+    getExportRows.mockResolvedValue(
+      Array.from({ length: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT + 1 }, (_, index) => ({
+        contract_title: `MSA ${index}`,
+        latest_note_preview: "bounded note",
+        decision_history_summary: "bounded decision summary"
+      }))
+    );
+
+    const { GET: getXlsx } = await import("@/app/dashboard/contracts/export/xlsx/route");
+    const xlsxResponse = await getXlsx(
+      makeRequest("/dashboard/contracts/export/xlsx?preset=notes_and_decisions_export")
+    );
+    const xlsxBody = await xlsxResponse.json();
+
+    expect(xlsxResponse.status).toBe(413);
+    expect(xlsxBody).toEqual(
+      expect.objectContaining({
+        code: "ERR_EXPORT_XLSX_TOO_LARGE_001",
+        recommendation: "csv_or_smaller_export"
+      })
+    );
+    expect(createAdminSupabaseClient).not.toHaveBeenCalled();
+    expect(logServerWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "export_preflight_rejected",
+        metadata: expect.objectContaining({
+          export_preset: "notes_and_decisions_export",
+          format: "xlsx",
+          reason: "xlsx_text_heavy_limit"
+        })
+      })
+    );
+
+    vi.clearAllMocks();
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
+    getExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
+    enforceFeatureAccess.mockResolvedValue({});
+    assertCanAccessIntelligenceSurface.mockResolvedValue({});
+    assertCanUseShippedAction.mockImplementation(async (context: { role: string } | null) => {
+      if (!context) {
+        throw new ActiveOrganizationRequiredError();
+      }
+      return context;
+    });
+    createAdminSupabaseClient.mockReturnValue({
+      from: vi.fn(() => ({
+        insert: vi.fn().mockResolvedValue({ error: null })
+      }))
+    });
+
+    const { GET: getCsv } = await import("@/app/dashboard/contracts/export/csv/route");
+    const csvResponse = await getCsv(
+      makeRequest("/dashboard/contracts/export/csv?preset=notes_and_decisions_export")
+    );
+
+    expect(csvResponse.status).toBe(200);
+    expect(getExportRows).toHaveBeenCalledWith("org-1", "notes_and_decisions_export");
+  });
 });

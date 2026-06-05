@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const insert = vi.fn();
 const createAdminSupabaseClient = vi.fn();
 
-vi.mock("@/lib/env", () => ({
-  env: {
-    INTERNAL_OPERATIONS_SECRET: "secret"
-  }
+vi.mock("@/lib/config", () => ({
+  getAppConfig: () => ({
+    internal: {
+      operationsSecret: "secret"
+    }
+  })
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({

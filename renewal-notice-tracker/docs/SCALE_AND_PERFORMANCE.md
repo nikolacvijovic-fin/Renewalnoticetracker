@@ -27,6 +27,10 @@ Text bounds:
 - latest note preview is capped at `160` characters
 - decision history summary is capped at `500` characters
 - spreadsheet injection sanitization applies to all string fields
+- XLSX generation has a preflight complexity envelope before workbook buffers are built
+- text-heavy Notes & Decisions XLSX exports are capped at `7500` rows even in background processing
+- XLSX requests that exceed the safe generation envelope return `ERR_EXPORT_XLSX_TOO_LARGE_001` synchronously, or fail background processing with `ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001`
+- CSV remains the preferred format for very large rich exports within the existing row limits
 - background export artifacts fail safely above `50 MiB` with `ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001`
 
 Background export request processing now exists for larger preset exports. It uses `data_export_requests`, claims queued work through `/api/internal/export-jobs`, generates bounded CSV/XLSX payloads, stores artifacts in the private `SUPABASE_EXPORTS_BUCKET`, and records safe completion/failure metadata. Completed, unexpired artifacts are downloaded through `/api/exports/contracts/{id}/download`; storage paths and bucket names are never returned to customers.
@@ -40,7 +44,7 @@ Background exports become necessary when customers need:
 - scheduled exports
 - very large XLSX files
 
-Full note history, audit export packaging, scheduled exports, and data warehouse sync remain operational follow-ups, not shipped scope in this pass.
+Full note history, audit export packaging, scheduled exports, streaming CSV/XLSX writers, chunked artifact generation, and data warehouse sync remain operational follow-ups, not shipped scope in this pass.
 
 ## Intelligence Calculation Assumptions
 
@@ -87,7 +91,8 @@ Avoid speculative indexes on rarely filtered columns. Every index adds write ove
 
 - Contract detail still loads many adjacent records; keep large raw payloads out of customer UI and consider pagination for audit/notes if they grow.
 - Procurement analytics currently builds several summaries in memory; materialized summaries may be needed for very large portfolios.
-- XLSX generation is memory-bound; background exports are bounded at the worker layer and artifacts expire after seven days.
+- CSV/XLSX artifacts are still materialized before upload; preflight and artifact limits reduce risk, but true full-scale export needs streaming or chunked generation.
+- XLSX generation is memory-bound; rich XLSX exports have preflight complexity caps, background exports are bounded at the worker layer, and artifacts expire after seven days.
 - Reminder dispatch is capped per run and ordered by retry/due time.
 - OCR jobs are capped per run and ordered by queue time.
 

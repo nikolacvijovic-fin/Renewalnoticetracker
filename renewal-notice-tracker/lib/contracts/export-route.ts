@@ -15,7 +15,9 @@ import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
 import { getExportRows } from "@/lib/contracts/kernel-queries";
 import {
   assertExportFormatSupported,
+  assertExportGenerationPreflight,
   buildExportAuditDetails,
+  ExportGenerationPreflightError,
   ExportPresetSelectionError,
   ExportScaleLimitError,
   resolveExportPreset,
@@ -164,6 +166,51 @@ function logExportTooLarge(input: {
       format: input.format,
       row_count: input.error.input.rowCount,
       max_rows: input.error.input.maxRows,
+      sensitive_sections_included: input.preset.sensitiveSectionsIncluded
+    }
+  });
+}
+
+function logExportPreflightRejected(input: {
+  request?: Request;
+  requestId: string;
+  preset: ExportPreset;
+  format: ExportFormat;
+  organizationId: string;
+  actorUserId: string;
+  error: ExportGenerationPreflightError;
+}) {
+  logServerWarn({
+    event: "export_preflight_rejected",
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      row_count: input.error.input.rowCount,
+      complexity_score: input.error.input.complexityScore,
+      max_complexity_score: input.error.input.maxComplexityScore,
+      reason: input.error.input.reason,
+      recommendation: input.error.input.recommendation
+    }
+  });
+  void emitOperationalEvent({
+    eventName: "export_preflight_rejected",
+    severity: "P3",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: false,
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      row_count: input.error.input.rowCount,
+      reason: input.error.input.reason,
+      recommendation: input.error.input.recommendation,
       sensitive_sections_included: input.preset.sensitiveSectionsIncluded
     }
   });
@@ -323,6 +370,11 @@ export async function handleContractsExport(
     });
 
     const rows = await getExportRows(organizationId, preset.id);
+    assertExportGenerationPreflight({
+      preset,
+      format,
+      rows
+    });
     const completedDetails = buildExportAuditDetails({
       preset,
       format,
@@ -400,6 +452,31 @@ export async function handleContractsExport(
               preset: preset.id,
               format
             }
+          },
+          { status: 413 }
+        ),
+        requestId
+      );
+    }
+
+    if (error instanceof ExportGenerationPreflightError) {
+      logExportPreflightRejected({
+        request,
+        requestId,
+        preset,
+        format,
+        organizationId,
+        actorUserId: user.id,
+        error
+      });
+      return withExportRequestId(
+        NextResponse.json(
+          {
+            error: "Export is too large for safe XLSX generation. Use CSV or reduce the export scope.",
+            code: "ERR_EXPORT_XLSX_TOO_LARGE_001",
+            requestId,
+            rowCount: error.input.rowCount,
+            recommendation: "csv_or_smaller_export"
           },
           { status: 413 }
         ),

@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { getAppConfig } from "@/lib/config";
 import {
   EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES,
+  assertExportGenerationPreflight,
+  ExportGenerationPreflightError,
   ExportScaleLimitError,
   resolveExportPreset,
   toCsv,
@@ -224,6 +226,18 @@ function getFailureEvidence(error: unknown) {
       failureCategory: "background_export_row_limit",
       maxRows: error.input.maxRows,
       rowCount: error.input.rowCount
+    };
+  }
+
+  if (error instanceof ExportGenerationPreflightError) {
+    return {
+      failureCode: "ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001",
+      failureCategory: "background_export_xlsx_preflight_rejected",
+      rowCount: error.input.rowCount,
+      complexityScore: error.input.complexityScore,
+      maxComplexityScore: error.input.maxComplexityScore,
+      preflightReason: error.input.reason,
+      recommendation: error.input.recommendation
     };
   }
 
@@ -465,7 +479,11 @@ async function markExportFailed(input: {
       failedAt
     }),
     max_rows: failure.maxRows,
-    max_artifact_size_bytes: failure.maxArtifactSizeBytes
+    max_artifact_size_bytes: failure.maxArtifactSizeBytes,
+    complexity_score: failure.complexityScore,
+    max_complexity_score: failure.maxComplexityScore,
+    preflight_reason: failure.preflightReason,
+    recommendation: failure.recommendation
   };
 
   await checkedPrivilegedWrite(
@@ -538,6 +556,11 @@ async function processOneBackgroundExport(row: DataExportRequestRow) {
     const admin = createAdminSupabaseClient();
     const rows = await getBackgroundExportRows(claimed.organization_id, preset.id, {
       client: admin as never
+    });
+    assertExportGenerationPreflight({
+      preset,
+      format,
+      rows
     });
     const artifact =
       format === "csv"

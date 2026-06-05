@@ -405,31 +405,27 @@ export async function getOrganizationMembers(
   client: ReturnType<typeof createServerSupabaseClient> = createServerSupabaseClient()
 ): Promise<OrganizationMember[]> {
   const supabase = client;
-  const [{ data: memberships, error: membershipError }, { data: users, error: usersError }] =
-    await Promise.all([
-      supabase
-        .from("memberships")
-        .select("user_id, role")
-        .eq("organization_id", organizationId),
-      supabase.from("users").select("id, full_name, notification_email")
-    ]);
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("user_id, role, user:users(id, full_name, notification_email)")
+    .eq("organization_id", organizationId);
 
-  if (membershipError) throw membershipError;
-  if (usersError) throw usersError;
+  if (error) throw error;
 
-  const typedUsers = (users ?? []) as Array<{
-    id: string;
-    full_name: string | null;
-    notification_email: string | null;
-  }>;
-  const typedMemberships = (memberships ?? []) as Array<{ user_id: string; role: string }>;
-
-  const userMap = new Map(typedUsers.map((user) => [user.id, user] as const));
-
-  return typedMemberships.map((membership) => ({
-    ...membership,
-    user: userMap.get(membership.user_id) ?? null
-  }));
+  return ((data ?? []) as Array<{
+    user_id: string;
+    role: string;
+    user?: OrganizationMember["user"] | OrganizationMember["user"][];
+    users?: OrganizationMember["user"] | OrganizationMember["user"][];
+  }>).map((membership) => {
+    const joinedUser = membership.user ?? membership.users ?? null;
+    const user = Array.isArray(joinedUser) ? joinedUser[0] ?? null : joinedUser;
+    return {
+      user_id: membership.user_id,
+      role: membership.role,
+      user
+    };
+  });
 }
 
 export async function getOrganizationBilling(organizationId: string) {

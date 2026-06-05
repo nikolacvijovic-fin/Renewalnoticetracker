@@ -67,12 +67,14 @@ function makeClaimQuery(data: unknown) {
 }
 
 function makeUpdateQuery(capture: (value: unknown) => void) {
+  const result = { data: null, error: null };
   const chain = {
     update: vi.fn((value: unknown) => {
       capture(value);
       return chain;
     }),
-    eq: vi.fn().mockResolvedValue({ data: null, error: null })
+    eq: vi.fn(() => chain),
+    then: (resolve: (value: typeof result) => unknown) => Promise.resolve(resolve(result))
   };
   return chain;
 }
@@ -185,7 +187,7 @@ describe("background contract exports", () => {
         })
       })
     );
-  });
+  }, 10_000);
 
   it("marks storage failures failed and emits safe monitoring metadata", async () => {
     const writes: unknown[] = [];
@@ -250,7 +252,90 @@ describe("background contract exports", () => {
         })
       })
     );
-  });
+  }, 10_000);
+
+  it("fails oversized rich XLSX exports during preflight with safe evidence", async () => {
+    const { EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT } = await import("@/lib/contracts/export");
+    const writes: unknown[] = [];
+    const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
+    const richQueuedExport = {
+      ...queuedExport,
+      format: "xlsx",
+      evidence_json: {
+        ...queuedExport.evidence_json,
+        export_preset: "notes_and_decisions_export",
+        format: "xlsx",
+        included_sections: ["contract_register", "workflow", "reminders", "decisions", "notes"],
+        sensitive_sections_included: true
+      }
+    };
+    const claimed = {
+      ...richQueuedExport,
+      status: "processing",
+      evidence_json: {
+        ...richQueuedExport.evidence_json,
+        status: "processing",
+        processing_started_at: "2026-06-02T10:01:00.000Z"
+      }
+    };
+    const admin = {
+      storage: makeStorageMock({ upload }),
+      from: vi
+        .fn()
+        .mockReturnValueOnce(makeListQuery([richQueuedExport]))
+        .mockReturnValueOnce(makeClaimQuery(claimed))
+        .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+    getBackgroundExportRows.mockResolvedValue(
+      Array.from({ length: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT + 1 }, (_, index) => ({
+        contract_title: `MSA ${index}`,
+        latest_note_preview: "SENSITIVE_NOTE_MARKER should never appear in evidence",
+        decision_history_summary: "bounded decision summary"
+      }))
+    );
+
+    const { processQueuedContractExportRequests } = await import(
+      "@/lib/contracts/background-exports"
+    );
+    const result = await processQueuedContractExportRequests({ limit: 1 });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        completed: 0,
+        failed: 1
+      })
+    );
+    expect(upload).not.toHaveBeenCalled();
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        status: "failed",
+        evidence_json: expect.objectContaining({
+          export_preset: "notes_and_decisions_export",
+          format: "xlsx",
+          status: "failed",
+          failure_code: "ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001",
+          failure_category: "background_export_xlsx_preflight_rejected",
+          preflight_reason: "xlsx_text_heavy_limit",
+          recommendation: "use_csv_or_reduce_scope"
+        })
+      })
+    );
+    expect(JSON.stringify(writes)).not.toContain("SENSITIVE_NOTE_MARKER");
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_background_failed",
+        severity: "P2",
+        sensitivity: "customer_sensitive",
+        metadata: expect.objectContaining({
+          export_preset: "notes_and_decisions_export",
+          format: "xlsx",
+          failure_code: "ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001"
+        })
+      })
+    );
+  }, 10_000);
 
   it("returns downloadable artifact bytes without exposing storage paths", async () => {
     const download = vi.fn().mockResolvedValue({

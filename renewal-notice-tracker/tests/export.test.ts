@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertExportGenerationPreflight,
   buildExportRows,
+  EXPORT_BACKGROUND_ROW_LIMIT,
   EXPORT_PRESETS,
   EXPORT_DECISION_HISTORY_MAX_LENGTH,
   EXPORT_NOTE_PREVIEW_MAX_LENGTH,
+  EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT,
+  ExportGenerationPreflightError,
   resolveExportPreset,
   toCsv,
   toXlsxBuffer
@@ -125,6 +129,47 @@ describe("export presets", () => {
     expect(String(rows[0]?.decision_history_summary).length).toBeLessThanOrEqual(
       EXPORT_DECISION_HISTORY_MAX_LENGTH
     );
+  });
+
+  it("rejects oversized text-heavy XLSX before workbook generation while allowing CSV", () => {
+    const rows = Array.from(
+      { length: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT + 1 },
+      (_, index) => ({
+        contract_title: `MSA ${index}`,
+        latest_note_preview: "bounded note preview",
+        decision_history_summary: "bounded decision summary"
+      })
+    );
+
+    expect(() =>
+      assertExportGenerationPreflight({
+        preset: EXPORT_PRESETS.notes_and_decisions_export,
+        format: "xlsx",
+        rows
+      })
+    ).toThrow(ExportGenerationPreflightError);
+
+    expect(() =>
+      assertExportGenerationPreflight({
+        preset: EXPORT_PRESETS.notes_and_decisions_export,
+        format: "csv",
+        rows
+      })
+    ).not.toThrow();
+  });
+
+  it("keeps basic XLSX within the background row envelope", () => {
+    const rows = Array.from({ length: EXPORT_BACKGROUND_ROW_LIMIT }, (_, index) => ({
+      contract_title: `MSA ${index}`
+    }));
+
+    expect(() =>
+      assertExportGenerationPreflight({
+        preset: EXPORT_PRESETS.basic_contract_register,
+        format: "xlsx",
+        rows
+      })
+    ).not.toThrow();
   });
 
   it("includes risk and financial fields only in intelligence export", () => {
