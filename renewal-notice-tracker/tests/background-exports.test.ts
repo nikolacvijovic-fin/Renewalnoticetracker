@@ -116,6 +116,55 @@ describe("background contract exports", () => {
     emitOperationalEvent.mockResolvedValue({});
   });
 
+  it("records a safe operational event when a background export is requested", async () => {
+    const admin = {
+      from: vi.fn(() => ({
+        insert: vi.fn(() => ({
+          select: vi.fn(() => ({
+            single: vi.fn().mockResolvedValue({
+              data: queuedExport,
+              error: null
+            })
+          }))
+        }))
+      }))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+
+    const { createBackgroundContractExportRequest } = await import(
+      "@/lib/contracts/background-exports"
+    );
+    const result = await createBackgroundContractExportRequest({
+      context: {
+        organizationId: "org-1",
+        user: { id: "user-1", email: "owner@example.com" },
+        membership: { role: "admin" },
+        organization: { id: "org-1", name: "Org" }
+      } as never,
+      presetId: "workflow_export",
+      format: "csv"
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        id: "export-request-1",
+        status: "queued"
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_background_requested",
+        organizationId: "org-1",
+        actorUserId: "user-1",
+        metadata: expect.objectContaining({
+          export_request_id: "export-request-1",
+          export_preset: "workflow_export",
+          format: "csv"
+        })
+      })
+    );
+  });
+
   it("stores generated artifacts before marking exports completed", async () => {
     const writes: unknown[] = [];
     const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
@@ -208,6 +257,32 @@ describe("background contract exports", () => {
           row_count: 1,
           download_available: true,
           artifact_storage: "stored"
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_background_claimed",
+        organizationId: "org-1",
+        actorUserId: "user-1",
+        metadata: expect.objectContaining({
+          export_request_id: "export-request-1",
+          export_preset: "workflow_export",
+          format: "csv"
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_background_completed",
+        organizationId: "org-1",
+        actorUserId: "user-1",
+        metadata: expect.objectContaining({
+          export_request_id: "export-request-1",
+          export_preset: "workflow_export",
+          row_count: 1,
+          page_size: 1000,
+          page_count: 1
         })
       })
     );
@@ -563,6 +638,19 @@ describe("background contract exports", () => {
         })
       })
     );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_background_downloaded",
+        organizationId: "org-1",
+        actorUserId: "user-1",
+        metadata: expect.objectContaining({
+          export_request_id: "export-request-1",
+          export_preset: "workflow_export",
+          format: "csv",
+          artifact_size_bytes: 18
+        })
+      })
+    );
   });
 
   it("cleans up expired artifacts and marks requests expired", async () => {
@@ -621,6 +709,18 @@ describe("background contract exports", () => {
       expect.objectContaining({
         action: "contracts.export_background_expired",
         entityId: "export-request-1"
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_background_expired",
+        organizationId: "org-1",
+        actorUserId: "user-1",
+        metadata: expect.objectContaining({
+          export_request_id: "export-request-1",
+          export_preset: "workflow_export",
+          format: "csv"
+        })
       })
     );
   });

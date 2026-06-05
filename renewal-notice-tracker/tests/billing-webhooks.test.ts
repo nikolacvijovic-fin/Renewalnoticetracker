@@ -3,10 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const logServerError = vi.fn();
 const logServerWarn = vi.fn();
+const emitOperationalEvent = vi.fn();
 
 vi.mock("@/lib/observability/server-logger", () => ({
   logServerError,
-  logServerWarn
+  logServerWarn,
+  sanitizeOperationalError: (error: unknown) =>
+    error instanceof Error ? { name: error.name, message: "[REDACTED]" } : error
+}));
+
+vi.mock("@/lib/observability/monitoring", () => ({
+  emitOperationalEvent
 }));
 
 describe("billing webhooks", () => {
@@ -14,6 +21,7 @@ describe("billing webhooks", () => {
     vi.resetModules();
     vi.restoreAllMocks();
     vi.clearAllMocks();
+    emitOperationalEvent.mockResolvedValue({});
     process.env.PADDLE_API_KEY = "paddle-key";
     process.env.PADDLE_WEBHOOK_SECRET = "paddle-secret";
     process.env.PADDLE_ENVIRONMENT = "sandbox";
@@ -82,6 +90,111 @@ describe("billing webhooks", () => {
     expect(stripeResponse.status).toBe(410);
   });
 
+  it("emits safe received and succeeded events for verified Paddle webhooks", async () => {
+    vi.doMock("@/lib/billing/provider", () => ({
+      handleWebhook: vi.fn().mockResolvedValue({
+        provider: "paddle",
+        eventType: "subscription.updated",
+        organizationId: "org-1",
+        customerId: "cus_1",
+        subscriptionId: "sub_1",
+        status: "active",
+        raw: {
+          provider_payload: "raw billing payload should not be emitted"
+        }
+      })
+    }));
+    vi.doMock("@/lib/billing/service", () => ({
+      persistBillingWebhookUpdate: vi.fn().mockResolvedValue({
+        updated: true,
+        organizationId: "org-1"
+      })
+    }));
+
+    const paddleRoute = await import("@/app/api/webhooks/billing/paddle/route");
+    const response = await paddleRoute.POST(
+      new Request("http://localhost/api/webhooks/billing/paddle", {
+        method: "POST",
+        body: "{}"
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "billing_webhook_received",
+        severity: "P3",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          provider: "paddle",
+          event_type: "subscription.updated",
+          organization_resolved: true
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "billing_webhook_succeeded",
+        severity: "P3",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          provider: "paddle",
+          event_type: "subscription.updated",
+          updated: true,
+          duplicate: false
+        })
+      })
+    );
+    expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain(
+      "raw billing payload should not be emitted"
+    );
+
+    vi.doUnmock("@/lib/billing/provider");
+    vi.doUnmock("@/lib/billing/service");
+  });
+
+  it("emits a safe replay event for duplicate Paddle webhook receipts", async () => {
+    vi.doMock("@/lib/billing/provider", () => ({
+      handleWebhook: vi.fn().mockResolvedValue({
+        provider: "paddle",
+        eventType: "subscription.updated",
+        organizationId: "org-1",
+        raw: {}
+      })
+    }));
+    vi.doMock("@/lib/billing/service", () => ({
+      persistBillingWebhookUpdate: vi.fn().mockResolvedValue({
+        updated: false,
+        duplicate: true,
+        organizationId: "org-1"
+      })
+    }));
+
+    const paddleRoute = await import("@/app/api/webhooks/billing/paddle/route");
+    const response = await paddleRoute.POST(
+      new Request("http://localhost/api/webhooks/billing/paddle", {
+        method: "POST",
+        body: "{}"
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "billing_webhook_replayed",
+        severity: "P3",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          provider: "paddle",
+          duplicate: true
+        })
+      })
+    );
+
+    vi.doUnmock("@/lib/billing/provider");
+    vi.doUnmock("@/lib/billing/service");
+  });
+
   it("returns a safe error and logs a named event when Paddle webhook processing fails", async () => {
     const paddleRoute = await import("@/app/api/webhooks/billing/paddle/route");
     const response = await paddleRoute.POST(
@@ -113,5 +226,23 @@ describe("billing webhooks", () => {
         })
       })
     );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "billing_webhook_failed",
+        severity: "P1",
+        sensitivity: "restricted",
+        alert: true,
+        metadata: expect.objectContaining({
+          provider: "paddle",
+          code: "ERR_WEBHOOK_INVALID_001",
+          status: 400
+        }),
+        error: {
+          name: "Error",
+          message: "[REDACTED]"
+        }
+      })
+    );
+    expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain("raw provider payload");
   });
 });

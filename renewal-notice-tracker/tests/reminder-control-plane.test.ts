@@ -4,6 +4,7 @@ const createAdminSupabaseClient = vi.fn();
 const sendReminderEmail = vi.fn();
 const updateScopedReminderById = vi.fn();
 const trackServerAnalyticsEvent = vi.fn();
+const emitOperationalEvent = vi.fn();
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminSupabaseClient
@@ -21,6 +22,10 @@ vi.mock("@/lib/organization/scoped-admin", () => ({
 
 vi.mock("@/lib/analytics/events", () => ({
   trackServerAnalyticsEvent
+}));
+
+vi.mock("@/lib/observability/monitoring", () => ({
+  emitOperationalEvent
 }));
 
 function buildDuplicateSuppressionClient() {
@@ -137,7 +142,8 @@ function buildReminderProcessingClient(input?: {
                   data: {
                     attempt_count: Number(sourceReminder.attempt_count ?? 0),
                     max_attempts: Number(sourceReminder.max_attempts ?? 3),
-                    recipient_email: String(sourceReminder.recipient_email ?? "owner@example.com")
+                    recipient_email: String(sourceReminder.recipient_email ?? "owner@example.com"),
+                    contract_id: String(sourceReminder.contract_id ?? "contract-1")
                   },
                   error: null
                 };
@@ -169,9 +175,23 @@ function buildReminderProcessingClient(input?: {
                   );
                 }
 
-                return Promise.resolve({ error: getReminderUpdateWriteError(payload) });
+                return chain;
               },
               select() {
+                const isRescue = filters.eq.some(
+                  ([column, value]) => column === "status" && value === "processing"
+                );
+                if (isRescue) {
+                  return Promise.resolve({
+                    data: staleProcessingRows.map((row) => ({
+                      id: row.id,
+                      organization_id: row.organization_id,
+                      contract_id: row.contract_id
+                    })),
+                    error: getReminderUpdateWriteError(payload)
+                  });
+                }
+
                 return {
                   async maybeSingle() {
                     state.reminderUpdates.push(payload);
@@ -271,7 +291,8 @@ function buildFailureProgressionClient(input: {
                   data: {
                     attempt_count: input.attemptCount,
                     max_attempts: input.maxAttempts,
-                    recipient_email: "owner@example.com"
+                    recipient_email: "owner@example.com",
+                    contract_id: "contract-1"
                   },
                   error: null
                 };
@@ -324,6 +345,7 @@ describe("reminder control plane", () => {
     vi.clearAllMocks();
     sendReminderEmail.mockResolvedValue({ data: { id: "email-1" } });
     updateScopedReminderById.mockResolvedValue({ error: null });
+    emitOperationalEvent.mockResolvedValue({});
   });
 
   it(
@@ -405,6 +427,17 @@ describe("reminder control plane", () => {
       ])
     );
     expect(sendReminderEmail).toHaveBeenCalledTimes(1);
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "reminder_stale_rescued",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          reminder_id: "reminder-stale",
+          contract_id: "contract-1",
+          rescue_state: "retry_pending"
+        })
+      })
+    );
     expect(result).toEqual([
       {
         id: "reminder-stale",
@@ -575,6 +608,19 @@ describe("reminder control plane", () => {
         error_message: "smtp timeout"
       })
     );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "reminder_retry_scheduled",
+        severity: "P3",
+        alert: false,
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          reminder_id: "reminder-1",
+          contract_id: "contract-1",
+          failure_code: "ERR_REMINDER_RETRY_SCHEDULED_001"
+        })
+      })
+    );
   });
 
   it("throws explicitly when markReminderFailure cannot persist the reminder state update", async () => {
@@ -630,6 +676,19 @@ describe("reminder control plane", () => {
       expect.objectContaining({
         status: "failed_terminal",
         error_message: "permanent provider error"
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "reminder_terminal_failed",
+        severity: "P2",
+        alert: true,
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          reminder_id: "reminder-1",
+          contract_id: "contract-1",
+          failure_code: "ERR_REMINDER_TERMINAL_FAILURE_001"
+        })
       })
     );
   });

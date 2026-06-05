@@ -66,14 +66,23 @@ Never log secrets, auth tokens, cookies, payment provider payload secrets, raw c
 
 Monitoring currently emits through `lib/observability/monitoring.ts` into structured server logs. See `docs/OPERATIONAL_EVENT_INVENTORY.md` for the event inventory and P0/P1/P2/P3 severity policy.
 
+Internal support diagnostics use the same safety model. The ops panel and ops snapshot route may show IDs, counts, status, retry state, stale-processing age, failure codes, row/page counts, and artifact sizes. They must not show storage object paths, raw contract text, full notes, OCR output, extracted evidence, provider payloads, billing tokens, or uploaded document contents.
+
+Job-health visibility currently covers:
+- background exports: queued, processing, completed, failed, expired, stale processing, oldest queued age, oldest processing age
+- reminders: processing, retry pending, terminal failures, stale processing, retry/terminal lifecycle events
+- OCR jobs: queued, processing, retry pending, terminal failures, stale processing, oldest queued age, oldest processing age
+
+Support should use these diagnostics before manual rescue. A stale job is a signal to inspect the safe job row and rerun only through the authorized internal route or audited admin action.
+
 Critical events and current signal sources:
 
 | Event | Source route/action | Audit event | Analytics event | Log event | Severity | Owner response |
 | --- | --- | --- | --- | --- | --- | --- |
 | Reminder dispatch failure | `app/api/cron/send-reminders/route.ts`, reminder processor | Reminder delivery failure records where applicable | None by default | `reminder_dispatch_failed`, plus generic `route_unexpected_error` | High | Check mail/provider status, inspect failed reminder rows, confirm retryability before rerun. |
-| Export failure | `lib/contracts/export-route.ts` via CSV/XLSX routes | `contracts.export_attempted`; `contracts.exported` only after success; `contracts.export_denied` for denials | `export_requested` only after success | `export_failed` | High | Confirm export preset, org scope, entitlement state, and storage/query health. Do not manually assemble payloads. |
-| OCR/extraction failure | `lib/ocr/jobs.ts`, `app/api/internal/ocr-jobs/route.ts` | Processing error rows where available | None by default | `ocr_job_failed` | High | Inspect job row and file metadata, rerun through authorized OCR job path only. |
-| Billing webhook failure | `app/api/webhooks/billing/paddle/route.ts` | Billing state/audit records only after verified updates | None by default | `billing_webhook_failed` | Critical | Verify Paddle signature/config, replay from provider if safe, and reconcile billing snapshot. |
+| Export failure | `lib/contracts/export-route.ts` and `lib/contracts/background-exports.ts` | `contracts.export_attempted`; `contracts.exported` only after success; background request/completed/failed/downloaded/expired audit | `export_requested` only after sync success | `export_failed`, `export_background_failed`, lifecycle monitoring events | High | Confirm export preset, org scope, entitlement state, and storage/query health. Do not manually assemble payloads. |
+| OCR/extraction failure | `lib/ocr/jobs.ts`, `app/api/internal/ocr-jobs/route.ts` | Processing error rows where available | None by default | `ocr_job_failed`, `ocr_job_retry_scheduled`, `ocr_job_terminal_failed`, `ocr_job_stale_rescued` | High | Inspect job row and file metadata, rerun through authorized OCR job path only. |
+| Billing webhook failure | `app/api/webhooks/billing/paddle/route.ts` | Billing state/audit records only after verified updates | None by default | `billing_webhook_received`, `billing_webhook_replayed`, `billing_webhook_succeeded`, `billing_webhook_failed` | Critical | Verify Paddle signature/config, replay from provider if safe, and reconcile billing snapshot. |
 | Destructive operation attempt | `app/api/internal/workspace-deletion/route.ts` | Workspace deletion request records | None | `workspace_deletion_attempted` | High | Confirm request ID, operator intent, and destructive auth evidence before allowing reruns. |
 | Destructive operation failure | Workspace deletion executor and internal route | Workspace deletion failed state with evidence | None | `workspace_deletion_route_failed` | Critical | Stop retries until failure stage is understood; never mark completed after partial failure. |
 | Internal route auth failure | Shared route auth helpers | Usually none, unless the route has a business denial audit | None | `internal_route_auth_failed` | Medium | Check secret purpose, caller identity, HMAC/timestamp where destructive, and rotate if suspicious. |

@@ -153,6 +153,18 @@ describe("export routes", () => {
 
     expect(response.status).toBe(403);
     expect(getExportRows).not.toHaveBeenCalled();
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_sync_rejected",
+        organizationId: "org-1",
+        actorUserId: "user-1",
+        metadata: expect.objectContaining({
+          export_preset: "notes_and_decisions_export",
+          format: "csv",
+          denied_reason: "role_not_allowed"
+        })
+      })
+    );
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "contracts.export_denied",
@@ -268,6 +280,29 @@ describe("export routes", () => {
         })
       })
     );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_sync_attempted",
+        organizationId: "org-1",
+        actorUserId: "operator-1",
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          format: "csv"
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_sync_completed",
+        organizationId: "org-1",
+        actorUserId: "operator-1",
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          format: "csv",
+          row_count: 1
+        })
+      })
+    );
   });
 
   it("returns a safe structured error and logs export failures without exposing payload details", async () => {
@@ -301,6 +336,19 @@ describe("export routes", () => {
     expect(logServerError).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "export_failed",
+        organizationId: "org-1",
+        actorUserId: "operator-1",
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          format: "csv"
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_sync_failed",
+        severity: "P2",
+        alert: true,
         organizationId: "org-1",
         actorUserId: "operator-1",
         metadata: expect.objectContaining({
@@ -355,6 +403,19 @@ describe("export routes", () => {
           export_preset: "workflow_export",
           row_count: EXPORT_SYNC_ROW_LIMIT + 1,
           max_rows: EXPORT_SYNC_ROW_LIMIT
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_sync_rejected",
+        organizationId: "org-1",
+        actorUserId: "operator-1",
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          format: "csv",
+          rejected_reason: "sync_row_limit",
+          row_count: EXPORT_SYNC_ROW_LIMIT + 1
         })
       })
     );
@@ -540,6 +601,17 @@ describe("export routes", () => {
     expect(JSON.stringify(body)).not.toContain("SENSITIVE_NOTE_TEXT");
     expect(JSON.stringify(logServerError.mock.calls)).not.toContain("SENSITIVE_NOTE_TEXT");
     expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain("SENSITIVE_NOTE_TEXT");
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "export_sync_failed",
+        severity: "P2",
+        alert: true,
+        metadata: expect.objectContaining({
+          export_preset: "workflow_export",
+          format: "xlsx"
+        })
+      })
+    );
     expect(logServerError).toHaveBeenCalledWith(
       expect.objectContaining({
         error: expect.objectContaining({

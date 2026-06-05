@@ -1,5 +1,7 @@
 const SENSITIVE_KEY_PATTERN =
   /secret|token|password|authorization|cookie|api[_-]?key|raw|payload|document|extracted|evidence|note|body|clause/i;
+const SENSITIVE_VALUE_PATTERN =
+  /confidential|should never be logged|raw\s+(?:contract|ocr|note|document)|ocr output|contract text|note text|renewal clause|provider payload|storage path|supabase\/storage|bearer\s+[a-z0-9._-]+|sk_[a-z0-9]/i;
 
 export type ServerLogLevel = "info" | "warn" | "error";
 
@@ -14,10 +16,11 @@ export type ServerLogInput = {
   error?: unknown;
 };
 
-function sanitizeLogValue(value: unknown): unknown {
+export function sanitizeOperationalValue(value: unknown): unknown {
   if (value == null) return value;
 
   if (typeof value === "string") {
+    if (SENSITIVE_VALUE_PATTERN.test(value)) return "[REDACTED]";
     return value.length > 240 ? `${value.slice(0, 237)}...` : value;
   }
 
@@ -26,26 +29,36 @@ function sanitizeLogValue(value: unknown): unknown {
   }
 
   if (Array.isArray(value)) {
-    return value.slice(0, 20).map(sanitizeLogValue);
+    return value.slice(0, 20).map(sanitizeOperationalValue);
   }
 
   if (value instanceof Error) {
-    return {
-      name: value.name,
-      message: "[REDACTED]"
-    };
+    return sanitizeOperationalError(value);
   }
 
   if (typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
         key,
-        SENSITIVE_KEY_PATTERN.test(key) ? "[REDACTED]" : sanitizeLogValue(entry)
+        SENSITIVE_KEY_PATTERN.test(key) ? "[REDACTED]" : sanitizeOperationalValue(entry)
       ])
     );
   }
 
   return String(value);
+}
+
+export function sanitizeOperationalError(error: unknown): unknown {
+  if (!error) return null;
+
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: "[REDACTED]"
+    };
+  }
+
+  return sanitizeOperationalValue(error);
 }
 
 export function buildServerLogEntry(level: ServerLogLevel, input: ServerLogInput) {
@@ -57,8 +70,8 @@ export function buildServerLogEntry(level: ServerLogLevel, input: ServerLogInput
     route: input.route ?? null,
     action: input.action ?? null,
     request_id: input.requestId ?? null,
-    metadata: sanitizeLogValue(input.metadata ?? {}),
-    error: input.error ? sanitizeLogValue(input.error) : null,
+    metadata: sanitizeOperationalValue(input.metadata ?? {}),
+    error: input.error ? sanitizeOperationalError(input.error) : null,
     logged_at: new Date().toISOString()
   };
 }

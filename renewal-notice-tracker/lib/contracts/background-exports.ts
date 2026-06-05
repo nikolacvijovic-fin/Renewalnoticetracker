@@ -288,6 +288,40 @@ function isStoredCompletedExport(row: DataExportRequestRow, evidence: EvidenceRe
     !isExpired(evidence.expires_at);
 }
 
+function emitBackgroundExportLifecycleEvent(input: {
+  eventName: string;
+  severity?: "P2" | "P3";
+  alert?: boolean;
+  row: Pick<
+    DataExportRequestRow,
+    "id" | "organization_id" | "actor_user_id" | "format" | "requested_at"
+  >;
+  evidence: EvidenceRecord;
+  metadata?: Record<string, unknown>;
+}) {
+  void emitOperationalEvent({
+    eventName: input.eventName,
+    severity: input.severity ?? "P3",
+    sensitivity: Boolean(input.evidence.sensitive_sections_included)
+      ? "customer_sensitive"
+      : "internal",
+    alert: input.alert ?? false,
+    organizationId: input.row.organization_id,
+    actorUserId: input.row.actor_user_id,
+    action: "background_contract_export",
+    metadata: {
+      export_request_id: input.row.id,
+      export_preset: input.evidence.export_preset,
+      format: input.row.format,
+      row_count: input.evidence.row_count,
+      page_size: input.evidence.page_size,
+      page_count: input.evidence.page_count,
+      requested_at: input.row.requested_at,
+      ...input.metadata
+    }
+  });
+}
+
 export function toBackgroundExportStatusResponse(row: DataExportRequestRow) {
   const evidence = asEvidence(row.evidence_json);
   const downloadAvailable = isStoredCompletedExport(row, evidence);
@@ -365,6 +399,12 @@ export async function createBackgroundContractExportRequest(input: {
     details: evidence
   });
 
+  emitBackgroundExportLifecycleEvent({
+    eventName: "export_background_requested",
+    row,
+    evidence
+  });
+
   return toBackgroundExportStatusResponse(row);
 }
 
@@ -413,7 +453,19 @@ async function claimQueuedExport(row: DataExportRequestRow) {
     }
   );
 
-  return result.data as DataExportRequestRow | null;
+  const claimed = result.data as DataExportRequestRow | null;
+  if (claimed) {
+    emitBackgroundExportLifecycleEvent({
+      eventName: "export_background_claimed",
+      row: claimed,
+      evidence: asEvidence(claimed.evidence_json),
+      metadata: {
+        processing_started_at: processingStartedAt
+      }
+    });
+  }
+
+  return claimed;
 }
 
 async function markExportCompleted(input: {
@@ -483,6 +535,16 @@ async function markExportCompleted(input: {
     entityType: "export",
     entityId: input.row.id,
     details: completedEvidence
+  });
+
+  emitBackgroundExportLifecycleEvent({
+    eventName: "export_background_completed",
+    row: input.row,
+    evidence: completedEvidence,
+    metadata: {
+      artifact_size_bytes: input.artifactSizeBytes,
+      completed_at: completedAt
+    }
   });
 }
 
@@ -901,6 +963,18 @@ export async function downloadBackgroundContractExportArtifact(input: {
     }
   });
 
+  emitBackgroundExportLifecycleEvent({
+    eventName: "export_background_downloaded",
+    row: {
+      ...row,
+      actor_user_id: input.actorUserId
+    },
+    evidence,
+    metadata: {
+      artifact_size_bytes: evidence.artifact_size_bytes ?? body.length
+    }
+  });
+
   return {
     body,
     filename: String(evidence.filename),
@@ -974,6 +1048,15 @@ export async function cleanupExpiredBackgroundExportArtifacts(input?: {
           export_preset: evidence.export_preset,
           format: row.format,
           row_count: evidence.row_count ?? 0,
+          artifact_size_bytes: evidence.artifact_size_bytes ?? null,
+          expired_at: expiredEvidence.expired_at
+        }
+      });
+      emitBackgroundExportLifecycleEvent({
+        eventName: "export_background_expired",
+        row,
+        evidence: expiredEvidence,
+        metadata: {
           artifact_size_bytes: evidence.artifact_size_bytes ?? null,
           expired_at: expiredEvidence.expired_at
         }

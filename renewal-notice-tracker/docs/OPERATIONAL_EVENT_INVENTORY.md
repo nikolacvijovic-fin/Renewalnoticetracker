@@ -7,14 +7,36 @@ Monitoring currently emits through structured server logs via `lib/observability
 | `internal_route_auth_failed` | `lib/http/route-handler.ts` internal auth helpers | structured log + monitoring | request ID, route; no user by default | internal | yes | P2 |
 | `route_unexpected_error` | shared route handler | structured log | org/user when auth resolved | internal/customer-sensitive by route | no direct alert | P2/P3 follow-up |
 | `export_denied` | `lib/contracts/export-route.ts` | structured log + audit where applicable | org/user when auth resolved | customer_sensitive | no single alert | P3 |
+| `export_sync_attempted` | `lib/contracts/export-route.ts` | monitoring | org/user, request ID, preset, format | customer_sensitive for rich presets | no | P3 |
+| `export_sync_completed` | `lib/contracts/export-route.ts` | monitoring | org/user, request ID, preset, format, row count | customer_sensitive for rich presets | no | P3 |
+| `export_sync_rejected` | `lib/contracts/export-route.ts` | monitoring | org/user when resolved, request ID, preset, format, safe denial reason | customer_sensitive for rich presets | no | P3 |
+| `export_sync_failed` | `lib/contracts/export-route.ts` | monitoring | org/user, request ID, preset, format, redacted error | customer_sensitive for rich presets | yes | P2 |
 | `export_failed` | `lib/contracts/export-route.ts` | structured log + monitoring | org/user, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_too_large` | `lib/contracts/export-route.ts` | structured log + monitoring | org/user, preset, format, row count | customer_sensitive for rich presets | no | P3 |
+| `export_background_requested` | background export request creation | monitoring | org/user, export request ID, preset, format | customer_sensitive for rich presets | no | P3 |
+| `export_background_claimed` | background export processor | monitoring | org/user, export request ID, preset, format, processing timestamp | customer_sensitive for rich presets | no | P3 |
+| `export_background_completed` | background export processor | monitoring | org/user, export request ID, preset, format, row/page/artifact counts | customer_sensitive for rich presets | no | P3 |
+| `export_background_downloaded` | background export download route | monitoring | org/user, export request ID, preset, format, artifact size | customer_sensitive for rich presets | no | P3 |
+| `export_background_expired` | background export cleanup | monitoring | org/user, export request ID, preset, format, expired timestamp | customer_sensitive for rich presets | no | P3 |
 | `export_background_failed` | `lib/contracts/background-exports.ts` | structured log + monitoring + audit | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_background_download_failed` | `lib/contracts/background-exports.ts` | monitoring + route error | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_background_cleanup_failed` | `lib/contracts/background-exports.ts` cleanup | monitoring | org/user, export request ID, preset, format | customer_sensitive for rich presets | yes | P2 |
 | `export_jobs_route_failed` | `app/api/internal/export-jobs/route.ts` | monitoring + route error | request ID, route | internal | yes | P2 |
+| `reminder_claimed` | `lib/notifications/reminders.ts` | monitoring | org, reminder ID, contract ID | customer_sensitive | no | P3 |
+| `reminder_sent` | `lib/notifications/reminders.ts` | monitoring + analytics | org, reminder ID, contract ID, counts | customer_sensitive | no | P3 |
+| `reminder_retry_scheduled` | `lib/notifications/reminders.ts` | monitoring + analytics | org, reminder ID, contract ID, attempt count, stable failure code | customer_sensitive | spike only | P3 |
+| `reminder_terminal_failed` | `lib/notifications/reminders.ts` | monitoring + analytics | org, reminder ID, contract ID, stable failure code | customer_sensitive | yes | P2 |
+| `reminder_stale_rescued` | `lib/notifications/reminders.ts` | monitoring | org, reminder ID, contract ID, rescue state | customer_sensitive | no single alert | P3 |
 | `reminder_dispatch_failed` | `app/api/cron/send-reminders/route.ts` | structured log + monitoring | request ID, route | customer_sensitive | yes | P1 |
+| `ocr_job_claimed` | `lib/ocr/jobs.ts` | monitoring | org, OCR job ID, contract ID, attempt count | customer_sensitive | no | P3 |
+| `ocr_job_completed` | `lib/ocr/jobs.ts` | monitoring | org, OCR job ID, contract ID, provider, confidence | customer_sensitive | no | P3 |
+| `ocr_job_retry_scheduled` | `lib/ocr/jobs.ts` | monitoring + processing error | org, OCR job ID, contract ID, stable failure code | customer_sensitive | spike only | P3 |
+| `ocr_job_terminal_failed` | `lib/ocr/jobs.ts` | monitoring + processing error | org, OCR job ID, contract ID, stable failure code | customer_sensitive | yes | P2 |
+| `ocr_job_stale_rescued` | `lib/ocr/jobs.ts` | monitoring | org, OCR job ID, contract ID, rescue state | customer_sensitive | no single alert | P3 |
 | `ocr_job_failed` | `lib/ocr/jobs.ts` | structured log + monitoring + processing error | org, contract ID, job ID | customer_sensitive | yes | P2 |
+| `billing_webhook_received` | `app/api/webhooks/billing/paddle/route.ts` | monitoring | request ID, provider, event type, org if resolved | restricted | no | P3 |
+| `billing_webhook_replayed` | `app/api/webhooks/billing/paddle/route.ts` | monitoring | request ID, provider, event type, duplicate flag | restricted | no | P3 |
+| `billing_webhook_succeeded` | `app/api/webhooks/billing/paddle/route.ts` | monitoring | request ID, provider, event type, updated flag | restricted | no | P3 |
 | `billing_webhook_failed` | `app/api/webhooks/billing/paddle/route.ts` | structured log + monitoring | request ID, provider | restricted | yes | P1 |
 | `workspace_deletion_attempted` | `app/api/internal/workspace-deletion/route.ts` | structured log | request ID, route | restricted | no | P3 |
 | `workspace_deletion_route_failed` | `app/api/internal/workspace-deletion/route.ts` | structured log + monitoring | request ID, route | restricted | yes | P1 |

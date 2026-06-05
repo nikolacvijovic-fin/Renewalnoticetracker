@@ -11,6 +11,11 @@ function makeValidEnv(
     SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
     SUPABASE_STORAGE_BUCKET: "contract-files",
     SUPABASE_EXPORTS_BUCKET: "export-artifacts",
+    BACKGROUND_EXPORT_PAGE_SIZE: "1000",
+    BACKGROUND_EXPORT_JOB_LIMIT: "3",
+    MONITORING_EVENT_SINK: "structured_log",
+    REMINDER_PROCESSING_LEASE_MINUTES: "15",
+    OCR_PROCESSING_LEASE_MINUTES: "30",
     OPENAI_API_KEY: "test-openai-key",
     OPENAI_MODEL: "gpt-4.1-mini",
     OCR_PROVIDER: "openai",
@@ -57,6 +62,13 @@ describe("runtime configuration", () => {
       paddleEnvironment: "sandbox",
       paddleGrowthPriceId: "price_growth"
     });
+    expect(config.operations).toMatchObject({
+      monitoringEventSink: "structured_log",
+      backgroundExportPageSize: 1000,
+      backgroundExportJobLimit: 3,
+      reminderProcessingLeaseMinutes: 15,
+      ocrProcessingLeaseMinutes: 30
+    });
   });
 
   it("fails clearly when required secrets are missing", () => {
@@ -65,6 +77,14 @@ describe("runtime configuration", () => {
 
     expect(() => parseAppConfig(env)).toThrow(ConfigValidationError);
     expect(() => parseAppConfig(env)).toThrow(/INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET/i);
+  });
+
+  it("fails clearly when required export storage config is missing", () => {
+    const env = makeValidEnv();
+    delete env.SUPABASE_EXPORTS_BUCKET;
+
+    expect(() => parseAppConfig(env)).toThrow(ConfigValidationError);
+    expect(() => parseAppConfig(env)).toThrow(/SUPABASE_EXPORTS_BUCKET/i);
   });
 
   it("fails clearly when required URLs are malformed", () => {
@@ -85,6 +105,24 @@ describe("runtime configuration", () => {
         })
       )
     ).toThrow(/PADDLE_ENVIRONMENT/i);
+  });
+
+  it("fails clearly when operational config is malformed", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          BACKGROUND_EXPORT_PAGE_SIZE: "not-a-number"
+        })
+      )
+    ).toThrow(/BACKGROUND_EXPORT_PAGE_SIZE/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          MONITORING_EVENT_SINK: "third_party_sink"
+        })
+      )
+    ).toThrow(/MONITORING_EVENT_SINK/i);
   });
 
   it("treats blank optional config as absent while still requiring critical values", () => {

@@ -8,11 +8,38 @@ import {
   resetOperationalEventSinkForTesting,
   setOperationalEventSinkForTesting
 } from "@/lib/observability/monitoring";
+import { ConfigValidationError, parseAppConfig } from "@/lib/config";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function readRepoFile(...segments: string[]) {
   return fs.readFileSync(path.join(repoRoot, ...segments), "utf8");
+}
+
+function makeMonitoringConfig(overrides: Record<string, string | undefined> = {}) {
+  return {
+    NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+    NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321",
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: "test-anon-key",
+    SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
+    SUPABASE_STORAGE_BUCKET: "contract-files",
+    SUPABASE_EXPORTS_BUCKET: "export-artifacts",
+    OPENAI_API_KEY: "test-openai-key",
+    RESEND_API_KEY: "test-resend-key",
+    RESEND_FROM_EMAIL: "notifications@noticecontrol.com",
+    CRON_SHARED_SECRET: "test-cron-secret",
+    INTERNAL_HEALTH_SECRET: "test-health-secret",
+    INTERNAL_OCR_JOBS_SECRET: "test-ocr-secret",
+    INTERNAL_OPERATIONS_SECRET: "test-operations-secret",
+    INTERNAL_DESTRUCTIVE_OPS_SECRET: "test-destructive-secret",
+    INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: "test-destructive-signing-secret",
+    MONITORING_EVENT_SINK: "structured_log",
+    BACKGROUND_EXPORT_PAGE_SIZE: "1000",
+    BACKGROUND_EXPORT_JOB_LIMIT: "3",
+    REMINDER_PROCESSING_LEASE_MINUTES: "15",
+    OCR_PROCESSING_LEASE_MINUTES: "30",
+    ...overrides
+  };
 }
 
 describe("monitoring readiness", () => {
@@ -105,7 +132,28 @@ describe("monitoring readiness", () => {
     for (const required of [
       "internal_route_auth_failed",
       "export_failed",
+      "export_sync_attempted",
+      "export_sync_completed",
+      "export_sync_rejected",
+      "export_background_requested",
+      "export_background_claimed",
+      "export_background_completed",
+      "export_background_expired",
+      "export_background_downloaded",
       "export_too_large",
+      "reminder_claimed",
+      "reminder_sent",
+      "reminder_retry_scheduled",
+      "reminder_terminal_failed",
+      "reminder_stale_rescued",
+      "ocr_job_claimed",
+      "ocr_job_completed",
+      "ocr_job_retry_scheduled",
+      "ocr_job_terminal_failed",
+      "ocr_job_stale_rescued",
+      "billing_webhook_received",
+      "billing_webhook_replayed",
+      "billing_webhook_succeeded",
       "reminder_dispatch_failed",
       "ocr_job_failed",
       "billing_webhook_failed",
@@ -130,5 +178,21 @@ describe("monitoring readiness", () => {
       "tests/monitoring-readiness.test.ts"
     );
   });
-});
 
+  it("validates monitoring and job operation config before runtime use", () => {
+    expect(parseAppConfig(makeMonitoringConfig()).operations).toMatchObject({
+      monitoringEventSink: "structured_log",
+      backgroundExportPageSize: 1000,
+      backgroundExportJobLimit: 3,
+      reminderProcessingLeaseMinutes: 15,
+      ocrProcessingLeaseMinutes: 30
+    });
+
+    expect(() =>
+      parseAppConfig(makeMonitoringConfig({ SUPABASE_EXPORTS_BUCKET: undefined }))
+    ).toThrow(ConfigValidationError);
+    expect(() =>
+      parseAppConfig(makeMonitoringConfig({ BACKGROUND_EXPORT_JOB_LIMIT: "99" }))
+    ).toThrow(/BACKGROUND_EXPORT_JOB_LIMIT/i);
+  });
+});

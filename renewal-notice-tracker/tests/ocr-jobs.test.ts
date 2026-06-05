@@ -5,6 +5,7 @@ const getOcrProvider = vi.fn();
 const extractContractMetadata = vi.fn();
 const recordProcessingError = vi.fn();
 const logServerWarn = vi.fn();
+const emitOperationalEvent = vi.fn();
 
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminSupabaseClient
@@ -23,10 +24,18 @@ vi.mock("@/lib/contracts/processing-errors", () => ({
 }));
 
 vi.mock("@/lib/observability/server-logger", () => ({
-  logServerWarn
+  logServerWarn,
+  sanitizeOperationalError: (error: unknown) =>
+    error instanceof Error ? { name: error.name, message: "[REDACTED]" } : error
 }));
 
-function createAdminMock() {
+vi.mock("@/lib/observability/monitoring", () => ({
+  emitOperationalEvent
+}));
+
+function createAdminMock(input?: {
+  staleOcrJobs?: Array<Record<string, unknown>>;
+}) {
   const inserts: Array<{ table: string; payload: unknown }> = [];
   const updates: Array<{ table: string; payload: Record<string, unknown> }> = [];
   const deletes: string[] = [];
@@ -78,8 +87,15 @@ function createAdminMock() {
           },
           update(payload: Record<string, unknown>) {
             updates.push({ table, payload });
+            const isStaleRescue =
+              payload.status === "retry_pending" &&
+              payload.error_message ===
+                "OCR processing lease expired. Returned to retry_pending for rescue.";
             return {
               eq() {
+                return this;
+              },
+              lt() {
                 return this;
               },
               in() {
@@ -101,6 +117,32 @@ function createAdminMock() {
                           error: null
                         };
                       }
+                    };
+                  }
+                };
+              },
+              select() {
+                if (isStaleRescue) {
+                  return Promise.resolve({
+                    data: input?.staleOcrJobs ?? [],
+                    error: null
+                  });
+                }
+
+                return {
+                  async maybeSingle() {
+                    return {
+                      data: {
+                        id: "job-1",
+                        organization_id: "org-1",
+                        contract_id: "contract-1",
+                        contract_file_id: "file-1",
+                        provider: "mock",
+                        status: "processing",
+                        detection_reason: "Native extraction returned no usable text.",
+                        attempts: 1
+                      },
+                      error: null
                     };
                   }
                 };
@@ -226,6 +268,7 @@ function createAdminMock() {
 describe("OCR jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    emitOperationalEvent.mockResolvedValue({});
   });
 
   it("enqueues an OCR job", async () => {
@@ -300,7 +343,70 @@ describe("OCR jobs", () => {
         (entry) => entry.table === "cost_usage_logs"
       )
     ).toBe(true);
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "ocr_job_claimed",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          job_id: "job-1",
+          contract_id: "contract-1"
+        })
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "ocr_job_completed",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          job_id: "job-1",
+          status: "completed"
+        })
+      })
+    );
     expect(recordProcessingError).not.toHaveBeenCalled();
+  });
+
+  it("rescues stale OCR jobs before claiming new work", async () => {
+    const mock = createAdminMock({
+      staleOcrJobs: [
+        {
+          id: "job-stale",
+          organization_id: "org-1",
+          contract_id: "contract-stale"
+        }
+      ]
+    });
+    createAdminSupabaseClient.mockReturnValue(mock.client);
+    getOcrProvider.mockReturnValue({
+      performOcr: vi.fn().mockRejectedValue(new Error("stop after rescue"))
+    });
+
+    const { processPendingOcrJobs } = await import("@/lib/ocr/jobs");
+    await processPendingOcrJobs(1);
+
+    expect(mock.updates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "ocr_jobs",
+          payload: expect.objectContaining({
+            status: "retry_pending",
+            error_message:
+              "OCR processing lease expired. Returned to retry_pending for rescue."
+          })
+        })
+      ])
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "ocr_job_stale_rescued",
+        organizationId: "org-1",
+        metadata: expect.objectContaining({
+          job_id: "job-stale",
+          contract_id: "contract-stale",
+          rescue_state: "retry_pending"
+        })
+      })
+    );
   });
 
   it("records OCR failures without leaking raw OCR or contract text into errors/log metadata", async () => {
@@ -334,10 +440,34 @@ describe("OCR jobs", () => {
         event: "ocr_job_failed",
         metadata: expect.objectContaining({
           job_id: "job-1",
-          contract_id: "contract-1"
-        })
+          contract_id: "contract-1",
+          failure_code: "ERR_OCR_JOB_TERMINAL_FAILURE_001",
+          failure_category: "ocr_job_terminal_failure"
+        }),
+        error: {
+          name: "Error",
+          message: "[REDACTED]"
+        }
       })
     );
     expect(JSON.stringify(logServerWarn.mock.calls)).not.toContain("confidential renewal clause");
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "ocr_job_terminal_failed",
+        severity: "P2",
+        alert: true,
+        metadata: expect.objectContaining({
+          job_id: "job-1",
+          failure_code: "ERR_OCR_JOB_TERMINAL_FAILURE_001"
+        }),
+        error: {
+          name: "Error",
+          message: "[REDACTED]"
+        }
+      })
+    );
+    expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain(
+      "confidential renewal clause"
+    );
   });
 });

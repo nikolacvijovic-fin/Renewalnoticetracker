@@ -51,6 +51,22 @@ describe("operational maturity boundaries", () => {
     }
   });
 
+  it("keeps internal ops summaries aware of export and OCR job health without customer content", () => {
+    const source = readProjectFile("lib/contracts/queries.ts");
+    const panel = readProjectFile("components/admin/admin-panel.tsx");
+
+    expect(source).toContain('.from("data_export_requests")');
+    expect(source).toContain('.from("ocr_jobs")');
+    expect(source).toContain("exportJobHealth");
+    expect(source).toContain("ocrJobHealth");
+    expect(source).toContain("staleProcessing");
+    expect(source).toContain("sanitizeOperationalValue(message)");
+    expect(panel).toContain("Background export job health");
+    expect(panel).toContain("OCR job health");
+    expect(panel).not.toContain("storage_object_path");
+    expect(panel).not.toContain("extracted_text");
+  });
+
   it("keeps scoped OCR file lookup tied to the queued job organization", () => {
     const source = readProjectFile("lib/ocr/jobs.ts");
     const helperStart = source.indexOf("export async function getScopedOcrContractFileForJob");

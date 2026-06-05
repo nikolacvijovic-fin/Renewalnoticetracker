@@ -32,6 +32,9 @@ import {
 import { getMonthlyRevenueForPlan, getTrackedContractLimit } from "@/lib/billing/policy";
 import { summarizeWorkflowGuardrails } from "@/lib/contracts/workflow-guardrails";
 import type { MetricAlertRecord, ScoreSummary, ReadinessKey, CapacityKey } from "@/lib/commercial/ops-metrics";
+import { REMINDER_PROCESSING_LEASE_MS } from "@/lib/notifications/reminders";
+import { OCR_PROCESSING_LEASE_MS } from "@/lib/ocr/jobs";
+import { sanitizeOperationalValue } from "@/lib/observability/server-logger";
 
 export type OrganizationMember = {
   user_id: string;
@@ -77,6 +80,9 @@ type ProfitabilitySnapshotRow =
   Database["public"]["Tables"]["organization_profitability_snapshots"]["Row"];
 type OrganizationHealthSnapshotRow =
   Database["public"]["Tables"]["organization_health_snapshots"]["Row"];
+type DataExportRequestRow = Database["public"]["Tables"]["data_export_requests"]["Row"];
+type OcrJobRow = Database["public"]["Tables"]["ocr_jobs"]["Row"];
+const BACKGROUND_EXPORT_STALE_PROCESSING_MS = 60 * 60 * 1000;
 
 type ContractDetailRecord = ContractRow & {
   contract_files: ContractFileRow[];
@@ -135,7 +141,41 @@ function maskEmail(email: string | null) {
 
 function summarizeError(message: string | null) {
   if (!message) return null;
-  return message.length > 160 ? `${message.slice(0, 157)}...` : message;
+  const sanitized = sanitizeOperationalValue(message);
+  const safeMessage = typeof sanitized === "string" ? sanitized : "[REDACTED]";
+  return safeMessage.length > 160 ? `${safeMessage.slice(0, 157)}...` : safeMessage;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function ageMinutes(value: string | null | undefined, now = new Date()) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  if (Number.isNaN(timestamp)) return null;
+  return Math.max(0, Math.floor((now.getTime() - timestamp) / 60000));
+}
+
+function oldestAgeMinutes<T>(
+  rows: T[],
+  getValue: (row: T) => string | null | undefined,
+  now = new Date()
+) {
+  const ages = rows
+    .map((row) => ageMinutes(getValue(row), now))
+    .filter((age): age is number => typeof age === "number");
+  return ages.length > 0 ? Math.max(...ages) : null;
+}
+
+function countByStatus(rows: Array<{ status: string | null }>) {
+  return rows.reduce((acc: Record<string, number>, row) => {
+    const status = row.status ?? "unknown";
+    acc[status] = (acc[status] ?? 0) + 1;
+    return acc;
+  }, {});
 }
 
 function applyNullableOrganizationScope<T extends { eq: (column: string, value: string) => T; is: (column: string, value: null) => T }>(
@@ -823,15 +863,26 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
   const now = new Date();
   const last7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const last30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const staleReminderBefore = new Date(now.getTime() - REMINDER_PROCESSING_LEASE_MS).toISOString();
+  const staleOcrBefore = new Date(now.getTime() - OCR_PROCESSING_LEASE_MS).toISOString();
+  const staleExportBefore = new Date(now.getTime() - BACKGROUND_EXPORT_STALE_PROCESSING_MS).toISOString();
 
-  const [contracts, reminders, notifications, extractionFailures, reminderRuns] = await Promise.all([
+  const [
+    contracts,
+    reminders,
+    notifications,
+    extractionFailures,
+    reminderRuns,
+    exportJobs,
+    ocrJobs
+  ] = await Promise.all([
     supabase
       .from("contracts")
       .select("id, status_tag", { count: "exact" })
       .eq("organization_id", organizationId),
     supabase
       .from("reminders")
-      .select("id, status, last_error, created_at, sent_at", { count: "exact" })
+      .select("id, status, last_error, created_at, sent_at, processing_started_at", { count: "exact" })
       .eq("organization_id", organizationId),
     supabase
       .from("notification_logs")
@@ -844,21 +895,61 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
     supabase
       .from("reminder_runs")
       .select("id, status, error_message, created_at", { count: "exact" })
+      .eq("organization_id", organizationId),
+    supabase
+      .from("data_export_requests")
+      .select("id, status, requested_at, completed_at, evidence_json", { count: "exact" })
+      .eq("organization_id", organizationId)
+      .eq("export_scope", "contracts"),
+    supabase
+      .from("ocr_jobs")
+      .select("id, status, queued_at, started_at, completed_at, attempts", { count: "exact" })
       .eq("organization_id", organizationId)
   ]);
 
-  const reminderRows = (reminders.data ?? []) as Array<{ status: string; sent_at: string | null }>;
+  const reminderRows = (reminders.data ?? []) as Array<{
+    status: string;
+    sent_at: string | null;
+    created_at: string | null;
+    processing_started_at: string | null;
+  }>;
   const notificationRows = (notifications.data ?? []) as Array<{ status: string; sent_at: string | null }>;
   const reminderRunRows = (reminderRuns.data ?? []) as Array<{
     status: string;
     created_at: string;
     error_message: string | null;
   }>;
+  const exportRows = (exportJobs.data ?? []) as Array<Pick<
+    DataExportRequestRow,
+    "status" | "requested_at" | "completed_at" | "evidence_json"
+  >>;
+  const ocrRows = (ocrJobs.data ?? []) as Array<Pick<
+    OcrJobRow,
+    "status" | "queued_at" | "started_at" | "completed_at" | "attempts"
+  >>;
 
   const statusCounts = reminderRows.reduce((acc: Record<string, number>, row) => {
     acc[row.status] = (acc[row.status] ?? 0) + 1;
     return acc;
   }, {});
+  const exportStatusCounts = countByStatus(exportRows);
+  const ocrStatusCounts = countByStatus(ocrRows);
+  const staleProcessingExports = exportRows.filter((row) => {
+    const evidence = asRecord(row.evidence_json);
+    const processingStartedAt = evidence.processing_started_at;
+    return row.status === "processing" &&
+      typeof processingStartedAt === "string" &&
+      processingStartedAt < staleExportBefore;
+  }).length;
+  const staleProcessingOcrJobs = ocrRows.filter(
+    (row) => row.status === "processing" && row.started_at && row.started_at < staleOcrBefore
+  ).length;
+  const staleProcessingReminders = reminderRows.filter(
+    (row) =>
+      row.status === "processing" &&
+      row.processing_started_at &&
+      row.processing_started_at < staleReminderBefore
+  ).length;
 
   return {
     totalContracts: contracts.count ?? 0,
@@ -868,6 +959,7 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
     failedReminders: reminderRows.filter((row) => row.status === "failed_terminal").length,
     retryPendingReminders: reminderRows.filter((row) => row.status === "retry_pending").length,
     processingReminders: reminderRows.filter((row) => row.status === "processing").length,
+    staleProcessingReminders,
     cancelledReminders: reminderRows.filter((row) => row.status === "cancelled").length,
     failedNotifications: notificationRows.filter((row) => row.status === "failed").length,
     duplicateSuppressedNotifications: notificationRows.filter((row) => row.status === "duplicate_suppressed").length,
@@ -879,13 +971,57 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5) as Array<[string, number]>,
     recentFailedReminderJobs: reminderRows.filter((row) => row.status === "failed_terminal").slice(0, 10),
-    recentNotificationAttempts: notificationRows.slice(0, 15)
+    recentNotificationAttempts: notificationRows.slice(0, 15),
+    exportJobHealth: {
+      queued: exportStatusCounts.queued ?? 0,
+      processing: exportStatusCounts.processing ?? 0,
+      completed: exportStatusCounts.completed ?? 0,
+      failed: exportStatusCounts.failed ?? 0,
+      expired: exportStatusCounts.expired ?? 0,
+      staleProcessing: staleProcessingExports,
+      oldestQueuedAgeMinutes: oldestAgeMinutes(
+        exportRows.filter((row) => row.status === "queued"),
+        (row) => row.requested_at,
+        now
+      ),
+      oldestProcessingAgeMinutes: oldestAgeMinutes(
+        exportRows.filter((row) => row.status === "processing"),
+        (row) => asRecord(row.evidence_json).processing_started_at as string | null | undefined,
+        now
+      )
+    },
+    ocrJobHealth: {
+      queued: ocrStatusCounts.pending ?? 0,
+      processing: ocrStatusCounts.processing ?? 0,
+      retryPending: ocrStatusCounts.retry_pending ?? 0,
+      completed: ocrStatusCounts.completed ?? 0,
+      failedTerminal: ocrStatusCounts.failed_terminal ?? 0,
+      staleProcessing: staleProcessingOcrJobs,
+      oldestQueuedAgeMinutes: oldestAgeMinutes(
+        ocrRows.filter((row) => row.status === "pending" || row.status === "retry_pending"),
+        (row) => row.queued_at,
+        now
+      ),
+      oldestProcessingAgeMinutes: oldestAgeMinutes(
+        ocrRows.filter((row) => row.status === "processing"),
+        (row) => row.started_at,
+        now
+      )
+    }
   };
 }
 
 export async function getAdminDebugData(organizationId: string) {
   const supabase = createServerSupabaseClient();
-  const [failedReminders, notificationLogs, extractionFailures, importJobs, reminderRuns] = await Promise.all([
+  const [
+    failedReminders,
+    notificationLogs,
+    extractionFailures,
+    importJobs,
+    reminderRuns,
+    backgroundExports,
+    ocrJobs
+  ] = await Promise.all([
     supabase
       .from("reminders")
       .select("id, contract_id, status, last_error, attempt_count, next_retry_at, created_at")
@@ -917,6 +1053,19 @@ export async function getAdminDebugData(organizationId: string) {
       .select("id, reminder_id, status, error_message, created_at")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
+      .limit(10),
+    supabase
+      .from("data_export_requests")
+      .select("id, status, format, requested_at, completed_at, evidence_json")
+      .eq("organization_id", organizationId)
+      .eq("export_scope", "contracts")
+      .order("requested_at", { ascending: false })
+      .limit(15),
+    supabase
+      .from("ocr_jobs")
+      .select("id, contract_id, status, attempts, queued_at, started_at, completed_at, error_message")
+      .eq("organization_id", organizationId)
+      .order("queued_at", { ascending: false })
       .limit(10)
   ]);
 
@@ -937,6 +1086,31 @@ export async function getAdminDebugData(organizationId: string) {
     reminderRuns: ((reminderRuns.data ?? []) as ReminderRunRow[]).map((run) => ({
       ...run,
       error_message: summarizeError(run.error_message)
+    })),
+    backgroundExports: ((backgroundExports.data ?? []) as DataExportRequestRow[]).map((row) => {
+      const evidence = asRecord(row.evidence_json);
+      return {
+        id: row.id,
+        status: row.status,
+        format: row.format,
+        requested_at: row.requested_at,
+        completed_at: row.completed_at,
+        export_preset: evidence.export_preset ?? null,
+        row_count: evidence.row_count ?? 0,
+        page_count: evidence.page_count ?? null,
+        failure_code: evidence.failure_code ?? null,
+        failure_category: evidence.failure_category ?? null
+      };
+    }),
+    ocrJobs: ((ocrJobs.data ?? []) as OcrJobRow[]).map((job) => ({
+      id: job.id,
+      contract_id: job.contract_id,
+      status: job.status,
+      attempts: job.attempts,
+      queued_at: job.queued_at,
+      started_at: job.started_at,
+      completed_at: job.completed_at,
+      error_message: summarizeError(job.error_message)
     })),
     importJobs: (importJobs.data ?? []) as Array<{
       id: string;

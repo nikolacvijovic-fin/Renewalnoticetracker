@@ -13,6 +13,11 @@ const optionalEmail = z.preprocess(
 );
 const optionalEnum = <T extends [string, ...string[]]>(values: T) =>
   z.preprocess(emptyStringToUndefined, z.enum(values).optional());
+const operationalInt = (input: { min: number; max: number; fallback: number }) =>
+  z.preprocess(
+    emptyStringToUndefined,
+    z.coerce.number().int().min(input.min).max(input.max).default(input.fallback)
+  );
 
 const rawEnvSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url(),
@@ -20,7 +25,7 @@ const rawEnvSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmptyString,
   SUPABASE_SERVICE_ROLE_KEY: nonEmptyString,
   SUPABASE_STORAGE_BUCKET: nonEmptyString.default("contract-files"),
-  SUPABASE_EXPORTS_BUCKET: nonEmptyString.default("export-artifacts"),
+  SUPABASE_EXPORTS_BUCKET: nonEmptyString,
   OPENAI_API_KEY: nonEmptyString,
   OPENAI_MODEL: nonEmptyString.default("gpt-4.1-mini"),
   OCR_PROVIDER: optionalEnum(["openai", "mock"]),
@@ -46,7 +51,15 @@ const rawEnvSchema = z.object({
   INTERNAL_OPERATIONS_SECRET: nonEmptyString,
   INTERNAL_DESTRUCTIVE_OPS_SECRET: nonEmptyString,
   INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: nonEmptyString,
-  INTERNAL_OPERATOR_ALLOWLIST: z.string().optional()
+  INTERNAL_OPERATOR_ALLOWLIST: z.string().optional(),
+  MONITORING_EVENT_SINK: z.preprocess(
+    emptyStringToUndefined,
+    z.enum(["structured_log"]).default("structured_log")
+  ),
+  BACKGROUND_EXPORT_PAGE_SIZE: operationalInt({ min: 100, max: 5000, fallback: 1000 }),
+  BACKGROUND_EXPORT_JOB_LIMIT: operationalInt({ min: 1, max: 10, fallback: 3 }),
+  REMINDER_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 15 }),
+  OCR_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 30 })
 });
 
 export type RawConfig = z.infer<typeof rawEnvSchema>;
@@ -96,6 +109,13 @@ export type AppConfig = {
     paddleEnvironment: "sandbox" | "production";
     paddleStarterPriceId: string | null;
     paddleGrowthPriceId: string | null;
+  };
+  operations: {
+    monitoringEventSink: "structured_log";
+    backgroundExportPageSize: number;
+    backgroundExportJobLimit: number;
+    reminderProcessingLeaseMinutes: number;
+    ocrProcessingLeaseMinutes: number;
   };
   raw: RawConfig;
 };
@@ -174,6 +194,13 @@ export function parseAppConfig(
       paddleEnvironment: raw.PADDLE_ENVIRONMENT,
       paddleStarterPriceId: nullable(raw.PADDLE_STARTER_PRICE_ID),
       paddleGrowthPriceId: nullable(raw.PADDLE_GROWTH_PRICE_ID)
+    },
+    operations: {
+      monitoringEventSink: raw.MONITORING_EVENT_SINK,
+      backgroundExportPageSize: raw.BACKGROUND_EXPORT_PAGE_SIZE,
+      backgroundExportJobLimit: raw.BACKGROUND_EXPORT_JOB_LIMIT,
+      reminderProcessingLeaseMinutes: raw.REMINDER_PROCESSING_LEASE_MINUTES,
+      ocrProcessingLeaseMinutes: raw.OCR_PROCESSING_LEASE_MINUTES
     },
     raw
   };

@@ -73,4 +73,20 @@ describe("structured server logger", () => {
       message: "[REDACTED]"
     });
   });
+
+  it("redacts suspicious free-text values even when a metadata key looks generic", () => {
+    const entry = buildServerLogEntry("warn", {
+      event: "support_diagnostic",
+      metadata: {
+        failure_summary: "Raw OCR output contains confidential renewal clause",
+        job_id: "ocr-job-1"
+      }
+    });
+
+    expect(entry.metadata).toMatchObject({
+      failure_summary: "[REDACTED]",
+      job_id: "ocr-job-1"
+    });
+    expect(JSON.stringify(entry)).not.toContain("confidential renewal clause");
+  });
 });

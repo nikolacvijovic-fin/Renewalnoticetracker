@@ -14,6 +14,8 @@ import {
   updateScopedReminderById
 } from "@/lib/organization/scoped-admin";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
+import { getAppConfig } from "@/lib/config";
+import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 export const REMINDER_PROCESSING_LEASE_MS = 15 * 60 * 1000;
 export const REMINDER_DISPATCH_BATCH_LIMIT = 50;
@@ -51,6 +53,34 @@ type JoinedReminderRecord = ReminderRecord & {
   contracts: DeliveryContract;
 };
 
+function getReminderProcessingLeaseMs() {
+  return getAppConfig().operations.reminderProcessingLeaseMinutes * 60 * 1000;
+}
+
+function emitReminderLifecycleEvent(input: {
+  eventName: string;
+  organizationId: string;
+  reminderId: string;
+  contractId?: string | null;
+  severity?: "P2" | "P3";
+  alert?: boolean;
+  metadata?: Record<string, unknown>;
+}) {
+  void emitOperationalEvent({
+    eventName: input.eventName,
+    severity: input.severity ?? "P3",
+    sensitivity: "customer_sensitive",
+    alert: input.alert ?? false,
+    organizationId: input.organizationId,
+    action: "reminder_dispatch",
+    metadata: {
+      reminder_id: input.reminderId,
+      contract_id: input.contractId ?? null,
+      ...input.metadata
+    }
+  });
+}
+
 function checkedReminderWrite<TData>(
   write: PromiseLike<{ data?: TData | null; error: unknown | null }>,
   input: {
@@ -65,7 +95,7 @@ function checkedReminderWrite<TData>(
 export async function processDueReminders(untilIso: string) {
   const admin = createAdminSupabaseClient();
   const nowIso = new Date().toISOString();
-  const staleBeforeIso = new Date(Date.now() - REMINDER_PROCESSING_LEASE_MS).toISOString();
+  const staleBeforeIso = new Date(Date.now() - getReminderProcessingLeaseMs()).toISOString();
 
   await rescueStaleReminderClaims(nowIso, staleBeforeIso);
 
@@ -150,7 +180,9 @@ export async function rerunReminderJob(reminderId: string, organizationId: strin
 
 async function rescueStaleReminderClaims(nowIso: string, staleBeforeIso: string) {
   const admin = createAdminSupabaseClient();
-  await checkedReminderWrite(
+  const result = await checkedReminderWrite<
+    Array<{ id: string; organization_id: string; contract_id: string | null }>
+  >(
     admin
       .from("reminders")
       .update({
@@ -161,13 +193,31 @@ async function rescueStaleReminderClaims(nowIso: string, staleBeforeIso: string)
         processing_token: null
       })
       .eq("status", "processing")
-      .lt("processing_started_at", staleBeforeIso),
+      .lt("processing_started_at", staleBeforeIso)
+      .select("id, organization_id, contract_id"),
     {
       operation: "update",
       table: "reminders",
       context: "rescue_stale_reminder_claims"
     }
   );
+
+  for (const reminder of ((result.data ?? []) as Array<{
+    id: string;
+    organization_id: string;
+    contract_id: string | null;
+  }>).slice(0, REMINDER_DISPATCH_BATCH_LIMIT)) {
+    emitReminderLifecycleEvent({
+      eventName: "reminder_stale_rescued",
+      organizationId: reminder.organization_id,
+      reminderId: reminder.id,
+      contractId: reminder.contract_id,
+      metadata: {
+        rescue_state: "retry_pending",
+        lease_expired_before: staleBeforeIso
+      }
+    });
+  }
 }
 
 async function claimReminder(
@@ -176,7 +226,7 @@ async function claimReminder(
 ): Promise<JoinedReminderRecord | null> {
   const admin = createAdminSupabaseClient();
   const token = crypto.randomUUID();
-  const result = await checkedReminderWrite(
+  const result = await checkedReminderWrite<JoinedReminderRecord | null>(
     admin
       .from("reminders")
       .update({
@@ -207,7 +257,20 @@ async function claimReminder(
     }
   );
 
-  return result.data ?? null;
+  const claimed = result.data ?? null;
+  if (claimed) {
+    emitReminderLifecycleEvent({
+      eventName: "reminder_claimed",
+      organizationId,
+      reminderId,
+      contractId: claimed.contract_id,
+      metadata: {
+        status: "processing"
+      }
+    });
+  }
+
+  return claimed;
 }
 
 async function deliverReminder(input: {
@@ -315,6 +378,18 @@ async function deliverReminder(input: {
     }
   });
 
+  emitReminderLifecycleEvent({
+    eventName: "reminder_sent",
+    organizationId: input.reminder.organization_id,
+    reminderId: input.reminder.id,
+    contractId: input.reminder.contract_id,
+    metadata: {
+      delivery_count: deliveryCount,
+      duplicate_suppressed_count: duplicateSuppressedCount,
+      attempt_count: input.reminder.attempt_count + 1
+    }
+  });
+
   return {
     id: input.reminder.id,
     status: "sent",
@@ -378,7 +453,7 @@ export async function markReminderFailure(reminderId: string, organizationId: st
   const admin = createAdminSupabaseClient();
   const { data: reminder, error } = await admin
     .from("reminders")
-    .select("attempt_count, max_attempts, recipient_email")
+    .select("attempt_count, max_attempts, recipient_email, contract_id")
     .eq("id", reminderId)
     .eq("organization_id", organizationId)
     .single();
@@ -456,6 +531,24 @@ export async function markReminderFailure(reminderId: string, organizationId: st
       attempt_count: attemptCount,
       terminal,
       next_retry_at: nextRetryAt
+    }
+  });
+
+  emitReminderLifecycleEvent({
+    eventName: terminal ? "reminder_terminal_failed" : "reminder_retry_scheduled",
+    organizationId,
+    reminderId,
+    contractId: reminder.contract_id,
+    severity: terminal ? "P2" : "P3",
+    alert: terminal,
+    metadata: {
+      status: terminal ? "failed_terminal" : "retry_pending",
+      attempt_count: attemptCount,
+      max_attempts: reminder.max_attempts,
+      next_retry_at: nextRetryAt,
+      failure_code: terminal
+        ? "ERR_REMINDER_TERMINAL_FAILURE_001"
+        : "ERR_REMINDER_RETRY_SCHEDULED_001"
     }
   });
 }

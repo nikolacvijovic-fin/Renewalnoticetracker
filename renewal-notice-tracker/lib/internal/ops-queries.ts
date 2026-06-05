@@ -26,6 +26,9 @@ export async function refreshInternalRescueSnapshot(organizationId: string) {
     extractionFailureCount: snapshot.extractionFailureCount,
     retryScheduledRuns: snapshot.retryScheduledRuns,
     terminalFailureRuns: snapshot.terminalFailureRuns,
+    staleProcessingReminders: snapshot.staleProcessingReminders,
+    exportJobHealth: snapshot.exportJobHealth,
+    ocrJobHealth: snapshot.ocrJobHealth,
     importsNeedingRescue
   };
 }

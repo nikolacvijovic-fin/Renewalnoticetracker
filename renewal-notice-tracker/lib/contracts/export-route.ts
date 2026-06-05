@@ -89,6 +89,21 @@ function logExportDenied(input: {
       denied_reason: input.reason
     }
   });
+  void emitOperationalEvent({
+    eventName: "export_sync_rejected",
+    severity: "P3",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: false,
+    route: getExportRoutePath(input.request),
+    organizationId: input.context?.organizationId ?? null,
+    actorUserId: input.context?.user?.id ?? null,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      denied_reason: input.reason
+    }
+  });
 }
 
 function logExportFailed(input: {
@@ -115,6 +130,22 @@ function logExportFailed(input: {
   });
   void emitOperationalEvent({
     eventName: "export_failed",
+    severity: "P2",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: true,
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      sensitive_sections_included: input.preset.sensitiveSectionsIncluded
+    },
+    error: safeError
+  });
+  void emitOperationalEvent({
+    eventName: "export_sync_failed",
     severity: "P2",
     sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
     alert: true,
@@ -170,6 +201,24 @@ function logExportTooLarge(input: {
       sensitive_sections_included: input.preset.sensitiveSectionsIncluded
     }
   });
+  void emitOperationalEvent({
+    eventName: "export_sync_rejected",
+    severity: "P3",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: false,
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      rejected_reason: "sync_row_limit",
+      row_count: input.error.input.rowCount,
+      max_rows: input.error.input.maxRows,
+      sensitive_sections_included: input.preset.sensitiveSectionsIncluded
+    }
+  });
 }
 
 function logExportPreflightRejected(input: {
@@ -216,6 +265,25 @@ function logExportPreflightRejected(input: {
       max_text_heavy_rows: input.error.input.maxTextHeavyRows,
       reason: input.error.input.reason,
       recommendation: input.error.input.recommendation,
+      sensitive_sections_included: input.preset.sensitiveSectionsIncluded
+    }
+  });
+  void emitOperationalEvent({
+    eventName: "export_sync_rejected",
+    severity: "P3",
+    sensitivity: input.preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+    alert: false,
+    route: getExportRoutePath(input.request),
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    requestId: input.requestId,
+    metadata: {
+      export_preset: input.preset.id,
+      format: input.format,
+      rejected_reason: input.error.input.reason,
+      row_count: input.error.input.rowCount,
+      max_complexity_score: input.error.input.maxComplexityScore,
+      max_text_heavy_rows: input.error.input.maxTextHeavyRows,
       sensitive_sections_included: input.preset.sensitiveSectionsIncluded
     }
   });
@@ -373,6 +441,21 @@ export async function handleContractsExport(
       entityType: "export",
       details: attemptedDetails
     });
+    void emitOperationalEvent({
+      eventName: "export_sync_attempted",
+      severity: "P3",
+      sensitivity: preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+      alert: false,
+      route: getExportRoutePath(request),
+      organizationId,
+      actorUserId: user.id,
+      requestId,
+      metadata: {
+        export_preset: preset.id,
+        format,
+        sensitive_sections_included: preset.sensitiveSectionsIncluded
+      }
+    });
 
     const rows = await getExportRows(organizationId, preset.id);
     assertExportGenerationPreflight({
@@ -414,6 +497,23 @@ export async function handleContractsExport(
       sourceOfTruth: "event_and_state",
       idempotencyKey: `export_requested:${format}:${preset.id}:${organizationId}:${rows.length}`,
       properties: completedDetails
+    });
+    void emitOperationalEvent({
+      eventName: "export_sync_completed",
+      severity: "P3",
+      sensitivity: preset.sensitiveSectionsIncluded ? "customer_sensitive" : "internal",
+      alert: false,
+      route: getExportRoutePath(request),
+      organizationId,
+      actorUserId: user.id,
+      requestId,
+      metadata: {
+        export_preset: preset.id,
+        format,
+        row_count: rows.length,
+        included_sections: preset.includedSections,
+        sensitive_sections_included: preset.sensitiveSectionsIncluded
+      }
     });
 
     if (format === "csv") {

@@ -6,7 +6,8 @@ import { extractContractMetadata } from "@/lib/ai/extract-contract";
 import { buildEvidenceRows } from "@/lib/contracts/evidence";
 import { sanitizeSensitiveProcessingError } from "@/lib/errors";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
-import { logServerWarn } from "@/lib/observability/server-logger";
+import { getAppConfig } from "@/lib/config";
+import { logServerWarn, sanitizeOperationalError } from "@/lib/observability/server-logger";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 type OcrJobRow = {
@@ -22,9 +23,43 @@ type OcrJobRow = {
 
 export const OCR_DEFAULT_BATCH_LIMIT = 5;
 export const OCR_MAX_BATCH_LIMIT = 25;
+export const OCR_PROCESSING_LEASE_MS = 30 * 60 * 1000;
+const OCR_TERMINAL_ATTEMPT_LIMIT = 2;
+const STALE_OCR_RESCUE_MESSAGE =
+  "OCR processing lease expired. Returned to retry_pending for rescue.";
 
 function normalizeOcrBatchLimit(limit: number) {
   return Math.min(Math.max(Math.trunc(limit), 1), OCR_MAX_BATCH_LIMIT);
+}
+
+function getOcrProcessingLeaseMs() {
+  return getAppConfig().operations.ocrProcessingLeaseMinutes * 60 * 1000;
+}
+
+function emitOcrLifecycleEvent(input: {
+  eventName: string;
+  organizationId: string;
+  jobId: string;
+  contractId?: string | null;
+  severity?: "P2" | "P3";
+  alert?: boolean;
+  metadata?: Record<string, unknown>;
+  error?: unknown;
+}) {
+  void emitOperationalEvent({
+    eventName: input.eventName,
+    severity: input.severity ?? "P3",
+    sensitivity: "customer_sensitive",
+    alert: input.alert ?? false,
+    organizationId: input.organizationId,
+    action: "ocr_job_worker",
+    metadata: {
+      job_id: input.jobId,
+      contract_id: input.contractId ?? null,
+      ...input.metadata
+    },
+    error: input.error
+  });
 }
 
 export async function enqueueOcrJob(input: {
@@ -70,7 +105,54 @@ async function claimOcrJob(job: OcrJobRow) {
     .maybeSingle();
 
   if (error) throw error;
-  return (data ?? null) as OcrJobRow | null;
+  const claimed = (data ?? null) as OcrJobRow | null;
+  if (claimed) {
+    emitOcrLifecycleEvent({
+      eventName: "ocr_job_claimed",
+      organizationId: claimed.organization_id,
+      jobId: claimed.id,
+      contractId: claimed.contract_id,
+      metadata: {
+        status: "processing",
+        attempt_count: claimed.attempts
+      }
+    });
+  }
+
+  return claimed;
+}
+
+async function rescueStaleOcrJobs(nowIso: string, staleBeforeIso: string) {
+  const admin = createAdminSupabaseClient();
+  const { data, error } = await admin
+    .from("ocr_jobs")
+    .update({
+      status: "retry_pending",
+      error_message: STALE_OCR_RESCUE_MESSAGE
+    })
+    .eq("status", "processing")
+    .lt("started_at", staleBeforeIso)
+    .select("id, organization_id, contract_id");
+
+  if (error) throw error;
+
+  for (const job of ((data ?? []) as Array<{
+    id: string;
+    organization_id: string;
+    contract_id: string | null;
+  }>).slice(0, OCR_MAX_BATCH_LIMIT)) {
+    emitOcrLifecycleEvent({
+      eventName: "ocr_job_stale_rescued",
+      organizationId: job.organization_id,
+      jobId: job.id,
+      contractId: job.contract_id,
+      metadata: {
+        rescue_state: "retry_pending",
+        lease_expired_before: staleBeforeIso,
+        rescued_at: nowIso
+      }
+    });
+  }
 }
 
 async function getScopedMetadataIdForAdmin(contractId: string, organizationId: string) {
@@ -142,6 +224,10 @@ export async function getScopedOcrContractFileForJob(input: {
 export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
   const batchLimit = normalizeOcrBatchLimit(limit);
   const admin = createAdminSupabaseClient();
+  const nowIso = new Date().toISOString();
+  const staleBeforeIso = new Date(Date.now() - getOcrProcessingLeaseMs()).toISOString();
+  await rescueStaleOcrJobs(nowIso, staleBeforeIso);
+
   const { data, error } = await admin
     .from("ocr_jobs")
     .select("id, organization_id, contract_id, contract_file_id, provider, status, detection_reason, attempts")
@@ -278,9 +364,23 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
         .eq("id", claimed.id)
         .eq("organization_id", claimed.organization_id);
 
+      emitOcrLifecycleEvent({
+        eventName: "ocr_job_completed",
+        organizationId: claimed.organization_id,
+        jobId: claimed.id,
+        contractId: claimed.contract_id,
+        metadata: {
+          status: "completed",
+          provider: result.provider,
+          average_confidence: normalized.averageConfidence
+        }
+      });
+
       results.push({ id: claimed.id, status: "completed" });
     } catch (error) {
       const message = sanitizeSensitiveProcessingError("ocr");
+      const terminal = claimed.attempts + 1 >= OCR_TERMINAL_ATTEMPT_LIMIT;
+      const safeError = sanitizeOperationalError(error);
       logServerWarn({
         event: "ocr_job_failed",
         organizationId: claimed.organization_id,
@@ -288,10 +388,13 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
         metadata: {
           job_id: claimed.id,
           contract_id: claimed.contract_id,
-          status:
-            claimed.attempts + 1 >= 2 ? "failed_terminal" : "retry_pending"
+          status: terminal ? "failed_terminal" : "retry_pending",
+          failure_code: terminal
+            ? "ERR_OCR_JOB_TERMINAL_FAILURE_001"
+            : "ERR_OCR_JOB_RETRY_SCHEDULED_001",
+          failure_category: terminal ? "ocr_job_terminal_failure" : "ocr_job_retry_scheduled"
         },
-        error
+        error: safeError
       });
       void emitOperationalEvent({
         eventName: "ocr_job_failed",
@@ -303,10 +406,30 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
         metadata: {
           job_id: claimed.id,
           contract_id: claimed.contract_id,
-          status:
-            claimed.attempts + 1 >= 2 ? "failed_terminal" : "retry_pending"
+          status: terminal ? "failed_terminal" : "retry_pending",
+          failure_code: terminal
+            ? "ERR_OCR_JOB_TERMINAL_FAILURE_001"
+            : "ERR_OCR_JOB_RETRY_SCHEDULED_001",
+          failure_category: terminal ? "ocr_job_terminal_failure" : "ocr_job_retry_scheduled"
         },
-        error
+        error: safeError
+      });
+      emitOcrLifecycleEvent({
+        eventName: terminal ? "ocr_job_terminal_failed" : "ocr_job_retry_scheduled",
+        organizationId: claimed.organization_id,
+        jobId: claimed.id,
+        contractId: claimed.contract_id,
+        severity: terminal ? "P2" : "P3",
+        alert: terminal,
+        metadata: {
+          status: terminal ? "failed_terminal" : "retry_pending",
+          failure_code: terminal
+            ? "ERR_OCR_JOB_TERMINAL_FAILURE_001"
+            : "ERR_OCR_JOB_RETRY_SCHEDULED_001",
+          failure_category: terminal ? "ocr_job_terminal_failure" : "ocr_job_retry_scheduled",
+          attempt_count: claimed.attempts + 1
+        },
+        error: safeError
       });
       await recordProcessingError({
         organizationId: claimed.organization_id,
@@ -320,7 +443,7 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
       await admin
         .from("ocr_jobs")
         .update({
-          status: claimed.attempts + 1 >= 2 ? "failed_terminal" : "retry_pending",
+          status: terminal ? "failed_terminal" : "retry_pending",
           error_message: message
         })
         .eq("id", claimed.id)

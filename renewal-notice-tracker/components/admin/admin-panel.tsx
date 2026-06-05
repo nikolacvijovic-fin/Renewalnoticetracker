@@ -27,6 +27,7 @@ type Snapshot = {
   failedReminders: number;
   retryPendingReminders: number;
   processingReminders: number;
+  staleProcessingReminders?: number;
   cancelledReminders: number;
   failedNotifications: number;
   duplicateSuppressedNotifications: number;
@@ -35,6 +36,22 @@ type Snapshot = {
   retryScheduledRuns: number;
   terminalFailureRuns: number;
   topReminderStatuses: Array<[string, number]>;
+  exportJobHealth?: JobHealthSummary;
+  ocrJobHealth?: JobHealthSummary & {
+    retryPending?: number;
+    failedTerminal?: number;
+  };
+};
+
+type JobHealthSummary = {
+  queued: number;
+  processing: number;
+  completed: number;
+  failed?: number;
+  expired?: number;
+  staleProcessing: number;
+  oldestQueuedAgeMinutes: number | null;
+  oldestProcessingAgeMinutes: number | null;
 };
 
 type DebugData = {
@@ -71,6 +88,28 @@ type DebugData = {
     error_message: string | null;
     created_at: string;
   }>;
+  backgroundExports?: Array<{
+    id: string;
+    status: string;
+    format: string;
+    requested_at: string;
+    completed_at: string | null;
+    export_preset: unknown;
+    row_count: unknown;
+    page_count: unknown;
+    failure_code: unknown;
+    failure_category: unknown;
+  }>;
+  ocrJobs?: Array<{
+    id: string;
+    contract_id: string;
+    status: string;
+    attempts: number;
+    queued_at: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    error_message: string | null;
+  }>;
   importJobs: Array<{
     id: string;
     file_name: string;
@@ -103,6 +142,26 @@ export function AdminPanel({
       job.status === "completed_with_errors" ||
       job.status === "needs_cleanup"
   ).length;
+  const exportHealth = snapshot.exportJobHealth ?? {
+    queued: 0,
+    processing: 0,
+    completed: 0,
+    failed: 0,
+    expired: 0,
+    staleProcessing: 0,
+    oldestQueuedAgeMinutes: null,
+    oldestProcessingAgeMinutes: null
+  };
+  const ocrHealth = snapshot.ocrJobHealth ?? {
+    queued: 0,
+    processing: 0,
+    completed: 0,
+    failedTerminal: 0,
+    retryPending: 0,
+    staleProcessing: 0,
+    oldestQueuedAgeMinutes: null,
+    oldestProcessingAgeMinutes: null
+  };
 
   return (
     <div className="space-y-6">
@@ -121,6 +180,10 @@ export function AdminPanel({
           <Metric label="Extraction failures" value={snapshot.extractionFailureCount} />
           <Metric label="Retry runs" value={snapshot.retryScheduledRuns} />
           <Metric label="Imports needing rescue" value={importsNeedingRescue} />
+          <Metric label="Stale reminders" value={snapshot.staleProcessingReminders ?? 0} />
+          <Metric label="Queued exports" value={exportHealth.queued} />
+          <Metric label="Failed exports" value={exportHealth.failed ?? 0} />
+          <Metric label="OCR retry/stale" value={`${ocrHealth.retryPending ?? 0}/${ocrHealth.staleProcessing}`} />
         </div>
       </section>
 
@@ -161,6 +224,74 @@ export function AdminPanel({
                 )}
               </ul>
             </div>
+          </div>
+        </section>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <section className="panel p-6">
+          <h2 className="text-lg font-semibold">Background export job health</h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Metric label="Queued" value={exportHealth.queued} />
+            <Metric label="Processing" value={exportHealth.processing} />
+            <Metric label="Failed" value={exportHealth.failed ?? 0} />
+            <Metric label="Stale processing" value={exportHealth.staleProcessing} />
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Oldest queued: {formatAge(exportHealth.oldestQueuedAgeMinutes)} - Oldest processing:{" "}
+            {formatAge(exportHealth.oldestProcessingAgeMinutes)}
+          </p>
+          <div className="mt-4 space-y-3">
+            {(debug.backgroundExports ?? []).length > 0 ? (
+              (debug.backgroundExports ?? []).map((job) => (
+                <div key={job.id} className="rounded-xl border border-slate-200 p-4 text-sm">
+                  <p className="font-medium">
+                    {String(job.export_preset ?? "unknown")} - {job.status}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {job.format} - rows {String(job.row_count ?? 0)} - pages {String(job.page_count ?? "n/a")}
+                  </p>
+                  {job.failure_code ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      {String(job.failure_code)} - {String(job.failure_category ?? "unknown")}
+                    </p>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">No recent background export jobs.</p>
+            )}
+          </div>
+        </section>
+
+        <section className="panel p-6">
+          <h2 className="text-lg font-semibold">OCR job health</h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Metric label="Queued" value={ocrHealth.queued} />
+            <Metric label="Processing" value={ocrHealth.processing} />
+            <Metric label="Retry pending" value={ocrHealth.retryPending ?? 0} />
+            <Metric label="Stale processing" value={ocrHealth.staleProcessing} />
+          </div>
+          <p className="mt-3 text-xs text-slate-500">
+            Oldest queued: {formatAge(ocrHealth.oldestQueuedAgeMinutes)} - Oldest processing:{" "}
+            {formatAge(ocrHealth.oldestProcessingAgeMinutes)}
+          </p>
+          <div className="mt-4 space-y-3">
+            {(debug.ocrJobs ?? []).length > 0 ? (
+              (debug.ocrJobs ?? []).map((job) => (
+                <div key={job.id} className="rounded-xl border border-slate-200 p-4 text-sm">
+                  <p className="font-medium">{job.status}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Contract {job.contract_id} - attempts {job.attempts}
+                  </p>
+                  {job.error_message ? (
+                    <p className="mt-2 text-sm text-slate-600">{job.error_message}</p>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-500">No recent OCR jobs.</p>
+            )}
           </div>
         </section>
       </div>
@@ -352,4 +483,8 @@ function formatTimestamp(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toUTCString();
+}
+
+function formatAge(value: number | null) {
+  return typeof value === "number" ? `${value} min` : "none";
 }
