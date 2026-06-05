@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createAdminSupabaseClient = vi.fn();
-const getBackgroundExportRows = vi.fn();
+const iterateExportRows = vi.fn();
 const createAuditLog = vi.fn();
 const emitOperationalEvent = vi.fn();
 const logServerError = vi.fn();
@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 
 vi.mock("@/lib/contracts/kernel-queries", () => ({
-  getBackgroundExportRows
+  iterateExportRows
 }));
 
 vi.mock("@/lib/audit", () => ({
@@ -93,6 +93,22 @@ function makeStorageMock(overrides?: {
   };
 }
 
+function mockExportPages(pages: unknown[][], input?: { totalRowCount?: number; pageSize?: number }) {
+  iterateExportRows.mockImplementation(async function* () {
+    const pageSize = input?.pageSize ?? 1000;
+    const totalRowCount = input?.totalRowCount ?? pages.reduce((sum, page) => sum + page.length, 0);
+    for (const [pageIndex, rows] of pages.entries()) {
+      yield {
+        rows,
+        pageIndex,
+        pageSize,
+        rowOffset: pageIndex * pageSize,
+        totalRowCount
+      };
+    }
+  });
+}
+
 describe("background contract exports", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -121,11 +137,13 @@ describe("background contract exports", () => {
         .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
     };
     createAdminSupabaseClient.mockReturnValue(admin);
-    getBackgroundExportRows.mockResolvedValue([
-      {
-        contract_title: "=formula is sanitized by export serialization",
-        cycle_status: "open"
-      }
+    mockExportPages([
+      [
+        {
+          contract_title: "=formula is sanitized by export serialization",
+          cycle_status: "open"
+        }
+      ]
     ]);
 
     const { processQueuedContractExportRequests } = await import(
@@ -141,10 +159,14 @@ describe("background contract exports", () => {
         failed: 0
       })
     );
-    expect(getBackgroundExportRows).toHaveBeenCalledWith(
+    expect(iterateExportRows).toHaveBeenCalledWith(
       "org-1",
       "workflow_export",
-      expect.objectContaining({ client: expect.anything() })
+      expect.objectContaining({
+        client: expect.anything(),
+        maxRows: 25000,
+        pageSize: 1000
+      })
     );
     expect(writes).toContainEqual(
       expect.objectContaining({
@@ -154,6 +176,8 @@ describe("background contract exports", () => {
           export_preset: "workflow_export",
           status: "completed",
           row_count: 1,
+          page_size: 1000,
+          page_count: 1,
           artifact_storage: "stored",
           download_available: true,
           artifact_size_bytes: expect.any(Number),
@@ -189,6 +213,66 @@ describe("background contract exports", () => {
     );
   }, 10_000);
 
+  it("assembles background CSV from pages with safe chunk metadata", async () => {
+    const writes: unknown[] = [];
+    const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
+    const claimed = {
+      ...queuedExport,
+      status: "processing",
+      evidence_json: {
+        ...queuedExport.evidence_json,
+        status: "processing",
+        processing_started_at: "2026-06-02T10:01:00.000Z"
+      }
+    };
+    const admin = {
+      storage: makeStorageMock({ upload }),
+      from: vi
+        .fn()
+        .mockReturnValueOnce(makeListQuery([queuedExport]))
+        .mockReturnValueOnce(makeClaimQuery(claimed))
+        .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+    mockExportPages(
+      [
+        [{ contract_title: "=formula from page one", cycle_status: "open" }],
+        [{ contract_title: "MSA page two", cycle_status: "closed" }]
+      ],
+      { totalRowCount: 6000 }
+    );
+
+    const { processQueuedContractExportRequests } = await import(
+      "@/lib/contracts/background-exports"
+    );
+    const result = await processQueuedContractExportRequests({ limit: 1 });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        completed: 1,
+        failed: 0
+      })
+    );
+    expect(upload).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.stringContaining("'=formula from page one"),
+      expect.any(Object)
+    );
+    expect(upload.mock.calls[0]?.[1]).toContain("MSA page two");
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        status: "completed",
+        evidence_json: expect.objectContaining({
+          row_count: 2,
+          page_size: 1000,
+          page_count: 2,
+          artifact_storage: "stored"
+        })
+      })
+    );
+  }, 10_000);
+
   it("marks storage failures failed and emits safe monitoring metadata", async () => {
     const writes: unknown[] = [];
     const upload = vi.fn().mockResolvedValue({
@@ -213,7 +297,7 @@ describe("background contract exports", () => {
         .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
     };
     createAdminSupabaseClient.mockReturnValue(admin);
-    getBackgroundExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
+    mockExportPages([[{ contract_title: "MSA" }]]);
 
     const { processQueuedContractExportRequests } = await import(
       "@/lib/contracts/background-exports"
@@ -240,6 +324,20 @@ describe("background contract exports", () => {
       })
     );
     expect(JSON.stringify(writes)).not.toContain("SENSITIVE_EXPORT_PAYLOAD_MARKER");
+    expect(JSON.stringify(logServerError.mock.calls)).not.toContain(
+      "SENSITIVE_EXPORT_PAYLOAD_MARKER"
+    );
+    expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain(
+      "SENSITIVE_EXPORT_PAYLOAD_MARKER"
+    );
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          name: "ExportArtifactStorageError",
+          message: "[REDACTED]"
+        })
+      })
+    );
     expect(emitOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "export_background_failed",
@@ -254,8 +352,71 @@ describe("background contract exports", () => {
     );
   }, 10_000);
 
+  it("fails background CSV safely when chunked artifact size exceeds the limit", async () => {
+    const { EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES } = await import("@/lib/contracts/export");
+    const realByteLength = Buffer.byteLength;
+    const byteLengthSpy = vi.spyOn(Buffer, "byteLength").mockImplementation((value, encoding) => {
+      if (String(value).includes("ARTIFACT_TOO_LARGE_MARKER")) {
+        return EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES + 1;
+      }
+      return realByteLength(value as never, encoding as never);
+    });
+    const writes: unknown[] = [];
+    const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
+    const claimed = {
+      ...queuedExport,
+      status: "processing",
+      evidence_json: {
+        ...queuedExport.evidence_json,
+        status: "processing",
+        processing_started_at: "2026-06-02T10:01:00.000Z"
+      }
+    };
+    const admin = {
+      storage: makeStorageMock({ upload }),
+      from: vi
+        .fn()
+        .mockReturnValueOnce(makeListQuery([queuedExport]))
+        .mockReturnValueOnce(makeClaimQuery(claimed))
+        .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+    mockExportPages([[{ contract_title: "ARTIFACT_TOO_LARGE_MARKER" }]]);
+
+    try {
+      const { processQueuedContractExportRequests } = await import(
+        "@/lib/contracts/background-exports"
+      );
+      const result = await processQueuedContractExportRequests({ limit: 1 });
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          ok: false,
+          completed: 0,
+          failed: 1
+        })
+      );
+      expect(upload).not.toHaveBeenCalled();
+      expect(writes).toContainEqual(
+        expect.objectContaining({
+          status: "failed",
+          evidence_json: expect.objectContaining({
+            failure_code: "ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001",
+            failure_category: "background_export_artifact_too_large",
+            row_count: 1,
+            page_size: 1000,
+            page_count: 1,
+            max_artifact_size_bytes: EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES
+          })
+        })
+      );
+    } finally {
+      byteLengthSpy.mockRestore();
+    }
+  }, 10_000);
+
   it("fails oversized rich XLSX exports during preflight with safe evidence", async () => {
-    const { EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT } = await import("@/lib/contracts/export");
+    const { EXPORT_BACKGROUND_XLSX_ROW_LIMIT } = await import("@/lib/contracts/export");
     const writes: unknown[] = [];
     const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
     const richQueuedExport = {
@@ -287,12 +448,9 @@ describe("background contract exports", () => {
         .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
     };
     createAdminSupabaseClient.mockReturnValue(admin);
-    getBackgroundExportRows.mockResolvedValue(
-      Array.from({ length: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT + 1 }, (_, index) => ({
-        contract_title: `MSA ${index}`,
-        latest_note_preview: "SENSITIVE_NOTE_MARKER should never appear in evidence",
-        decision_history_summary: "bounded decision summary"
-      }))
+    mockExportPages(
+      [[{ contract_title: "first-page-row" }]],
+      { totalRowCount: EXPORT_BACKGROUND_XLSX_ROW_LIMIT + 1 }
     );
 
     const { processQueuedContractExportRequests } = await import(
@@ -317,12 +475,19 @@ describe("background contract exports", () => {
           status: "failed",
           failure_code: "ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001",
           failure_category: "background_export_xlsx_preflight_rejected",
-          preflight_reason: "xlsx_text_heavy_limit",
+          preflight_reason: "xlsx_background_row_limit",
+          page_size: undefined,
+          page_count: undefined,
+          max_background_xlsx_rows: EXPORT_BACKGROUND_XLSX_ROW_LIMIT,
+          max_text_heavy_rows: undefined,
+          max_complexity_score: undefined,
           recommendation: "use_csv_or_reduce_scope"
         })
       })
     );
     expect(JSON.stringify(writes)).not.toContain("SENSITIVE_NOTE_MARKER");
+    expect(JSON.stringify(logServerError.mock.calls)).not.toContain("SENSITIVE_NOTE_MARKER");
+    expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain("SENSITIVE_NOTE_MARKER");
     expect(emitOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "export_background_failed",

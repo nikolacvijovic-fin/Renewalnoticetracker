@@ -148,6 +148,24 @@ describe("export presets", () => {
         rows
       })
     ).toThrow(ExportGenerationPreflightError);
+    try {
+      assertExportGenerationPreflight({
+        preset: EXPORT_PRESETS.notes_and_decisions_export,
+        format: "xlsx",
+        rows
+      });
+      throw new Error("Expected text-heavy XLSX preflight to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ExportGenerationPreflightError);
+      const input = (error as ExportGenerationPreflightError).input;
+      expect(input).toEqual(
+        expect.objectContaining({
+          reason: "xlsx_text_heavy_limit",
+          maxTextHeavyRows: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT
+        })
+      );
+      expect(input).not.toHaveProperty("maxComplexityScore");
+    }
 
     expect(() =>
       assertExportGenerationPreflight({
@@ -156,6 +174,34 @@ describe("export presets", () => {
         rows
       })
     ).not.toThrow();
+  });
+
+  it("distinguishes XLSX complexity score failures from text-heavy row limits", () => {
+    const rows = Array.from({ length: EXPORT_BACKGROUND_ROW_LIMIT }, (_, index) => ({
+      contract_title: `MSA ${index}`,
+      risk_band: "high",
+      score_points: 90,
+      confidence_level: "high"
+    }));
+
+    try {
+      assertExportGenerationPreflight({
+        preset: EXPORT_PRESETS.intelligence_export,
+        format: "xlsx",
+        rows
+      });
+      throw new Error("Expected intelligence XLSX preflight to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ExportGenerationPreflightError);
+      const input = (error as ExportGenerationPreflightError).input;
+      expect(input).toEqual(
+        expect.objectContaining({
+          reason: "xlsx_complexity_limit",
+          maxComplexityScore: expect.any(Number)
+        })
+      );
+      expect(input).not.toHaveProperty("maxTextHeavyRows");
+    }
   });
 
   it("keeps basic XLSX within the background row envelope", () => {

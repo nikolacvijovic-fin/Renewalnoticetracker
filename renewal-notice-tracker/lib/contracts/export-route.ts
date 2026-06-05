@@ -21,8 +21,8 @@ import {
   ExportPresetSelectionError,
   ExportScaleLimitError,
   resolveExportPreset,
-  toCsv,
-  toXlsxBuffer,
+  sanitizeExportOperationalError,
+  serializeExportArtifact,
   type ExportFormat,
   type ExportPreset
 } from "@/lib/contracts/export";
@@ -100,6 +100,7 @@ function logExportFailed(input: {
   actorUserId: string;
   error: unknown;
 }) {
+  const safeError = sanitizeExportOperationalError(input.error);
   logServerError({
     event: "export_failed",
     route: getExportRoutePath(input.request),
@@ -110,7 +111,7 @@ function logExportFailed(input: {
       export_preset: input.preset.id,
       format: input.format
     },
-    error: input.error
+    error: safeError
   });
   void emitOperationalEvent({
     eventName: "export_failed",
@@ -126,7 +127,7 @@ function logExportFailed(input: {
       format: input.format,
       sensitive_sections_included: input.preset.sensitiveSectionsIncluded
     },
-    error: input.error
+    error: safeError
   });
 }
 
@@ -192,6 +193,7 @@ function logExportPreflightRejected(input: {
       row_count: input.error.input.rowCount,
       complexity_score: input.error.input.complexityScore,
       max_complexity_score: input.error.input.maxComplexityScore,
+      max_text_heavy_rows: input.error.input.maxTextHeavyRows,
       reason: input.error.input.reason,
       recommendation: input.error.input.recommendation
     }
@@ -209,6 +211,9 @@ function logExportPreflightRejected(input: {
       export_preset: input.preset.id,
       format: input.format,
       row_count: input.error.input.rowCount,
+      complexity_score: input.error.input.complexityScore,
+      max_complexity_score: input.error.input.maxComplexityScore,
+      max_text_heavy_rows: input.error.input.maxTextHeavyRows,
       reason: input.error.input.reason,
       recommendation: input.error.input.recommendation,
       sensitive_sections_included: input.preset.sensitiveSectionsIncluded
@@ -375,6 +380,11 @@ export async function handleContractsExport(
       format,
       rows
     });
+    const artifact = serializeExportArtifact({
+      preset,
+      format,
+      rows
+    });
     const completedDetails = buildExportAuditDetails({
       preset,
       format,
@@ -408,7 +418,7 @@ export async function handleContractsExport(
 
     if (format === "csv") {
       return withExportRequestId(
-        new NextResponse(toCsv(rows, preset.columns), {
+        new NextResponse(artifact, {
           headers: {
             "Content-Type": "text/csv; charset=utf-8",
             "Content-Disposition": `attachment; filename="contracts-${preset.id}.csv"`
@@ -419,7 +429,7 @@ export async function handleContractsExport(
     }
 
     return withExportRequestId(
-      new NextResponse(toXlsxBuffer(rows, preset.columns), {
+      new NextResponse(artifact, {
         headers: {
           "Content-Type":
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

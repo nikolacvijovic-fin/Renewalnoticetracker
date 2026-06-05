@@ -268,6 +268,135 @@ describe("contract query authz scoping", () => {
     );
   });
 
+  it("paginates export rows with org scope, stable ordering, and scoped owner labels", async () => {
+    const fromCalls: string[] = [];
+    const contractFilters: Array<[string, string]> = [];
+    const memberFilters: Array<[string, string]> = [];
+    const ranges: Array<[number, number]> = [];
+    const orderCalls: Array<[string, Record<string, boolean> | undefined]> = [];
+
+    createServerSupabaseClient.mockReturnValue({
+      from(table: string) {
+        fromCalls.push(table);
+        if (table === "memberships") {
+          return {
+            select(selection: string) {
+              expect(selection).toBe("user_id, role, user:users(id, full_name, notification_email)");
+              return {
+                async eq(column: string, value: string) {
+                  memberFilters.push([column, value]);
+                  return {
+                    data: [
+                      {
+                        user_id: "owner-1",
+                        role: "owner",
+                        user: {
+                          id: "owner-1",
+                          full_name: "Jane Owner",
+                          notification_email: "owner@example.com"
+                        }
+                      }
+                    ],
+                    error: null
+                  };
+                }
+              };
+            }
+          };
+        }
+
+        if (table === "contracts") {
+          return {
+            select(_selection: string, _options?: { count?: string }) {
+              return {
+                eq(column: string, value: string) {
+                  contractFilters.push([column, value]);
+                  return this;
+                },
+                order(column: string, options?: Record<string, boolean>) {
+                  orderCalls.push([column, options]);
+                  return this;
+                },
+                async range(start: number, end: number) {
+                  ranges.push([start, end]);
+                  const dataByStart: Record<number, unknown[]> = {
+                    0: [
+                      {
+                        id: "contract-1",
+                        owner_user_id: "owner-1",
+                        contract_metadata: { contract_title: "MSA 1" }
+                      },
+                      {
+                        id: "contract-2",
+                        owner_user_id: "owner-1",
+                        contract_metadata: { contract_title: "MSA 2" }
+                      }
+                    ],
+                    2: [
+                      {
+                        id: "contract-3",
+                        owner_user_id: "owner-1",
+                        contract_metadata: { contract_title: "MSA 3" }
+                      }
+                    ]
+                  };
+                  return {
+                    count: start === 0 ? 3 : null,
+                    data: dataByStart[start] ?? [],
+                    error: null
+                  };
+                }
+              };
+            }
+          };
+        }
+
+        throw new Error(`Unexpected table: ${table}`);
+      }
+    });
+
+    const { iterateExportRows } = await import("@/lib/contracts/kernel-queries");
+    const pages = [];
+    for await (const page of iterateExportRows("org-tenant-safe", "basic_contract_register", {
+      pageSize: 2,
+      maxRows: 10
+    })) {
+      pages.push(page);
+    }
+
+    expect(fromCalls).toEqual(["memberships", "contracts", "contracts"]);
+    expect(fromCalls).not.toContain("users");
+    expect(memberFilters).toContainEqual(["organization_id", "org-tenant-safe"]);
+    expect(contractFilters).toEqual([
+      ["organization_id", "org-tenant-safe"],
+      ["organization_id", "org-tenant-safe"]
+    ]);
+    expect(orderCalls).toEqual([
+      ["updated_at", { ascending: false }],
+      ["id", { ascending: true }],
+      ["updated_at", { ascending: false }],
+      ["id", { ascending: true }]
+    ]);
+    expect(ranges).toEqual([
+      [0, 1],
+      [2, 3]
+    ]);
+    expect(pages).toHaveLength(2);
+    expect(pages[0]).toEqual(
+      expect.objectContaining({
+        pageIndex: 0,
+        pageSize: 2,
+        rowOffset: 0,
+        totalRowCount: 3
+      })
+    );
+    expect(pages.flatMap((page) => page.rows).map((row) => row.owner_name)).toEqual([
+      "Jane Owner",
+      "Jane Owner",
+      "Jane Owner"
+    ]);
+  });
+
   it("keeps legacy contract member helper scoped to memberships without global user scans", async () => {
     const fromCalls: string[] = [];
 

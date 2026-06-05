@@ -45,6 +45,8 @@ export const EXPORT_SYNC_ROW_LIMIT = 5000;
 export const EXPORT_BACKGROUND_EXPORT_THRESHOLD = EXPORT_SYNC_ROW_LIMIT;
 export const EXPORT_BACKGROUND_ROW_LIMIT = 25000;
 export const EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES = 50 * 1024 * 1024;
+export const EXPORT_BACKGROUND_PAGE_SIZE = 1000;
+export const EXPORT_BACKGROUND_XLSX_ROW_LIMIT = EXPORT_SYNC_ROW_LIMIT;
 export const EXPORT_NOTE_PREVIEW_MAX_LENGTH = 160;
 export const EXPORT_DECISION_HISTORY_MAX_LENGTH = 500;
 export const EXPORT_XLSX_COMPLEXITY_SCORE_LIMIT = 1_000_000;
@@ -72,8 +74,10 @@ export class ExportGenerationPreflightError extends Error {
       format: ExportFormat;
       rowCount: number;
       complexityScore: number;
-      maxComplexityScore: number;
-      reason: "xlsx_complexity_limit" | "xlsx_text_heavy_limit";
+      maxComplexityScore?: number;
+      maxTextHeavyRows?: number;
+      maxBackgroundXlsxRows?: number;
+      reason: "xlsx_complexity_limit" | "xlsx_text_heavy_limit" | "xlsx_background_row_limit";
       recommendation: "use_csv_or_reduce_scope";
     }
   ) {
@@ -82,6 +86,25 @@ export class ExportGenerationPreflightError extends Error {
     );
     this.name = "ExportGenerationPreflightError";
   }
+}
+
+export type SafeExportOperationalError = {
+  name: string;
+  message: "[REDACTED]";
+};
+
+export function sanitizeExportOperationalError(error: unknown): SafeExportOperationalError {
+  if (error instanceof Error) {
+    return {
+      name: error.name || "ExportOperationalError",
+      message: "[REDACTED]"
+    };
+  }
+
+  return {
+    name: "NonErrorExportOperationalFailure",
+    message: "[REDACTED]"
+  };
 }
 
 const BASIC_COLUMNS = [
@@ -449,7 +472,7 @@ export function assertExportGenerationPreflight(input: {
       format: input.format,
       rowCount,
       complexityScore,
-      maxComplexityScore: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT,
+      maxTextHeavyRows: EXPORT_XLSX_TEXT_HEAVY_ROW_LIMIT,
       reason: "xlsx_text_heavy_limit",
       recommendation: "use_csv_or_reduce_scope"
     });
@@ -468,17 +491,57 @@ export function assertExportGenerationPreflight(input: {
   }
 }
 
-export function toCsv(rows: ExportRow[], columns?: readonly ExportColumnDefinition[]) {
-  const headers = columns?.map((column) => column.key) ?? Object.keys(rows[0] ?? {});
+export function assertBackgroundExportGenerationPreflight(input: {
+  preset: ExportPreset;
+  format: ExportFormat;
+  rowCount: number;
+}) {
+  if (input.format === "xlsx" && input.rowCount > EXPORT_BACKGROUND_XLSX_ROW_LIMIT) {
+    throw new ExportGenerationPreflightError({
+      presetId: input.preset.id,
+      format: input.format,
+      rowCount: input.rowCount,
+      complexityScore: estimateExportGenerationComplexity({
+        preset: input.preset,
+        format: input.format,
+        rowCount: input.rowCount
+      }),
+      maxBackgroundXlsxRows: EXPORT_BACKGROUND_XLSX_ROW_LIMIT,
+      reason: "xlsx_background_row_limit",
+      recommendation: "use_csv_or_reduce_scope"
+    });
+  }
+}
 
-  return [
-    headers.join(","),
-    ...rows.map((row) =>
-      headers
-        .map((header) => escapeCsv(String(sanitizeSpreadsheetValue(row[header] ?? ""))))
-        .join(",")
-    )
-  ].join("\n");
+export function serializeExportArtifact(input: {
+  preset: ExportPreset;
+  format: ExportFormat;
+  rows: ExportRow[];
+}) {
+  return input.format === "csv"
+    ? toCsv(input.rows, input.preset.columns)
+    : toXlsxBuffer(input.rows, input.preset.columns);
+}
+
+function getCsvHeaders(rows: readonly ExportRow[], columns?: readonly ExportColumnDefinition[]) {
+  return columns?.map((column) => column.key) ?? Object.keys(rows[0] ?? {});
+}
+
+export function toCsvHeader(columns?: readonly ExportColumnDefinition[], rows: readonly ExportRow[] = []) {
+  return getCsvHeaders(rows, columns).join(",");
+}
+
+export function toCsvDataRows(rows: readonly ExportRow[], columns?: readonly ExportColumnDefinition[]) {
+  const headers = getCsvHeaders(rows, columns);
+  return rows.map((row) =>
+    headers
+      .map((header) => escapeCsv(String(sanitizeSpreadsheetValue(row[header] ?? ""))))
+      .join(",")
+  );
+}
+
+export function toCsv(rows: ExportRow[], columns?: readonly ExportColumnDefinition[]) {
+  return [toCsvHeader(columns, rows), ...toCsvDataRows(rows, columns)].join("\n");
 }
 
 export function toXlsxBuffer(rows: ExportRow[], columns?: readonly ExportColumnDefinition[]) {

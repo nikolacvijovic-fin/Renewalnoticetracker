@@ -9,6 +9,8 @@ const createAdminSupabaseClient = vi.fn();
 const enforceFeatureAccess = vi.fn();
 const assertCanAccessIntelligenceSurface = vi.fn();
 const assertCanUseShippedAction = vi.fn();
+const trackServerAnalyticsEvent = vi.fn();
+const emitOperationalEvent = vi.fn();
 const logServerError = vi.fn();
 const logServerInfo = vi.fn();
 const logServerWarn = vi.fn();
@@ -28,6 +30,10 @@ vi.mock("@/lib/contracts/kernel-queries", () => ({
 
 vi.mock("@/lib/audit", () => ({
   createAuditLog
+}));
+
+vi.mock("@/lib/analytics/events", () => ({
+  trackServerAnalyticsEvent
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({
@@ -67,6 +73,10 @@ vi.mock("@/lib/observability/server-logger", () => ({
   logServerWarn
 }));
 
+vi.mock("@/lib/observability/monitoring", () => ({
+  emitOperationalEvent
+}));
+
 function makeRequest(path: string) {
   return new Request(`http://localhost:3000${path}`);
 }
@@ -77,6 +87,8 @@ describe("export routes", () => {
     getOrganizationContextOrNull.mockResolvedValue(makeActiveOrganizationContext());
     getExportRows.mockResolvedValue([]);
     createAuditLog.mockResolvedValue(undefined);
+    trackServerAnalyticsEvent.mockResolvedValue({ inserted: true });
+    emitOperationalEvent.mockResolvedValue({});
     createAdminSupabaseClient.mockReturnValue({
       from: vi.fn(() => ({
         insert: vi.fn().mockResolvedValue({ error: null })
@@ -418,5 +430,126 @@ describe("export routes", () => {
 
     expect(csvResponse.status).toBe(200);
     expect(getExportRows).toHaveBeenCalledWith("org-1", "notes_and_decisions_export");
+  });
+
+  it("persists completion only after artifact generation succeeds", async () => {
+    vi.resetModules();
+    const actualExport = await vi.importActual<typeof import("@/lib/contracts/export")>(
+      "@/lib/contracts/export"
+    );
+    const serializeExportArtifact = vi.fn(() => "contract_title\nMSA");
+    vi.doMock("@/lib/contracts/export", () => ({
+      ...actualExport,
+      serializeExportArtifact
+    }));
+
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    createAdminSupabaseClient.mockReturnValue({
+      from: vi.fn(() => ({
+        insert
+      }))
+    });
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
+    getExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
+
+    const { GET } = await import("@/app/dashboard/contracts/export/csv/route");
+    const response = await GET(
+      makeRequest("/dashboard/contracts/export/csv?preset=workflow_export")
+    );
+
+    expect(response.status).toBe(200);
+    expect(serializeExportArtifact).toHaveBeenCalledWith(
+      expect.objectContaining({
+        format: "csv",
+        rows: [{ contract_title: "MSA" }]
+      })
+    );
+    expect(insert).toHaveBeenCalled();
+    const serializerOrder = serializeExportArtifact.mock.invocationCallOrder[0]!;
+    expect(serializerOrder).toBeLessThan(insert.mock.invocationCallOrder[0]!);
+
+    const attemptedIndex = createAuditLog.mock.calls.findIndex(
+      ([input]) => input.action === "contracts.export_attempted"
+    );
+    const completedIndex = createAuditLog.mock.calls.findIndex(
+      ([input]) => input.action === "contracts.exported"
+    );
+    expect(attemptedIndex).toBeGreaterThanOrEqual(0);
+    expect(completedIndex).toBeGreaterThanOrEqual(0);
+    expect(createAuditLog.mock.invocationCallOrder[attemptedIndex]!).toBeLessThan(
+      serializerOrder
+    );
+    expect(createAuditLog.mock.invocationCallOrder[completedIndex]!).toBeGreaterThan(
+      serializerOrder
+    );
+    expect(trackServerAnalyticsEvent.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      serializerOrder
+    );
+
+    vi.doUnmock("@/lib/contracts/export");
+    vi.resetModules();
+  });
+
+  it("does not persist completion or exported audit when artifact generation fails", async () => {
+    vi.resetModules();
+    const actualExport = await vi.importActual<typeof import("@/lib/contracts/export")>(
+      "@/lib/contracts/export"
+    );
+    const serializeExportArtifact = vi.fn(() => {
+      throw new Error("SENSITIVE_NOTE_TEXT raw contract text should not leak");
+    });
+    vi.doMock("@/lib/contracts/export", () => ({
+      ...actualExport,
+      serializeExportArtifact
+    }));
+
+    getOrganizationContextOrNull.mockResolvedValue(
+      makeActiveOrganizationContext({
+        user: { id: "operator-1" },
+        role: "operator"
+      })
+    );
+    getExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
+
+    const { GET } = await import("@/app/dashboard/contracts/export/xlsx/route");
+    const response = await GET(
+      makeRequest("/dashboard/contracts/export/xlsx?preset=workflow_export")
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual(
+      expect.objectContaining({
+        code: "ERR_EXPORT_FAILED_001",
+        requestId: expect.any(String)
+      })
+    );
+    expect(createAdminSupabaseClient).not.toHaveBeenCalled();
+    expect(trackServerAnalyticsEvent).not.toHaveBeenCalled();
+    expect(
+      createAuditLog.mock.calls.some(([input]) => input.action === "contracts.exported")
+    ).toBe(false);
+    expect(
+      createAuditLog.mock.calls.some(([input]) => input.action === "contracts.export_attempted")
+    ).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("SENSITIVE_NOTE_TEXT");
+    expect(JSON.stringify(logServerError.mock.calls)).not.toContain("SENSITIVE_NOTE_TEXT");
+    expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain("SENSITIVE_NOTE_TEXT");
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.objectContaining({
+          name: "Error",
+          message: "[REDACTED]"
+        })
+      })
+    );
+
+    vi.doUnmock("@/lib/contracts/export");
+    vi.resetModules();
   });
 });

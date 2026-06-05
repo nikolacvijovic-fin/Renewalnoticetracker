@@ -28,7 +28,9 @@ Text bounds:
 - decision history summary is capped at `500` characters
 - spreadsheet injection sanitization applies to all string fields
 - XLSX generation has a preflight complexity envelope before workbook buffers are built
-- text-heavy Notes & Decisions XLSX exports are capped at `7500` rows even in background processing
+- general XLSX preflight rejects text-heavy Notes & Decisions workbooks above `7500` rows
+- background XLSX exports are capped at the synchronous export envelope (`5000` rows) because the current workbook writer still buffers output
+- background CSV exports assemble rows in scoped `1000` row pages and build CSV chunks before the final private artifact upload
 - XLSX requests that exceed the safe generation envelope return `ERR_EXPORT_XLSX_TOO_LARGE_001` synchronously, or fail background processing with `ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001`
 - CSV remains the preferred format for very large rich exports within the existing row limits
 - background export artifacts fail safely above `50 MiB` with `ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001`
@@ -36,6 +38,10 @@ Text bounds:
 Background export request processing now exists for larger preset exports. It uses `data_export_requests`, claims queued work through `/api/internal/export-jobs`, generates bounded CSV/XLSX payloads, stores artifacts in the private `SUPABASE_EXPORTS_BUCKET`, and records safe completion/failure metadata. Completed, unexpired artifacts are downloaded through `/api/exports/contracts/{id}/download`; storage paths and bucket names are never returned to customers.
 
 Artifacts expire after seven days. Internal operations can run cleanup through `/api/internal/export-jobs` with `{ "mode": "cleanup_expired" }`, which deletes the private artifact and marks the request `expired`.
+
+Background CSV exports reduce worker memory pressure by avoiding one full in-memory `ExportRow[]` for the full job. They still materialize the final artifact once for Supabase Storage upload, so the `50 MiB` artifact limit remains a hard safety boundary.
+
+Background XLSX exports remain intentionally stricter than CSV. The current `xlsx` library writes a buffered workbook, so XLSX is not treated as a true streaming format.
 
 Background exports become necessary when customers need:
 - more than `5000` rows
@@ -91,7 +97,7 @@ Avoid speculative indexes on rarely filtered columns. Every index adds write ove
 
 - Contract detail still loads many adjacent records; keep large raw payloads out of customer UI and consider pagination for audit/notes if they grow.
 - Procurement analytics currently builds several summaries in memory; materialized summaries may be needed for very large portfolios.
-- CSV/XLSX artifacts are still materialized before upload; preflight and artifact limits reduce risk, but true full-scale export needs streaming or chunked generation.
+- CSV artifacts are assembled from page chunks but still materialized before upload; preflight and artifact limits reduce risk, but true full-scale export needs direct streaming upload or multipart chunk storage.
 - XLSX generation is memory-bound; rich XLSX exports have preflight complexity caps, background exports are bounded at the worker layer, and artifacts expire after seven days.
 - Reminder dispatch is capped per run and ordered by retry/due time.
 - OCR jobs are capped per run and ordered by queue time.

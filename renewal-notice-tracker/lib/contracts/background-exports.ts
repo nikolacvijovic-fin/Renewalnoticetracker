@@ -3,17 +3,24 @@ import type { ActiveOrganizationContext } from "@/lib/auth";
 import { createHash } from "node:crypto";
 import { getAppConfig } from "@/lib/config";
 import {
+  EXPORT_BACKGROUND_PAGE_SIZE,
   EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES,
+  EXPORT_BACKGROUND_ROW_LIMIT,
+  assertBackgroundExportGenerationPreflight,
   assertExportGenerationPreflight,
   ExportGenerationPreflightError,
   ExportScaleLimitError,
+  sanitizeExportOperationalError,
+  serializeExportArtifact,
   resolveExportPreset,
-  toCsv,
-  toXlsxBuffer,
+  toCsvDataRows,
+  toCsvHeader,
   type ExportFormat,
-  type ExportPresetId
+  type ExportPreset,
+  type ExportPresetId,
+  type ExportRow
 } from "@/lib/contracts/export";
-import { getBackgroundExportRows } from "@/lib/contracts/kernel-queries";
+import { iterateExportRows } from "@/lib/contracts/kernel-queries";
 import { buildExportRequestEvidence } from "@/lib/commercial/privacy-operations";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { logServerError, logServerWarn } from "@/lib/observability/server-logger";
@@ -58,12 +65,25 @@ class ExportArtifactStorageError extends Error {
 class ExportArtifactSizeError extends Error {
   constructor(
     public readonly artifactSizeBytes: number,
-    public readonly maxBytes: number
+    public readonly maxBytes: number,
+    public readonly metadata?: {
+      rowCount?: number;
+      pageSize?: number;
+      pageCount?: number;
+    }
   ) {
     super("Background export artifact exceeded the safe size limit.");
     this.name = "ExportArtifactSizeError";
   }
 }
+
+type BackgroundArtifactGenerationResult = {
+  artifact: string | Buffer;
+  rowCount: number;
+  pageSize: number;
+  pageCount: number;
+  artifactSizeBytes: number;
+};
 
 function asEvidence(value: Json | null | undefined): EvidenceRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -163,6 +183,8 @@ function getBackgroundExportEvidence(input: {
   processingStartedAt?: string;
   completedAt?: string;
   failedAt?: string;
+  pageSize?: number;
+  pageCount?: number;
 }) {
   const preset = resolveExportPreset(input.presetId);
   const exportTimestamps =
@@ -198,6 +220,8 @@ function getBackgroundExportEvidence(input: {
     completed_at: input.completedAt,
     failed_at: input.failedAt,
     artifact_size_bytes: input.artifactSizeBytes,
+    page_size: input.pageSize,
+    page_count: input.pageCount,
     failure_code: input.failureCode,
     failure_category: input.failureCategory
   };
@@ -216,7 +240,10 @@ function getFailureEvidence(error: unknown) {
       failureCode: "ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001",
       failureCategory: "background_export_artifact_too_large",
       artifactSizeBytes: error.artifactSizeBytes,
-      maxArtifactSizeBytes: error.maxBytes
+      maxArtifactSizeBytes: error.maxBytes,
+      rowCount: error.metadata?.rowCount,
+      pageSize: error.metadata?.pageSize,
+      pageCount: error.metadata?.pageCount
     };
   }
 
@@ -236,6 +263,8 @@ function getFailureEvidence(error: unknown) {
       rowCount: error.input.rowCount,
       complexityScore: error.input.complexityScore,
       maxComplexityScore: error.input.maxComplexityScore,
+      maxTextHeavyRows: error.input.maxTextHeavyRows,
+      maxBackgroundXlsxRows: error.input.maxBackgroundXlsxRows,
       preflightReason: error.input.reason,
       recommendation: error.input.recommendation
     };
@@ -279,6 +308,8 @@ export function toBackgroundExportStatusResponse(row: DataExportRequestRow) {
     downloadAvailable,
     expiresAt: evidence.expires_at ?? null,
     artifactSizeBytes: evidence.artifact_size_bytes ?? null,
+    pageSize: evidence.page_size ?? null,
+    pageCount: evidence.page_count ?? null,
     filename: evidence.filename ?? null,
     contentType: evidence.content_type ?? null,
     artifactStorage: evidence.artifact_storage ?? "pending"
@@ -397,6 +428,8 @@ async function markExportCompleted(input: {
   contentType: string;
   filename: string;
   expiresAt: string;
+  pageSize: number;
+  pageCount: number;
 }) {
   const admin = createAdminSupabaseClient();
   const evidence = asEvidence(input.row.evidence_json);
@@ -421,7 +454,9 @@ async function markExportCompleted(input: {
       downloadAvailable: true,
       requestedAt: input.row.requested_at,
       processingStartedAt: evidence.processing_started_at as string | undefined,
-      completedAt
+      completedAt,
+      pageSize: input.pageSize,
+      pageCount: input.pageCount
     })
   };
 
@@ -482,8 +517,12 @@ async function markExportFailed(input: {
     max_artifact_size_bytes: failure.maxArtifactSizeBytes,
     complexity_score: failure.complexityScore,
     max_complexity_score: failure.maxComplexityScore,
+    max_text_heavy_rows: failure.maxTextHeavyRows,
+    max_background_xlsx_rows: failure.maxBackgroundXlsxRows,
     preflight_reason: failure.preflightReason,
-    recommendation: failure.recommendation
+    recommendation: failure.recommendation,
+    page_size: failure.pageSize,
+    page_count: failure.pageCount
   };
 
   await checkedPrivilegedWrite(
@@ -510,6 +549,7 @@ async function markExportFailed(input: {
     details: failedEvidence
   });
 
+  const safeError = sanitizeExportOperationalError(input.error);
   logServerError({
     event: "export_background_failed",
     organizationId: input.row.organization_id,
@@ -518,10 +558,12 @@ async function markExportFailed(input: {
       export_request_id: input.row.id,
       export_preset: input.presetId,
       format: input.format,
+      row_count: failure.rowCount,
       failure_code: failure.failureCode,
-      failure_category: failure.failureCategory
+      failure_category: failure.failureCategory,
+      preflight_reason: failure.preflightReason
     },
-    error: input.error
+    error: safeError
   });
   await emitOperationalEvent({
     eventName: "export_background_failed",
@@ -536,11 +578,159 @@ async function markExportFailed(input: {
       export_request_id: input.row.id,
       export_preset: input.presetId,
       format: input.format,
+      row_count: failure.rowCount,
       failure_code: failure.failureCode,
-      failure_category: failure.failureCategory
+      failure_category: failure.failureCategory,
+      preflight_reason: failure.preflightReason
     },
-    error: input.error
+    error: safeError
   });
+}
+
+function appendChunk(input: {
+  chunks: string[];
+  chunk: string;
+  artifactSizeBytes: number;
+  rowCount: number;
+  pageSize: number;
+  pageCount: number;
+}) {
+  if (!input.chunk) return input.artifactSizeBytes;
+
+  const separatorBytes = input.chunks.length > 0 ? Buffer.byteLength("\n", "utf8") : 0;
+  const nextSize = input.artifactSizeBytes + separatorBytes + Buffer.byteLength(input.chunk, "utf8");
+  if (nextSize > EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES) {
+    throw new ExportArtifactSizeError(nextSize, EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES, {
+      rowCount: input.rowCount,
+      pageSize: input.pageSize,
+      pageCount: input.pageCount
+    });
+  }
+
+  input.chunks.push(input.chunk);
+  return nextSize;
+}
+
+async function generateBackgroundCsvArtifact(input: {
+  organizationId: string;
+  preset: ExportPreset;
+  client: ReturnType<typeof createAdminSupabaseClient>;
+}): Promise<BackgroundArtifactGenerationResult> {
+  const chunks: string[] = [];
+  let artifactSizeBytes = appendChunk({
+    chunks,
+    chunk: toCsvHeader(input.preset.columns),
+    artifactSizeBytes: 0,
+    rowCount: 0,
+    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageCount: 0
+  });
+  let rowCount = 0;
+  let pageCount = 0;
+
+  for await (const page of iterateExportRows(input.organizationId, input.preset.id, {
+    maxRows: EXPORT_BACKGROUND_ROW_LIMIT,
+    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    client: input.client as never
+  })) {
+    pageCount += 1;
+    rowCount += page.rows.length;
+    artifactSizeBytes = appendChunk({
+      chunks,
+      chunk: toCsvDataRows(page.rows, input.preset.columns).join("\n"),
+      artifactSizeBytes,
+      rowCount,
+      pageSize: page.pageSize,
+      pageCount
+    });
+  }
+
+  return {
+    artifact: chunks.join("\n"),
+    rowCount,
+    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageCount,
+    artifactSizeBytes
+  };
+}
+
+async function generateBackgroundXlsxArtifact(input: {
+  organizationId: string;
+  preset: ExportPreset;
+  format: Extract<ExportFormat, "xlsx">;
+  client: ReturnType<typeof createAdminSupabaseClient>;
+}): Promise<BackgroundArtifactGenerationResult> {
+  const rows: ExportRow[] = [];
+  let rowCount = 0;
+  let pageCount = 0;
+
+  for await (const page of iterateExportRows(input.organizationId, input.preset.id, {
+    maxRows: EXPORT_BACKGROUND_ROW_LIMIT,
+    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    client: input.client as never
+  })) {
+    if (page.pageIndex === 0) {
+      assertBackgroundExportGenerationPreflight({
+        preset: input.preset,
+        format: input.format,
+        rowCount: page.totalRowCount
+      });
+    }
+
+    pageCount += 1;
+    rowCount += page.rows.length;
+    rows.push(...page.rows);
+  }
+
+  assertBackgroundExportGenerationPreflight({
+    preset: input.preset,
+    format: input.format,
+    rowCount
+  });
+  assertExportGenerationPreflight({
+    preset: input.preset,
+    format: input.format,
+    rows
+  });
+
+  const artifact = serializeExportArtifact({
+    preset: input.preset,
+    format: input.format,
+    rows
+  });
+  const artifactSizeBytes = Buffer.isBuffer(artifact)
+    ? artifact.length
+    : Buffer.byteLength(artifact, "utf8");
+
+  if (artifactSizeBytes > EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES) {
+    throw new ExportArtifactSizeError(artifactSizeBytes, EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES, {
+      rowCount,
+      pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+      pageCount
+    });
+  }
+
+  return {
+    artifact,
+    rowCount,
+    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageCount,
+    artifactSizeBytes
+  };
+}
+
+async function generateBackgroundExportArtifact(input: {
+  organizationId: string;
+  preset: ExportPreset;
+  format: ExportFormat;
+  client: ReturnType<typeof createAdminSupabaseClient>;
+}) {
+  return input.format === "csv"
+    ? generateBackgroundCsvArtifact(input)
+    : generateBackgroundXlsxArtifact({
+        ...input,
+        format: "xlsx"
+      });
 }
 
 async function processOneBackgroundExport(row: DataExportRequestRow) {
@@ -554,26 +744,12 @@ async function processOneBackgroundExport(row: DataExportRequestRow) {
 
   try {
     const admin = createAdminSupabaseClient();
-    const rows = await getBackgroundExportRows(claimed.organization_id, preset.id, {
-      client: admin as never
-    });
-    assertExportGenerationPreflight({
+    const generated = await generateBackgroundExportArtifact({
+      organizationId: claimed.organization_id,
       preset,
       format,
-      rows
+      client: admin
     });
-    const artifact =
-      format === "csv"
-        ? toCsv(rows, preset.columns)
-        : toXlsxBuffer(rows, preset.columns);
-    const artifactSizeBytes =
-      typeof artifact === "string" ? Buffer.byteLength(artifact, "utf8") : artifact.length;
-    if (artifactSizeBytes > EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES) {
-      throw new ExportArtifactSizeError(
-        artifactSizeBytes,
-        EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES
-      );
-    }
     const bucket = getAppConfig().supabase.exportStorageBucket;
     const filename = getSafeExportFilename({
       requestId: claimed.id,
@@ -588,7 +764,7 @@ async function processOneBackgroundExport(row: DataExportRequestRow) {
     const contentType = getExportArtifactContentType(format);
     const uploadResult = await admin.storage
       .from(bucket)
-      .upload(storageObjectPath, artifact, {
+      .upload(storageObjectPath, generated.artifact, {
         contentType,
         upsert: false
       });
@@ -601,14 +777,16 @@ async function processOneBackgroundExport(row: DataExportRequestRow) {
       row: claimed,
       presetId: preset.id,
       format,
-      rowCount: rows.length,
-      artifactSizeBytes,
+      rowCount: generated.rowCount,
+      artifactSizeBytes: generated.artifactSizeBytes,
       storageBucket: bucket,
       storageObjectPath,
-      checksumSha256: hashArtifact(artifact),
+      checksumSha256: hashArtifact(generated.artifact),
       contentType,
       filename,
-      expiresAt: getExportArtifactExpiresAt()
+      expiresAt: getExportArtifactExpiresAt(),
+      pageSize: generated.pageSize,
+      pageCount: generated.pageCount
     });
     return "completed" as const;
   } catch (error) {
@@ -696,7 +874,7 @@ export async function downloadBackgroundContractExportArtifact(input: {
         export_preset: evidence.export_preset,
         format: row.format
       },
-      error: result.error
+      error: sanitizeExportOperationalError(result.error)
     });
     throw new BackgroundExportDownloadError(
       "Export artifact could not be downloaded.",
@@ -815,7 +993,7 @@ export async function cleanupExpiredBackgroundExportArtifacts(input?: {
           export_preset: evidence.export_preset,
           format: row.format
         },
-        error: cleanupError
+        error: sanitizeExportOperationalError(cleanupError)
       });
     }
   }

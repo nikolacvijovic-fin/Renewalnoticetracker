@@ -2,6 +2,7 @@ import type { ContractFilter } from "@/lib/constants";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   buildExportRows,
+  EXPORT_BACKGROUND_PAGE_SIZE,
   EXPORT_BACKGROUND_ROW_LIMIT,
   ExportScaleLimitError,
   EXPORT_SYNC_ROW_LIMIT,
@@ -76,6 +77,14 @@ type ExportContractRow = DashboardContractRow & {
   reminders?: Array<Pick<ReminderRow, "remind_at" | "status" | "created_at">> | null;
   notes?: Array<Pick<NoteRow, "body" | "author_user_id" | "created_at">> | null;
   renewal_decisions?: Array<Pick<RenewalDecisionRow, "status" | "decision_date" | "summary" | "created_at">> | null;
+};
+
+export type ExportRowsPage = {
+  rows: ExportRow[];
+  pageIndex: number;
+  pageSize: number;
+  rowOffset: number;
+  totalRowCount: number;
 };
 
 const EXPORT_BASE_SELECT = `
@@ -468,6 +477,7 @@ export async function getExportRows(
       .select(getExportSelectForPreset(preset.id), { count: "exact" })
       .eq("organization_id", organizationId)
       .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
       .range(0, maxRows - 1),
     getOrganizationMembers(organizationId, supabase)
   ]);
@@ -495,6 +505,78 @@ export async function getExportRows(
   });
 }
 
+export async function* iterateExportRows(
+  organizationId: string,
+  presetId: ExportPresetId,
+  options?: {
+    maxRows?: number;
+    pageSize?: number;
+    client?: ReturnType<typeof createServerSupabaseClient>;
+  }
+): AsyncGenerator<ExportRowsPage> {
+  const preset = resolveExportPreset(presetId);
+  const maxRows = options?.maxRows ?? EXPORT_BACKGROUND_ROW_LIMIT;
+  const pageSize = Math.min(
+    Math.max(Math.trunc(options?.pageSize ?? EXPORT_BACKGROUND_PAGE_SIZE), 1),
+    maxRows
+  );
+  const supabase = options?.client ?? createServerSupabaseClient();
+  const members = await getOrganizationMembers(organizationId, supabase);
+  const ownerMap = new Map(
+    members.map((member) => [
+      member.user_id,
+      member.user?.full_name ?? member.user?.notification_email ?? "Unassigned"
+    ] as const)
+  );
+
+  let offset = 0;
+  let pageIndex = 0;
+  let totalRowCount = 0;
+
+  while (offset < maxRows) {
+    const { data, error, count } = await supabase
+      .from("contracts")
+      .select(getExportSelectForPreset(preset.id), pageIndex === 0 ? { count: "exact" } : undefined)
+      .eq("organization_id", organizationId)
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(offset, Math.min(offset + pageSize - 1, maxRows - 1));
+
+    if (error) throw error;
+
+    if (pageIndex === 0) {
+      totalRowCount = count ?? (data ?? []).length;
+      if (totalRowCount > maxRows) {
+        throw new ExportScaleLimitError({
+          presetId: preset.id,
+          rowCount: totalRowCount,
+          maxRows
+        });
+      }
+    }
+
+    const pageRows = (data ?? []) as unknown as ExportContractRow[];
+    if (pageRows.length === 0) break;
+
+    yield {
+      rows: buildExportRows({
+        preset,
+        contracts: pageRows,
+        ownerLabelsByUserId: ownerMap
+      }),
+      pageIndex,
+      pageSize,
+      rowOffset: offset,
+      totalRowCount
+    };
+
+    offset += pageRows.length;
+    pageIndex += 1;
+
+    if (offset >= totalRowCount || pageRows.length < pageSize) break;
+  }
+}
+
 export async function getBackgroundExportRows(
   organizationId: string,
   presetId: ExportPresetId,
@@ -502,10 +584,15 @@ export async function getBackgroundExportRows(
     client?: ReturnType<typeof createServerSupabaseClient>;
   }
 ) {
-  return getExportRows(organizationId, presetId, {
+  const rows: ExportRow[] = [];
+  for await (const page of iterateExportRows(organizationId, presetId, {
     maxRows: EXPORT_BACKGROUND_ROW_LIMIT,
+    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
     client: options?.client
-  });
+  })) {
+    rows.push(...page.rows);
+  }
+  return rows;
 }
 
 export async function getCounterparties(organizationId: string): Promise<CounterpartyRecord[]> {
