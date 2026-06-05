@@ -3,7 +3,6 @@ import type { ActiveOrganizationContext } from "@/lib/auth";
 import { createHash } from "node:crypto";
 import { getAppConfig } from "@/lib/config";
 import {
-  EXPORT_BACKGROUND_PAGE_SIZE,
   EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES,
   EXPORT_BACKGROUND_ROW_LIMIT,
   assertBackgroundExportGenerationPreflight,
@@ -43,6 +42,14 @@ export type BackgroundExportStatus = (typeof BACKGROUND_EXPORT_STATUSES)[number]
 
 type DataExportRequestRow = Database["public"]["Tables"]["data_export_requests"]["Row"];
 type EvidenceRecord = Record<string, unknown>;
+
+function getBackgroundExportPageSize() {
+  return getAppConfig().operations.backgroundExportPageSize;
+}
+
+function getBackgroundExportJobLimit() {
+  return getAppConfig().operations.backgroundExportJobLimit;
+}
 
 export class BackgroundExportDownloadError extends Error {
   constructor(
@@ -678,13 +685,14 @@ async function generateBackgroundCsvArtifact(input: {
   preset: ExportPreset;
   client: ReturnType<typeof createAdminSupabaseClient>;
 }): Promise<BackgroundArtifactGenerationResult> {
+  const pageSize = getBackgroundExportPageSize();
   const chunks: string[] = [];
   let artifactSizeBytes = appendChunk({
     chunks,
     chunk: toCsvHeader(input.preset.columns),
     artifactSizeBytes: 0,
     rowCount: 0,
-    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageSize,
     pageCount: 0
   });
   let rowCount = 0;
@@ -692,7 +700,7 @@ async function generateBackgroundCsvArtifact(input: {
 
   for await (const page of iterateExportRows(input.organizationId, input.preset.id, {
     maxRows: EXPORT_BACKGROUND_ROW_LIMIT,
-    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageSize,
     client: input.client as never
   })) {
     pageCount += 1;
@@ -710,7 +718,7 @@ async function generateBackgroundCsvArtifact(input: {
   return {
     artifact: chunks.join("\n"),
     rowCount,
-    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageSize,
     pageCount,
     artifactSizeBytes
   };
@@ -722,13 +730,14 @@ async function generateBackgroundXlsxArtifact(input: {
   format: Extract<ExportFormat, "xlsx">;
   client: ReturnType<typeof createAdminSupabaseClient>;
 }): Promise<BackgroundArtifactGenerationResult> {
+  const pageSize = getBackgroundExportPageSize();
   const rows: ExportRow[] = [];
   let rowCount = 0;
   let pageCount = 0;
 
   for await (const page of iterateExportRows(input.organizationId, input.preset.id, {
     maxRows: EXPORT_BACKGROUND_ROW_LIMIT,
-    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageSize,
     client: input.client as never
   })) {
     if (page.pageIndex === 0) {
@@ -767,7 +776,7 @@ async function generateBackgroundXlsxArtifact(input: {
   if (artifactSizeBytes > EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES) {
     throw new ExportArtifactSizeError(artifactSizeBytes, EXPORT_BACKGROUND_ARTIFACT_MAX_BYTES, {
       rowCount,
-      pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+      pageSize,
       pageCount
     });
   }
@@ -775,7 +784,7 @@ async function generateBackgroundXlsxArtifact(input: {
   return {
     artifact,
     rowCount,
-    pageSize: EXPORT_BACKGROUND_PAGE_SIZE,
+    pageSize,
     pageCount,
     artifactSizeBytes
   };
@@ -1094,7 +1103,8 @@ export async function cleanupExpiredBackgroundExportArtifacts(input?: {
 export async function processQueuedContractExportRequests(input?: {
   limit?: number;
 }) {
-  const limit = Math.min(Math.max(input?.limit ?? 3, 1), 10);
+  const defaultLimit = getBackgroundExportJobLimit();
+  const limit = Math.min(Math.max(input?.limit ?? defaultLimit, 1), 10);
   const admin = createAdminSupabaseClient();
   const { data, error } = await admin
     .from("data_export_requests")

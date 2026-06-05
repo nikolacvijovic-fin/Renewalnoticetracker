@@ -115,6 +115,119 @@ describe("contract query authz scoping", () => {
     expect(filters.import_jobs).toContainEqual(["organization_id", "org-tenant-safe"]);
   });
 
+  it("keeps admin operational snapshots count-oriented, bounded, and lease-configured", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-05T12:00:00.000Z"));
+    vi.stubEnv("REMINDER_PROCESSING_LEASE_MINUTES", "7");
+    vi.stubEnv("OCR_PROCESSING_LEASE_MINUTES", "11");
+    vi.resetModules();
+
+    const selectCalls: Array<{
+      table: string;
+      selection: string;
+      options?: { count?: string; head?: boolean };
+    }> = [];
+    const eqCalls: Array<[string, string, string]> = [];
+    const ltCalls: Array<[string, string, string]> = [];
+    const limitCalls: Array<[string, number]> = [];
+
+    function makeSnapshotQuery(table: string) {
+      const chain = {
+        select(selection: string, options?: { count?: string; head?: boolean }) {
+          selectCalls.push({ table, selection, options });
+          return chain;
+        },
+        eq(column: string, value: string) {
+          eqCalls.push([table, column, value]);
+          return chain;
+        },
+        in() {
+          return chain;
+        },
+        gte() {
+          return chain;
+        },
+        lt(column: string, value: string) {
+          ltCalls.push([table, column, value]);
+          return chain;
+        },
+        order() {
+          return chain;
+        },
+        limit(limit: number) {
+          limitCalls.push([table, limit]);
+          return Promise.resolve({ data: [], error: null });
+        },
+        then(resolve: (value: { count: number; data: never[]; error: null }) => unknown) {
+          return Promise.resolve(resolve({ count: 0, data: [], error: null }));
+        }
+      };
+      return chain;
+    }
+
+    createServerSupabaseClient.mockReturnValue({
+      from(table: string) {
+        return makeSnapshotQuery(table);
+      }
+    });
+
+    try {
+      const { getAdminOperationalSnapshot } = await import("@/lib/contracts/queries");
+      const snapshot = await getAdminOperationalSnapshot("org-tenant-safe");
+
+      expect(snapshot.exportJobHealth).toEqual(
+        expect.objectContaining({
+          queued: 0,
+          processing: 0,
+          staleProcessing: 0
+        })
+      );
+      expect(snapshot.ocrJobHealth).toEqual(
+        expect.objectContaining({
+          queued: 0,
+          processing: 0,
+          staleProcessing: 0
+        })
+      );
+      expect(
+        selectCalls.filter((call) => call.options?.count === "exact" && call.options?.head === true)
+          .length
+      ).toBeGreaterThanOrEqual(20);
+      expect(limitCalls).toEqual(
+        expect.arrayContaining([
+          ["data_export_requests", 25],
+          ["data_export_requests", 1],
+          ["ocr_jobs", 1],
+          ["reminders", 10],
+          ["notification_logs", 15]
+        ])
+      );
+      expect(eqCalls).toEqual(
+        expect.arrayContaining([
+          ["contracts", "organization_id", "org-tenant-safe"],
+          ["reminders", "organization_id", "org-tenant-safe"],
+          ["notification_logs", "organization_id", "org-tenant-safe"],
+          ["data_export_requests", "organization_id", "org-tenant-safe"],
+          ["ocr_jobs", "organization_id", "org-tenant-safe"]
+        ])
+      );
+      expect(ltCalls).toContainEqual([
+        "reminders",
+        "processing_started_at",
+        "2026-06-05T11:53:00.000Z"
+      ]);
+      expect(ltCalls).toContainEqual([
+        "ocr_jobs",
+        "started_at",
+        "2026-06-05T11:49:00.000Z"
+      ]);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("loads organization members through org-scoped memberships instead of global users", async () => {
     const fromCalls: string[] = [];
     const selectCalls: Array<[string, string]> = [];

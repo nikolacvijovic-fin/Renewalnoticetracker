@@ -59,7 +59,8 @@ type DebugData = {
     id: string;
     contract_id: string;
     status: string;
-    last_error: string | null;
+    diagnostic_code?: string | null;
+    diagnostic_category?: string | null;
     attempt_count: number;
     next_retry_at: string | null;
     created_at?: string | null;
@@ -71,21 +72,24 @@ type DebugData = {
     status: string;
     recipient_email: string;
     destination: string | null;
-    error_message: string | null;
+    diagnostic_code?: string | null;
+    diagnostic_category?: string | null;
     sent_at: string | null;
   }>;
   extractionFailures: Array<{
     id: string;
     contract_id: string;
     stage: string;
-    error_message: string;
+    diagnostic_code?: string | null;
+    diagnostic_category?: string | null;
     created_at: string;
   }>;
   reminderRuns: Array<{
     id: string;
     reminder_id: string;
     status: string;
-    error_message: string | null;
+    diagnostic_code?: string | null;
+    diagnostic_category?: string | null;
     created_at: string;
   }>;
   backgroundExports?: Array<{
@@ -108,13 +112,15 @@ type DebugData = {
     queued_at: string | null;
     started_at: string | null;
     completed_at: string | null;
-    error_message: string | null;
+    diagnostic_code?: string | null;
+    diagnostic_category?: string | null;
   }>;
   importJobs: Array<{
     id: string;
     file_name: string;
     status: string;
-    error_message: string | null;
+    diagnostic_code?: string | null;
+    diagnostic_category?: string | null;
     created_at: string;
     row_count: number;
     imported_count: number;
@@ -284,9 +290,7 @@ export function AdminPanel({
                   <p className="mt-1 text-xs text-slate-500">
                     Contract {job.contract_id} - attempts {job.attempts}
                   </p>
-                  {job.error_message ? (
-                    <p className="mt-2 text-sm text-slate-600">{job.error_message}</p>
-                  ) : null}
+                  <DiagnosticLine code={job.diagnostic_code} category={job.diagnostic_category} />
                 </div>
               ))
             ) : (
@@ -307,7 +311,10 @@ export function AdminPanel({
                   <p className="mt-1 text-xs text-slate-500">
                     Attempts: {reminder.attempt_count} • Next retry: {reminder.next_retry_at ?? "none"}
                   </p>
-                  <p className="mt-2 text-sm text-slate-600">{reminder.last_error ?? "No error"}</p>
+                  <DiagnosticLine
+                    code={reminder.diagnostic_code}
+                    category={reminder.diagnostic_category}
+                  />
                   {internalRole === "internal_admin" ? (
                     <ServerActionForm serverAction={rerunReminderAction} className="mt-3">
                       <input type="hidden" name="organization_id" value={organizationId} />
@@ -341,9 +348,7 @@ export function AdminPanel({
                   <p className="mt-1 text-xs text-slate-500">
                     {log.recipient_email} • {log.destination ?? "no destination"}
                   </p>
-                  {log.error_message ? (
-                    <p className="mt-2 text-sm text-slate-600">{log.error_message}</p>
-                  ) : null}
+                  <DiagnosticLine code={log.diagnostic_code} category={log.diagnostic_category} />
                   {log.status === "failed" ? (
                     <ServerActionForm serverAction={resendNotificationAction} className="mt-3">
                       <input type="hidden" name="organization_id" value={organizationId} />
@@ -373,7 +378,10 @@ export function AdminPanel({
                   <p className="mt-1 text-xs text-slate-500">
                     {formatTimestamp(failure.created_at)}
                   </p>
-                  <p className="mt-2 text-sm text-slate-600">{failure.error_message}</p>
+                  <DiagnosticLine
+                    code={failure.diagnostic_code}
+                    category={failure.diagnostic_category}
+                  />
                 </div>
               ))
             ) : (
@@ -394,9 +402,7 @@ export function AdminPanel({
                   <p className="mt-1 text-xs text-slate-500">
                     Imported {job.imported_count}/{job.row_count} rows • {formatTimestamp(job.created_at)}
                   </p>
-                  {job.error_message ? (
-                    <p className="mt-2 text-sm text-slate-600">{job.error_message}</p>
-                  ) : null}
+                  <DiagnosticLine code={job.diagnostic_code} category={job.diagnostic_category} />
                 </div>
               ))
             ) : (
@@ -416,9 +422,7 @@ export function AdminPanel({
                 <p className="mt-1 text-xs text-slate-500">
                   Reminder {run.reminder_id} • {formatTimestamp(run.created_at)}
                 </p>
-                {run.error_message ? (
-                  <p className="mt-2 text-sm text-slate-600">{run.error_message}</p>
-                ) : null}
+                <DiagnosticLine code={run.diagnostic_code} category={run.diagnostic_category} />
               </div>
             ))
           ) : (
@@ -456,6 +460,24 @@ function Metric({ label, value }: { label: string; value: string | number }) {
       <p className="text-xs uppercase tracking-wide text-slate-400">{label}</p>
       <p className="mt-2 text-sm font-semibold text-ink break-words">{value}</p>
     </div>
+  );
+}
+
+function DiagnosticLine({
+  code,
+  category
+}: {
+  code?: string | null;
+  category?: string | null;
+}) {
+  if (!code && !category) {
+    return <p className="mt-2 text-sm text-slate-500">No diagnostic code recorded.</p>;
+  }
+
+  return (
+    <p className="mt-2 text-sm text-slate-600">
+      {code ?? "unknown_code"} - {category ?? "unknown_category"}
+    </p>
   );
 }
 

@@ -5,8 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildOperationalEvent,
   emitOperationalEvent,
+  resolveOperationalEventSink,
   resetOperationalEventSinkForTesting,
-  setOperationalEventSinkForTesting
+  setOperationalEventSinkForTesting,
+  structuredLogOperationalEventSink
 } from "@/lib/observability/monitoring";
 import { ConfigValidationError, parseAppConfig } from "@/lib/config";
 
@@ -124,6 +126,16 @@ describe("monitoring readiness", () => {
       })
     );
     expect(event.metadata.provider_payload).toBe("[REDACTED]");
+  });
+
+  it("keeps structured_log as the current provider behind an explicit sink boundary", () => {
+    expect(resolveOperationalEventSink("structured_log")).toBe(structuredLogOperationalEventSink);
+
+    const monitoringSource = readRepoFile("lib", "observability", "monitoring.ts");
+    expect(monitoringSource).toContain("type OperationalEventSinkProvider = \"structured_log\"");
+    expect(monitoringSource).toContain("resolveOperationalEventSink");
+    expect(monitoringSource).toContain("structuredLogOperationalEventSink");
+    expect(monitoringSource).toContain("getAppConfig().operations.monitoringEventSink");
   });
 
   it("documents the operational inventory and alert severity policy", () => {

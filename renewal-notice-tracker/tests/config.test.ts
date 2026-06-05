@@ -123,6 +123,22 @@ describe("runtime configuration", () => {
         })
       )
     ).toThrow(/MONITORING_EVENT_SINK/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          REMINDER_PROCESSING_LEASE_MINUTES: "0"
+        })
+      )
+    ).toThrow(/REMINDER_PROCESSING_LEASE_MINUTES/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          OCR_PROCESSING_LEASE_MINUTES: "999"
+        })
+      )
+    ).toThrow(/OCR_PROCESSING_LEASE_MINUTES/i);
   });
 
   it("treats blank optional config as absent while still requiring critical values", () => {

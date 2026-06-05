@@ -5,9 +5,11 @@ import {
   sanitizeOperationalError,
   sanitizeOperationalValue
 } from "@/lib/observability/server-logger";
+import { getAppConfig } from "@/lib/config";
 
 export type OperationalAlertSeverity = "P0" | "P1" | "P2" | "P3";
 export type OperationalSensitivity = "public" | "internal" | "customer_sensitive" | "restricted";
+export type OperationalEventSinkProvider = "structured_log";
 
 export type OperationalEventInput = {
   eventName: string;
@@ -38,9 +40,15 @@ export type OperationalEvent = {
   emittedAt: string;
 };
 
-type OperationalEventSink = (event: OperationalEvent) => void | Promise<void>;
+export type OperationalEventSink = (event: OperationalEvent) => void | Promise<void>;
 
-let operationalEventSink: OperationalEventSink = defaultOperationalEventSink;
+let operationalEventSinkOverride: OperationalEventSink | null = null;
+let configuredOperationalEventSink:
+  | {
+      provider: OperationalEventSinkProvider;
+      sink: OperationalEventSink;
+    }
+  | null = null;
 
 export function buildOperationalEvent(input: OperationalEventInput): OperationalEvent {
   return {
@@ -59,7 +67,7 @@ export function buildOperationalEvent(input: OperationalEventInput): Operational
   };
 }
 
-function defaultOperationalEventSink(event: OperationalEvent) {
+export function structuredLogOperationalEventSink(event: OperationalEvent) {
   const logInput = {
     event: "monitoring.operational_event",
     organizationId: event.organizationId,
@@ -90,16 +98,43 @@ function defaultOperationalEventSink(event: OperationalEvent) {
   logServerInfo(logInput);
 }
 
+export function resolveOperationalEventSink(
+  provider: OperationalEventSinkProvider
+): OperationalEventSink {
+  if (provider === "structured_log") {
+    return structuredLogOperationalEventSink;
+  }
+
+  return structuredLogOperationalEventSink;
+}
+
+function getOperationalEventSink() {
+  if (operationalEventSinkOverride) {
+    return operationalEventSinkOverride;
+  }
+
+  const provider = getAppConfig().operations.monitoringEventSink;
+  if (!configuredOperationalEventSink || configuredOperationalEventSink.provider !== provider) {
+    configuredOperationalEventSink = {
+      provider,
+      sink: resolveOperationalEventSink(provider)
+    };
+  }
+
+  return configuredOperationalEventSink.sink;
+}
+
 export async function emitOperationalEvent(input: OperationalEventInput) {
   const event = buildOperationalEvent(input);
-  await operationalEventSink(event);
+  await getOperationalEventSink()(event);
   return event;
 }
 
 export function setOperationalEventSinkForTesting(sink: OperationalEventSink) {
-  operationalEventSink = sink;
+  operationalEventSinkOverride = sink;
 }
 
 export function resetOperationalEventSinkForTesting() {
-  operationalEventSink = defaultOperationalEventSink;
+  operationalEventSinkOverride = null;
+  configuredOperationalEventSink = null;
 }

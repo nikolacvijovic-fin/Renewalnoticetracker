@@ -64,9 +64,19 @@ Never log secrets, auth tokens, cookies, payment provider payload secrets, raw c
 
 ## Monitoring Readiness Map
 
-Monitoring currently emits through `lib/observability/monitoring.ts` into structured server logs. See `docs/OPERATIONAL_EVENT_INVENTORY.md` for the event inventory and P0/P1/P2/P3 severity policy.
+Monitoring currently emits through `lib/observability/monitoring.ts` into the `structured_log` sink. Callers should only use `emitOperationalEvent`; future alerting providers should be added behind the sink resolver so route and business code do not change. See `docs/OPERATIONAL_EVENT_INVENTORY.md` for the event inventory and P0/P1/P2/P3 severity policy.
+
+Operational runtime knobs are validated in `lib/config.ts` and read through `getAppConfig().operations`:
+- `BACKGROUND_EXPORT_PAGE_SIZE` controls background export row paging.
+- `BACKGROUND_EXPORT_JOB_LIMIT` controls the default internal export worker claim limit.
+- `REMINDER_PROCESSING_LEASE_MINUTES` controls stale reminder rescue.
+- `OCR_PROCESSING_LEASE_MINUTES` controls stale OCR job rescue.
+
+Do not reintroduce hardcoded worker defaults in routes or processors when these config values exist.
 
 Internal support diagnostics use the same safety model. The ops panel and ops snapshot route may show IDs, counts, status, retry state, stale-processing age, failure codes, row/page counts, and artifact sizes. They must not show storage object paths, raw contract text, full notes, OCR output, extracted evidence, provider payloads, billing tokens, or uploaded document contents.
+
+Admin/support snapshots must stay bounded. Prefer exact count/head queries, status-specific counts, and small recent windows over broad table reads. Debug views should display stable `failure_code` / `failure_category` values and IDs rather than raw human-readable error strings.
 
 Job-health visibility currently covers:
 - background exports: queued, processing, completed, failed, expired, stale processing, oldest queued age, oldest processing age

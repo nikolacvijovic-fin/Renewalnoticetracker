@@ -30,7 +30,7 @@ Text bounds:
 - XLSX generation has a preflight complexity envelope before workbook buffers are built
 - general XLSX preflight rejects text-heavy Notes & Decisions workbooks above `7500` rows
 - background XLSX exports are capped at the synchronous export envelope (`5000` rows) because the current workbook writer still buffers output
-- background CSV exports assemble rows in scoped `1000` row pages and build CSV chunks before the final private artifact upload
+- background CSV exports assemble rows in scoped pages controlled by `BACKGROUND_EXPORT_PAGE_SIZE` and build CSV chunks before the final private artifact upload
 - XLSX requests that exceed the safe generation envelope return `ERR_EXPORT_XLSX_TOO_LARGE_001` synchronously, or fail background processing with `ERR_EXPORT_BACKGROUND_XLSX_TOO_LARGE_001`
 - CSV remains the preferred format for very large rich exports within the existing row limits
 - background export artifacts fail safely above `50 MiB` with `ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001`
@@ -38,6 +38,11 @@ Text bounds:
 Background export request processing now exists for larger preset exports. It uses `data_export_requests`, claims queued work through `/api/internal/export-jobs`, generates bounded CSV/XLSX payloads, stores artifacts in the private `SUPABASE_EXPORTS_BUCKET`, and records safe completion/failure metadata. Completed, unexpired artifacts are downloaded through `/api/exports/contracts/{id}/download`; storage paths and bucket names are never returned to customers.
 
 Artifacts expire after seven days. Internal operations can run cleanup through `/api/internal/export-jobs` with `{ "mode": "cleanup_expired" }`, which deletes the private artifact and marks the request `expired`.
+
+Background export worker behavior is config-driven:
+- `BACKGROUND_EXPORT_PAGE_SIZE` controls row page size for background generation.
+- `BACKGROUND_EXPORT_JOB_LIMIT` controls the default number of queued jobs processed by the internal export-jobs route.
+- `REMINDER_PROCESSING_LEASE_MINUTES` and `OCR_PROCESSING_LEASE_MINUTES` control stale processing rescue thresholds for reminder and OCR workers.
 
 Background CSV exports reduce worker memory pressure by avoiding one full in-memory `ExportRow[]` for the full job. They still materialize the final artifact once for Supabase Storage upload, so the `50 MiB` artifact limit remains a hard safety boundary.
 
@@ -101,6 +106,7 @@ Avoid speculative indexes on rarely filtered columns. Every index adds write ove
 - XLSX generation is memory-bound; rich XLSX exports have preflight complexity caps, background exports are bounded at the worker layer, and artifacts expire after seven days.
 - Reminder dispatch is capped per run and ordered by retry/due time.
 - OCR jobs are capped per run and ordered by queue time.
+- Admin/support operational snapshots use count/head queries and bounded recent windows for export, reminder, and OCR health instead of broad unbounded reads.
 
 ## Practical Load-Test Plan
 

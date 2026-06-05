@@ -54,17 +54,34 @@ describe("operational maturity boundaries", () => {
   it("keeps internal ops summaries aware of export and OCR job health without customer content", () => {
     const source = readProjectFile("lib/contracts/queries.ts");
     const panel = readProjectFile("components/admin/admin-panel.tsx");
+    const backgroundExports = readProjectFile("lib/contracts/background-exports.ts");
+    const exportJobsRoute = readProjectFile("app/api/internal/export-jobs/route.ts");
+    const reminders = readProjectFile("lib/notifications/reminders.ts");
+    const ocrJobs = readProjectFile("lib/ocr/jobs.ts");
 
     expect(source).toContain('.from("data_export_requests")');
     expect(source).toContain('.from("ocr_jobs")');
     expect(source).toContain("exportJobHealth");
     expect(source).toContain("ocrJobHealth");
     expect(source).toContain("staleProcessing");
-    expect(source).toContain("sanitizeOperationalValue(message)");
+    expect(source).toContain('select("id", { count: "exact", head: true })');
+    expect(source).toContain(".limit(25)");
+    expect(source).toContain(".limit(15)");
+    expect(source).toContain(".limit(10)");
+    expect(source).not.toContain("last_error: summarizeError");
+    expect(source).not.toContain("error_message: summarizeError");
     expect(panel).toContain("Background export job health");
     expect(panel).toContain("OCR job health");
+    expect(panel).toContain("DiagnosticLine");
+    expect(panel).not.toContain("last_error}");
+    expect(panel).not.toContain("error_message}");
     expect(panel).not.toContain("storage_object_path");
     expect(panel).not.toContain("extracted_text");
+    expect(backgroundExports).toContain("getAppConfig().operations.backgroundExportPageSize");
+    expect(backgroundExports).toContain("getAppConfig().operations.backgroundExportJobLimit");
+    expect(exportJobsRoute).toContain("getAppConfig().operations.backgroundExportJobLimit");
+    expect(reminders).toContain("getAppConfig().operations.reminderProcessingLeaseMinutes");
+    expect(ocrJobs).toContain("getAppConfig().operations.ocrProcessingLeaseMinutes");
   });
 
   it("keeps scoped OCR file lookup tied to the queued job organization", () => {

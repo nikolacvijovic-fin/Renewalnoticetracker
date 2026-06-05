@@ -1,6 +1,6 @@
 # NoticeControl Operational Event Inventory
 
-Monitoring currently emits through structured server logs via `lib/observability/monitoring.ts`. A future provider can consume the same normalized event shape without changing route or business code.
+Monitoring currently emits through the `structured_log` sink via `lib/observability/monitoring.ts`. Route and business code should call `emitOperationalEvent` only; a future alerting provider should be registered behind the sink/provider resolver so callers do not change.
 
 | Event name | Source | Signal type | Org/user context | Sensitivity | Alert | Severity |
 | --- | --- | --- | --- | --- | --- | --- |

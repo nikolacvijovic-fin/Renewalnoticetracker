@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const createAdminSupabaseClient = vi.fn();
 const iterateExportRows = vi.fn();
@@ -114,6 +114,11 @@ describe("background contract exports", () => {
     vi.clearAllMocks();
     createAuditLog.mockResolvedValue({ ok: true });
     emitOperationalEvent.mockResolvedValue({});
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
   });
 
   it("records a safe operational event when a background export is requested", async () => {
@@ -282,6 +287,69 @@ describe("background contract exports", () => {
           export_preset: "workflow_export",
           row_count: 1,
           page_size: 1000,
+          page_count: 1
+        })
+      })
+    );
+  }, 10_000);
+
+  it("uses operational config for background export page size and default job limit", async () => {
+    vi.resetModules();
+    vi.stubEnv("BACKGROUND_EXPORT_PAGE_SIZE", "250");
+    vi.stubEnv("BACKGROUND_EXPORT_JOB_LIMIT", "4");
+
+    const writes: unknown[] = [];
+    const listQuery = makeListQuery([queuedExport]);
+    const upload = vi.fn().mockResolvedValue({ data: { path: "stored" }, error: null });
+    const claimed = {
+      ...queuedExport,
+      status: "processing",
+      evidence_json: {
+        ...queuedExport.evidence_json,
+        status: "processing",
+        processing_started_at: "2026-06-02T10:01:00.000Z"
+      }
+    };
+    const admin = {
+      storage: makeStorageMock({ upload }),
+      from: vi
+        .fn()
+        .mockReturnValueOnce(listQuery)
+        .mockReturnValueOnce(makeClaimQuery(claimed))
+        .mockReturnValueOnce(makeUpdateQuery((value) => writes.push(value)))
+    };
+    createAdminSupabaseClient.mockReturnValue(admin);
+    mockExportPages([[{ contract_title: "Config driven export" }]], {
+      pageSize: 250
+    });
+
+    const { processQueuedContractExportRequests } = await import(
+      "@/lib/contracts/background-exports"
+    );
+    const result = await processQueuedContractExportRequests();
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        requestedLimit: 4,
+        completed: 1
+      })
+    );
+    expect(listQuery.limit).toHaveBeenCalledWith(4);
+    expect(iterateExportRows).toHaveBeenCalledWith(
+      "org-1",
+      "workflow_export",
+      expect.objectContaining({
+        client: expect.anything(),
+        maxRows: 25000,
+        pageSize: 250
+      })
+    );
+    expect(writes).toContainEqual(
+      expect.objectContaining({
+        status: "completed",
+        evidence_json: expect.objectContaining({
+          page_size: 250,
           page_count: 1
         })
       })

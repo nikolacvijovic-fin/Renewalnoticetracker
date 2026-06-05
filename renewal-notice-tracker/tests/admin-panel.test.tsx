@@ -48,7 +48,8 @@ describe("AdminPanel", () => {
               id: "rem-1",
               contract_id: "contract-1",
               status: "retry_pending",
-              last_error: "SMTP timeout",
+              diagnostic_code: "ERR_REMINDER_RETRY_SCHEDULED_001",
+              diagnostic_category: "reminder_retry_scheduled",
               attempt_count: 2,
               next_retry_at: "2026-04-30T08:00:00.000Z"
             }
@@ -61,7 +62,8 @@ describe("AdminPanel", () => {
               status: "failed",
               recipient_email: "op***@example.com",
               destination: "owner@example.com",
-              error_message: "Mailbox rejected message",
+              diagnostic_code: "ERR_NOTIFICATION_DELIVERY_FAILED_001",
+              diagnostic_category: "notification_delivery_failed",
               sent_at: "2026-04-29T08:00:00.000Z"
             }
           ],
@@ -70,7 +72,8 @@ describe("AdminPanel", () => {
               id: "failure-1",
               contract_id: "contract-1",
               stage: "field_extraction",
-              error_message: "Unable to extract notice deadline",
+              diagnostic_code: "ERR_FIELD_EXTRACTION_FAILED_001",
+              diagnostic_category: "field_extraction_failed",
               created_at: "2026-04-29T08:00:00.000Z"
             }
           ],
@@ -79,7 +82,8 @@ describe("AdminPanel", () => {
               id: "run-1",
               reminder_id: "rem-1",
               status: "retry_pending",
-              error_message: "SMTP timeout",
+              diagnostic_code: "ERR_REMINDER_RETRY_SCHEDULED_001",
+              diagnostic_category: "reminder_retry_scheduled",
               created_at: "2026-04-29T08:00:00.000Z"
             }
           ],
@@ -106,7 +110,8 @@ describe("AdminPanel", () => {
               queued_at: "2026-04-29T08:00:00.000Z",
               started_at: "2026-04-29T08:01:00.000Z",
               completed_at: null,
-              error_message: "OCR processing failed. The failure was recorded without OCR text."
+              diagnostic_code: "ERR_OCR_JOB_RETRY_SCHEDULED_001",
+              diagnostic_category: "ocr_job_retry_scheduled"
             }
           ],
           importJobs: [
@@ -114,7 +119,8 @@ describe("AdminPanel", () => {
               id: "job-1",
               file_name: "import.csv",
               status: "completed_with_errors",
-              error_message: "Row 2 failed",
+              diagnostic_code: "ERR_IMPORT_JOB_NEEDS_RESCUE_001",
+              diagnostic_category: "import_job_needs_rescue",
               created_at: "2026-04-29T08:00:00.000Z",
               row_count: 3,
               imported_count: 2
@@ -157,7 +163,8 @@ describe("AdminPanel", () => {
     expect(screen.getByRole("heading", { name: "OCR job health" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Operational traces" })).toBeInTheDocument();
     expect(screen.getByText(/ERR_EXPORT_BACKGROUND_STORAGE_FAILED_001/i)).toBeInTheDocument();
-    expect(screen.getByText(/OCR processing failed/i)).toBeInTheDocument();
+    expect(screen.getByText(/ERR_OCR_JOB_RETRY_SCHEDULED_001/i)).toBeInTheDocument();
+    expect(screen.getByText(/ERR_IMPORT_JOB_NEEDS_RESCUE_001/i)).toBeInTheDocument();
     expect(screen.getByText(/completed_with_errors/i)).toBeInTheDocument();
     expect(screen.getAllByText(/manual invoice exception or legacy-disabled provider/i).length).toBeGreaterThan(0);
 
@@ -169,6 +176,11 @@ describe("AdminPanel", () => {
     expect(screen.queryByRole("button", { name: "Rerun reminder" })).not.toBeInTheDocument();
     expect(screen.queryByText(/raw contract text/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/confidential renewal clause/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/SMTP timeout/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Mailbox rejected message/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unable to extract notice deadline/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/OCR processing failed/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Row 2 failed/i)).not.toBeInTheDocument();
   });
 
   it("shows rerun reminder controls only to internal admins", () => {
@@ -195,7 +207,8 @@ describe("AdminPanel", () => {
               id: "rem-1",
               contract_id: "contract-1",
               status: "retry_pending",
-              last_error: "SMTP timeout",
+              diagnostic_code: "ERR_REMINDER_RETRY_SCHEDULED_001",
+              diagnostic_category: "reminder_retry_scheduled",
               attempt_count: 2,
               next_retry_at: "2026-04-30T08:00:00.000Z"
             }

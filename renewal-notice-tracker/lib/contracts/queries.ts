@@ -32,9 +32,7 @@ import {
 import { getMonthlyRevenueForPlan, getTrackedContractLimit } from "@/lib/billing/policy";
 import { summarizeWorkflowGuardrails } from "@/lib/contracts/workflow-guardrails";
 import type { MetricAlertRecord, ScoreSummary, ReadinessKey, CapacityKey } from "@/lib/commercial/ops-metrics";
-import { REMINDER_PROCESSING_LEASE_MS } from "@/lib/notifications/reminders";
-import { OCR_PROCESSING_LEASE_MS } from "@/lib/ocr/jobs";
-import { sanitizeOperationalValue } from "@/lib/observability/server-logger";
+import { getAppConfig } from "@/lib/config";
 
 export type OrganizationMember = {
   user_id: string;
@@ -139,17 +137,77 @@ function maskEmail(email: string | null) {
   return `${visible}${"*".repeat(Math.max(localPart.length - 2, 1))}@${domain}`;
 }
 
-function summarizeError(message: string | null) {
-  if (!message) return null;
-  const sanitized = sanitizeOperationalValue(message);
-  const safeMessage = typeof sanitized === "string" ? sanitized : "[REDACTED]";
-  return safeMessage.length > 160 ? `${safeMessage.slice(0, 157)}...` : safeMessage;
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function getDiagnosticFromEvidence(
+  value: unknown,
+  fallback: { code: string | null; category: string | null }
+) {
+  const evidence = asRecord(value);
+  return {
+    diagnostic_code:
+      typeof evidence.failure_code === "string" ? evidence.failure_code : fallback.code,
+    diagnostic_category:
+      typeof evidence.failure_category === "string"
+        ? evidence.failure_category
+        : fallback.category
+  };
+}
+
+function getReminderDiagnostic(status: string | null) {
+  if (status === "failed_terminal") {
+    return {
+      diagnostic_code: "ERR_REMINDER_TERMINAL_FAILURE_001",
+      diagnostic_category: "reminder_terminal_failure"
+    };
+  }
+
+  if (status === "retry_pending") {
+    return {
+      diagnostic_code: "ERR_REMINDER_RETRY_SCHEDULED_001",
+      diagnostic_category: "reminder_retry_scheduled"
+    };
+  }
+
+  return {
+    diagnostic_code: null,
+    diagnostic_category: null
+  };
+}
+
+function getOcrDiagnostic(status: string | null) {
+  if (status === "failed_terminal") {
+    return {
+      diagnostic_code: "ERR_OCR_JOB_TERMINAL_FAILURE_001",
+      diagnostic_category: "ocr_job_terminal_failure"
+    };
+  }
+
+  if (status === "retry_pending") {
+    return {
+      diagnostic_code: "ERR_OCR_JOB_RETRY_SCHEDULED_001",
+      diagnostic_category: "ocr_job_retry_scheduled"
+    };
+  }
+
+  return {
+    diagnostic_code: null,
+    diagnostic_category: null
+  };
+}
+
+function toEvidenceDiagnosticFallback(input: {
+  diagnostic_code: string | null;
+  diagnostic_category: string | null;
+}) {
+  return {
+    code: input.diagnostic_code,
+    category: input.diagnostic_category
+  };
 }
 
 function ageMinutes(value: string | null | undefined, now = new Date()) {
@@ -170,12 +228,20 @@ function oldestAgeMinutes<T>(
   return ages.length > 0 ? Math.max(...ages) : null;
 }
 
-function countByStatus(rows: Array<{ status: string | null }>) {
-  return rows.reduce((acc: Record<string, number>, row) => {
-    const status = row.status ?? "unknown";
-    acc[status] = (acc[status] ?? 0) + 1;
-    return acc;
-  }, {});
+async function readExactCount(
+  query: PromiseLike<{ count: number | null; error: unknown | null }>
+) {
+  const { count, error } = await query;
+  if (error) throw error;
+  return count ?? 0;
+}
+
+async function readBoundedRows<T>(
+  query: PromiseLike<{ data: unknown[] | null; error: unknown | null }>
+) {
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as T[];
 }
 
 function applyNullableOrganizationScope<T extends { eq: (column: string, value: string) => T; is: (column: string, value: null) => T }>(
@@ -863,115 +929,263 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
   const now = new Date();
   const last7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const last30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const staleReminderBefore = new Date(now.getTime() - REMINDER_PROCESSING_LEASE_MS).toISOString();
-  const staleOcrBefore = new Date(now.getTime() - OCR_PROCESSING_LEASE_MS).toISOString();
+  const operationsConfig = getAppConfig().operations;
+  const staleReminderBefore = new Date(
+    now.getTime() - operationsConfig.reminderProcessingLeaseMinutes * 60 * 1000
+  ).toISOString();
+  const staleOcrBefore = new Date(
+    now.getTime() - operationsConfig.ocrProcessingLeaseMinutes * 60 * 1000
+  ).toISOString();
   const staleExportBefore = new Date(now.getTime() - BACKGROUND_EXPORT_STALE_PROCESSING_MS).toISOString();
+  const reminderStatuses = [
+    "pending",
+    "retry_pending",
+    "processing",
+    "sent",
+    "failed_terminal",
+    "cancelled"
+  ];
+  const exportStatuses = ["queued", "processing", "completed", "failed", "expired"];
+  const ocrStatuses = ["pending", "retry_pending", "processing", "completed", "failed_terminal"];
 
   const [
-    contracts,
-    reminders,
-    notifications,
-    extractionFailures,
-    reminderRuns,
-    exportJobs,
-    ocrJobs
+    totalContracts,
+    totalReminders,
+    sentLast7Days,
+    sentLast30Days,
+    staleProcessingReminders,
+    failedNotifications,
+    duplicateSuppressedNotifications,
+    contractsNeedingReview,
+    extractionFailureCount,
+    retryScheduledRuns,
+    terminalFailureRuns,
+    staleProcessingExports,
+    staleProcessingOcrJobs,
+    recentFailedReminderJobs,
+    recentNotificationAttempts,
+    exportProcessingRows,
+    exportQueuedRows,
+    ocrProcessingRows,
+    ocrQueuedRows,
+    reminderStatusEntries,
+    exportStatusEntries,
+    ocrStatusEntries
   ] = await Promise.all([
-    supabase
-      .from("contracts")
-      .select("id, status_tag", { count: "exact" })
-      .eq("organization_id", organizationId),
-    supabase
-      .from("reminders")
-      .select("id, status, last_error, created_at, sent_at, processing_started_at", { count: "exact" })
-      .eq("organization_id", organizationId),
-    supabase
-      .from("notification_logs")
-      .select("id, status, channel, sent_at", { count: "exact" })
-      .eq("organization_id", organizationId),
-    supabase
-      .from("processing_errors")
-      .select("id, stage, error_message, created_at")
-      .eq("organization_id", organizationId),
-    supabase
-      .from("reminder_runs")
-      .select("id, status, error_message, created_at", { count: "exact" })
-      .eq("organization_id", organizationId),
-    supabase
-      .from("data_export_requests")
-      .select("id, status, requested_at, completed_at, evidence_json", { count: "exact" })
-      .eq("organization_id", organizationId)
-      .eq("export_scope", "contracts"),
-    supabase
-      .from("ocr_jobs")
-      .select("id, status, queued_at, started_at, completed_at, attempts", { count: "exact" })
-      .eq("organization_id", organizationId)
+    readExactCount(
+      supabase
+        .from("contracts")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+    ),
+    readExactCount(
+      supabase
+        .from("reminders")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+    ),
+    readExactCount(
+      supabase
+        .from("reminders")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "sent")
+        .gte("sent_at", last7)
+    ),
+    readExactCount(
+      supabase
+        .from("reminders")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "sent")
+        .gte("sent_at", last30)
+    ),
+    readExactCount(
+      supabase
+        .from("reminders")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "processing")
+        .lt("processing_started_at", staleReminderBefore)
+    ),
+    readExactCount(
+      supabase
+        .from("notification_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "failed")
+    ),
+    readExactCount(
+      supabase
+        .from("notification_logs")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "duplicate_suppressed")
+    ),
+    readExactCount(
+      supabase
+        .from("contracts")
+        .select("id, contract_metadata!inner(needs_review)", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("contract_metadata.needs_review", true)
+    ),
+    readExactCount(
+      supabase
+        .from("processing_errors")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .in("stage", ["text_extraction", "field_extraction", "upload", "ocr"])
+    ),
+    readExactCount(
+      supabase
+        .from("reminder_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "retry_pending")
+    ),
+    readExactCount(
+      supabase
+        .from("reminder_runs")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "failed_terminal")
+    ),
+    readExactCount(
+      supabase
+        .from("data_export_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("export_scope", "contracts")
+        .eq("status", "processing")
+        .lt("evidence_json->>processing_started_at", staleExportBefore)
+    ),
+    readExactCount(
+      supabase
+        .from("ocr_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("organization_id", organizationId)
+        .eq("status", "processing")
+        .lt("started_at", staleOcrBefore)
+    ),
+    readBoundedRows<{ status: string; sent_at: string | null }>(
+      supabase
+        .from("reminders")
+        .select("id, status, sent_at")
+        .eq("organization_id", organizationId)
+        .eq("status", "failed_terminal")
+        .order("created_at", { ascending: false })
+        .limit(10)
+    ),
+    readBoundedRows<{ status: string; sent_at: string | null }>(
+      supabase
+        .from("notification_logs")
+        .select("id, status, channel, sent_at")
+        .eq("organization_id", organizationId)
+        .order("sent_at", { ascending: false })
+        .limit(15)
+    ),
+    readBoundedRows<Pick<DataExportRequestRow, "status" | "requested_at" | "evidence_json">>(
+      supabase
+        .from("data_export_requests")
+        .select("id, status, requested_at, evidence_json")
+        .eq("organization_id", organizationId)
+        .eq("export_scope", "contracts")
+        .eq("status", "processing")
+        .order("requested_at", { ascending: true })
+        .limit(25)
+    ),
+    readBoundedRows<Pick<DataExportRequestRow, "status" | "requested_at">>(
+      supabase
+        .from("data_export_requests")
+        .select("id, status, requested_at")
+        .eq("organization_id", organizationId)
+        .eq("export_scope", "contracts")
+        .eq("status", "queued")
+        .order("requested_at", { ascending: true })
+        .limit(1)
+    ),
+    readBoundedRows<Pick<OcrJobRow, "status" | "started_at">>(
+      supabase
+        .from("ocr_jobs")
+        .select("id, status, started_at")
+        .eq("organization_id", organizationId)
+        .eq("status", "processing")
+        .order("started_at", { ascending: true })
+        .limit(1)
+    ),
+    readBoundedRows<Pick<OcrJobRow, "status" | "queued_at">>(
+      supabase
+        .from("ocr_jobs")
+        .select("id, status, queued_at")
+        .eq("organization_id", organizationId)
+        .in("status", ["pending", "retry_pending"])
+        .order("queued_at", { ascending: true })
+        .limit(1)
+    ),
+    Promise.all(
+      reminderStatuses.map(async (status) => [
+        status,
+        await readExactCount(
+          supabase
+            .from("reminders")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId)
+            .eq("status", status)
+        )
+      ] as const)
+    ),
+    Promise.all(
+      exportStatuses.map(async (status) => [
+        status,
+        await readExactCount(
+          supabase
+            .from("data_export_requests")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId)
+            .eq("export_scope", "contracts")
+            .eq("status", status)
+        )
+      ] as const)
+    ),
+    Promise.all(
+      ocrStatuses.map(async (status) => [
+        status,
+        await readExactCount(
+          supabase
+            .from("ocr_jobs")
+            .select("id", { count: "exact", head: true })
+            .eq("organization_id", organizationId)
+            .eq("status", status)
+        )
+      ] as const)
+    )
   ]);
 
-  const reminderRows = (reminders.data ?? []) as Array<{
-    status: string;
-    sent_at: string | null;
-    created_at: string | null;
-    processing_started_at: string | null;
-  }>;
-  const notificationRows = (notifications.data ?? []) as Array<{ status: string; sent_at: string | null }>;
-  const reminderRunRows = (reminderRuns.data ?? []) as Array<{
-    status: string;
-    created_at: string;
-    error_message: string | null;
-  }>;
-  const exportRows = (exportJobs.data ?? []) as Array<Pick<
-    DataExportRequestRow,
-    "status" | "requested_at" | "completed_at" | "evidence_json"
-  >>;
-  const ocrRows = (ocrJobs.data ?? []) as Array<Pick<
-    OcrJobRow,
-    "status" | "queued_at" | "started_at" | "completed_at" | "attempts"
-  >>;
-
-  const statusCounts = reminderRows.reduce((acc: Record<string, number>, row) => {
-    acc[row.status] = (acc[row.status] ?? 0) + 1;
-    return acc;
-  }, {});
-  const exportStatusCounts = countByStatus(exportRows);
-  const ocrStatusCounts = countByStatus(ocrRows);
-  const staleProcessingExports = exportRows.filter((row) => {
-    const evidence = asRecord(row.evidence_json);
-    const processingStartedAt = evidence.processing_started_at;
-    return row.status === "processing" &&
-      typeof processingStartedAt === "string" &&
-      processingStartedAt < staleExportBefore;
-  }).length;
-  const staleProcessingOcrJobs = ocrRows.filter(
-    (row) => row.status === "processing" && row.started_at && row.started_at < staleOcrBefore
-  ).length;
-  const staleProcessingReminders = reminderRows.filter(
-    (row) =>
-      row.status === "processing" &&
-      row.processing_started_at &&
-      row.processing_started_at < staleReminderBefore
-  ).length;
+  const statusCounts = Object.fromEntries(reminderStatusEntries);
+  const exportStatusCounts = Object.fromEntries(exportStatusEntries);
+  const ocrStatusCounts = Object.fromEntries(ocrStatusEntries);
 
   return {
-    totalContracts: contracts.count ?? 0,
-    totalReminders: reminders.count ?? 0,
-    sentLast7Days: reminderRows.filter((row) => row.sent_at && row.sent_at >= last7).length,
-    sentLast30Days: reminderRows.filter((row) => row.sent_at && row.sent_at >= last30).length,
-    failedReminders: reminderRows.filter((row) => row.status === "failed_terminal").length,
-    retryPendingReminders: reminderRows.filter((row) => row.status === "retry_pending").length,
-    processingReminders: reminderRows.filter((row) => row.status === "processing").length,
+    totalContracts,
+    totalReminders,
+    sentLast7Days,
+    sentLast30Days,
+    failedReminders: statusCounts.failed_terminal ?? 0,
+    retryPendingReminders: statusCounts.retry_pending ?? 0,
+    processingReminders: statusCounts.processing ?? 0,
     staleProcessingReminders,
-    cancelledReminders: reminderRows.filter((row) => row.status === "cancelled").length,
-    failedNotifications: notificationRows.filter((row) => row.status === "failed").length,
-    duplicateSuppressedNotifications: notificationRows.filter((row) => row.status === "duplicate_suppressed").length,
-    contractsNeedingReview: (await getDashboardMetrics(organizationId)).needsReview,
-    extractionFailureCount: extractionFailures.data?.length ?? 0,
-    retryScheduledRuns: reminderRunRows.filter((row) => row.status === "retry_pending").length,
-    terminalFailureRuns: reminderRunRows.filter((row) => row.status === "failed_terminal").length,
+    cancelledReminders: statusCounts.cancelled ?? 0,
+    failedNotifications,
+    duplicateSuppressedNotifications,
+    contractsNeedingReview,
+    extractionFailureCount,
+    retryScheduledRuns,
+    terminalFailureRuns,
     topReminderStatuses: Object.entries(statusCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5) as Array<[string, number]>,
-    recentFailedReminderJobs: reminderRows.filter((row) => row.status === "failed_terminal").slice(0, 10),
-    recentNotificationAttempts: notificationRows.slice(0, 15),
+    recentFailedReminderJobs,
+    recentNotificationAttempts,
     exportJobHealth: {
       queued: exportStatusCounts.queued ?? 0,
       processing: exportStatusCounts.processing ?? 0,
@@ -980,12 +1194,12 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
       expired: exportStatusCounts.expired ?? 0,
       staleProcessing: staleProcessingExports,
       oldestQueuedAgeMinutes: oldestAgeMinutes(
-        exportRows.filter((row) => row.status === "queued"),
+        exportQueuedRows,
         (row) => row.requested_at,
         now
       ),
       oldestProcessingAgeMinutes: oldestAgeMinutes(
-        exportRows.filter((row) => row.status === "processing"),
+        exportProcessingRows,
         (row) => asRecord(row.evidence_json).processing_started_at as string | null | undefined,
         now
       )
@@ -998,12 +1212,12 @@ export async function getAdminOperationalSnapshot(organizationId: string) {
       failedTerminal: ocrStatusCounts.failed_terminal ?? 0,
       staleProcessing: staleProcessingOcrJobs,
       oldestQueuedAgeMinutes: oldestAgeMinutes(
-        ocrRows.filter((row) => row.status === "pending" || row.status === "retry_pending"),
+        ocrQueuedRows,
         (row) => row.queued_at,
         now
       ),
       oldestProcessingAgeMinutes: oldestAgeMinutes(
-        ocrRows.filter((row) => row.status === "processing"),
+        ocrProcessingRows,
         (row) => row.started_at,
         now
       )
@@ -1024,33 +1238,33 @@ export async function getAdminDebugData(organizationId: string) {
   ] = await Promise.all([
     supabase
       .from("reminders")
-      .select("id, contract_id, status, last_error, attempt_count, next_retry_at, created_at")
+      .select("id, contract_id, status, attempt_count, next_retry_at, created_at")
       .eq("organization_id", organizationId)
       .in("status", ["retry_pending", "failed_terminal"])
       .order("created_at", { ascending: false })
       .limit(20),
     supabase
       .from("notification_logs")
-      .select("id, reminder_id, channel, status, recipient_email, destination, error_message, sent_at")
+      .select("id, reminder_id, channel, status, recipient_email, destination, sent_at")
       .eq("organization_id", organizationId)
       .order("sent_at", { ascending: false })
       .limit(30),
     supabase
       .from("processing_errors")
-      .select("id, contract_id, stage, error_message, created_at")
+      .select("id, contract_id, stage, details, created_at")
       .eq("organization_id", organizationId)
       .in("stage", ["text_extraction", "field_extraction", "upload"])
       .order("created_at", { ascending: false })
       .limit(20),
     supabase
       .from("import_jobs")
-      .select("id, file_name, status, error_message, created_at, row_count, imported_count")
+      .select("id, file_name, status, error_report_json, created_at, row_count, imported_count")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(10),
     supabase
       .from("reminder_runs")
-      .select("id, reminder_id, status, error_message, created_at")
+      .select("id, reminder_id, status, created_at")
       .eq("organization_id", organizationId)
       .order("created_at", { ascending: false })
       .limit(10),
@@ -1063,7 +1277,7 @@ export async function getAdminDebugData(organizationId: string) {
       .limit(15),
     supabase
       .from("ocr_jobs")
-      .select("id, contract_id, status, attempts, queued_at, started_at, completed_at, error_message")
+      .select("id, contract_id, status, attempts, queued_at, started_at, completed_at, details_json")
       .eq("organization_id", organizationId)
       .order("queued_at", { ascending: false })
       .limit(10)
@@ -1071,21 +1285,43 @@ export async function getAdminDebugData(organizationId: string) {
 
   return {
     failedReminders: (failedReminders.data ?? []).map((reminder) => ({
-      ...reminder,
-      last_error: summarizeError(reminder.last_error)
+      id: reminder.id,
+      contract_id: reminder.contract_id,
+      status: reminder.status,
+      attempt_count: reminder.attempt_count,
+      next_retry_at: reminder.next_retry_at,
+      created_at: reminder.created_at,
+      ...getReminderDiagnostic(reminder.status)
     })),
     notificationLogs: (notificationLogs.data ?? []).map((log) => ({
-      ...log,
+      id: log.id,
+      reminder_id: log.reminder_id,
+      channel: log.channel,
+      status: log.status,
       recipient_email: maskEmail(log.recipient_email) ?? "[redacted]",
-      error_message: summarizeError(log.error_message)
+      destination: log.destination,
+      sent_at: log.sent_at,
+      diagnostic_code:
+        log.status === "failed" ? "ERR_NOTIFICATION_DELIVERY_FAILED_001" : null,
+      diagnostic_category:
+        log.status === "failed" ? "notification_delivery_failed" : null
     })),
     extractionFailures: (extractionFailures.data ?? []).map((failure) => ({
-      ...failure,
-      error_message: summarizeError(failure.error_message) ?? "Processing failed"
+      id: failure.id,
+      contract_id: failure.contract_id,
+      stage: failure.stage,
+      created_at: failure.created_at,
+      ...getDiagnosticFromEvidence(failure.details, {
+        code: `ERR_${String(failure.stage).toUpperCase()}_FAILED_001`,
+        category: `${failure.stage}_failed`
+      })
     })),
     reminderRuns: ((reminderRuns.data ?? []) as ReminderRunRow[]).map((run) => ({
-      ...run,
-      error_message: summarizeError(run.error_message)
+      id: run.id,
+      reminder_id: run.reminder_id,
+      status: run.status,
+      created_at: run.created_at,
+      ...getReminderDiagnostic(run.status)
     })),
     backgroundExports: ((backgroundExports.data ?? []) as DataExportRequestRow[]).map((row) => {
       const evidence = asRecord(row.evidence_json);
@@ -1110,17 +1346,29 @@ export async function getAdminDebugData(organizationId: string) {
       queued_at: job.queued_at,
       started_at: job.started_at,
       completed_at: job.completed_at,
-      error_message: summarizeError(job.error_message)
+      ...getDiagnosticFromEvidence(
+        job.details_json,
+        toEvidenceDiagnosticFallback(getOcrDiagnostic(job.status))
+      )
     })),
-    importJobs: (importJobs.data ?? []) as Array<{
-      id: string;
-      file_name: string;
-      status: string;
-      error_message: string | null;
-      created_at: string;
-      row_count: number;
-      imported_count: number;
-    }>
+    importJobs: (importJobs.data ?? []).map((job) => ({
+      id: job.id,
+      file_name: job.file_name,
+      status: job.status,
+      created_at: job.created_at,
+      row_count: job.row_count,
+      imported_count: job.imported_count,
+      ...getDiagnosticFromEvidence(job.error_report_json, {
+        code:
+          job.status === "failed" || job.status === "completed_with_errors"
+            ? "ERR_IMPORT_JOB_NEEDS_RESCUE_001"
+            : null,
+        category:
+          job.status === "failed" || job.status === "completed_with_errors"
+            ? "import_job_needs_rescue"
+            : null
+      })
+    }))
   };
 }
 

@@ -8,22 +8,24 @@ import {
   cleanupExpiredBackgroundExportArtifacts,
   processQueuedContractExportRequests
 } from "@/lib/contracts/background-exports";
+import { getAppConfig } from "@/lib/config";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
 async function parseOptionalLimit(request: Request) {
+  const defaultLimit = getAppConfig().operations.backgroundExportJobLimit;
   const text = await request.text();
-  if (!text.trim()) return { limit: 3, mode: "process" as const };
+  if (!text.trim()) return { limit: defaultLimit, mode: "process" as const };
 
   try {
     const parsed = JSON.parse(text) as { limit?: unknown; mode?: unknown };
-    const limit = Number(parsed.limit ?? 3);
+    const limit = Number(parsed.limit ?? defaultLimit);
     const mode = parsed.mode === "cleanup_expired" ? "cleanup_expired" : "process";
     return {
-      limit: Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 10) : 3,
+      limit: Number.isFinite(limit) ? Math.min(Math.max(Math.trunc(limit), 1), 10) : defaultLimit,
       mode
     };
   } catch {
-    return { limit: 3, mode: "process" as const };
+    return { limit: defaultLimit, mode: "process" as const };
   }
 }
 
