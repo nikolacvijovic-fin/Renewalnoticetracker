@@ -3,11 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildAlertWebhookPayload,
   buildOperationalEvent,
   emitOperationalEvent,
   resolveOperationalEventSink,
   resetOperationalEventSinkForTesting,
   setOperationalEventSinkForTesting,
+  structuredLogAndWebhookOperationalEventSink,
   structuredLogOperationalEventSink
 } from "@/lib/observability/monitoring";
 import { ConfigValidationError, parseAppConfig } from "@/lib/config";
@@ -36,6 +38,8 @@ function makeMonitoringConfig(overrides: Record<string, string | undefined> = {}
     INTERNAL_DESTRUCTIVE_OPS_SECRET: "test-destructive-secret",
     INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: "test-destructive-signing-secret",
     MONITORING_EVENT_SINK: "structured_log",
+    MONITORING_ALERT_WEBHOOK_URL: "",
+    MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "",
     BACKGROUND_EXPORT_PAGE_SIZE: "1000",
     BACKGROUND_EXPORT_JOB_LIMIT: "3",
     REMINDER_PROCESSING_LEASE_MINUTES: "15",
@@ -130,12 +134,66 @@ describe("monitoring readiness", () => {
 
   it("keeps structured_log as the current provider behind an explicit sink boundary", () => {
     expect(resolveOperationalEventSink("structured_log")).toBe(structuredLogOperationalEventSink);
+    expect(resolveOperationalEventSink("structured_log_and_webhook")).toBe(
+      structuredLogAndWebhookOperationalEventSink
+    );
 
     const monitoringSource = readRepoFile("lib", "observability", "monitoring.ts");
-    expect(monitoringSource).toContain("type OperationalEventSinkProvider = \"structured_log\"");
+    expect(monitoringSource).toContain(
+      "type OperationalEventSinkProvider = \"structured_log\" | \"structured_log_and_webhook\""
+    );
     expect(monitoringSource).toContain("resolveOperationalEventSink");
     expect(monitoringSource).toContain("structuredLogOperationalEventSink");
+    expect(monitoringSource).toContain("structuredLogAndWebhookOperationalEventSink");
+    expect(monitoringSource).toContain("buildAlertWebhookPayload");
     expect(monitoringSource).toContain("getAppConfig().operations.monitoringEventSink");
+  });
+
+  it("sanitizes events before they cross the external alert webhook boundary", () => {
+    const event = buildOperationalEvent({
+      eventName: "tenant_isolation_failure_suspected",
+      severity: "P0",
+      sensitivity: "restricted",
+      alert: true,
+      organizationId: "org-1",
+      actorUserId: "user-1",
+      requestId: "request-3",
+      metadata: {
+        contract_id: "contract-1",
+        raw_contract_text: "raw contract should not leave process",
+        full_note_body: "raw note should not leave process",
+        provider_payload: { token: "billing secret should not leave process" },
+        storage_path: "supabase/storage/private/object"
+      },
+      error: new Error("confidential renewal clause should not leave process")
+    });
+
+    const payload = buildAlertWebhookPayload(event);
+    const serialized = JSON.stringify(payload);
+
+    expect(payload).toMatchObject({
+      event_name: "tenant_isolation_failure_suspected",
+      severity: "P0",
+      alert: true,
+      organization_id: "org-1",
+      request_id: "request-3",
+      metadata: expect.objectContaining({
+        contract_id: "contract-1",
+        raw_contract_text: "[REDACTED]",
+        full_note_body: "[REDACTED]",
+        provider_payload: "[REDACTED]",
+        storage_path: "[REDACTED]"
+      }),
+      error: expect.objectContaining({
+        name: "Error",
+        message: "[REDACTED]"
+      })
+    });
+    expect(serialized).not.toContain("raw contract should not leave process");
+    expect(serialized).not.toContain("raw note should not leave process");
+    expect(serialized).not.toContain("billing secret should not leave process");
+    expect(serialized).not.toContain("confidential renewal clause");
+    expect(serialized).not.toContain("supabase/storage/private/object");
   });
 
   it("documents the operational inventory and alert severity policy", () => {
@@ -194,6 +252,8 @@ describe("monitoring readiness", () => {
   it("validates monitoring and job operation config before runtime use", () => {
     expect(parseAppConfig(makeMonitoringConfig()).operations).toMatchObject({
       monitoringEventSink: "structured_log",
+      monitoringAlertWebhookUrl: null,
+      monitoringAlertWebhookSigningSecret: null,
       backgroundExportPageSize: 1000,
       backgroundExportJobLimit: 3,
       reminderProcessingLeaseMinutes: 15,
@@ -206,5 +266,21 @@ describe("monitoring readiness", () => {
     expect(() =>
       parseAppConfig(makeMonitoringConfig({ BACKGROUND_EXPORT_JOB_LIMIT: "99" }))
     ).toThrow(/BACKGROUND_EXPORT_JOB_LIMIT/i);
+    expect(() =>
+      parseAppConfig(makeMonitoringConfig({ MONITORING_EVENT_SINK: "structured_log_and_webhook" }))
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_URL/i);
+    expect(
+      parseAppConfig(
+        makeMonitoringConfig({
+          MONITORING_EVENT_SINK: "structured_log_and_webhook",
+          MONITORING_ALERT_WEBHOOK_URL: "https://alerts.example.test/noticecontrol",
+          MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "alert-signing-secret"
+        })
+      ).operations
+    ).toMatchObject({
+      monitoringEventSink: "structured_log_and_webhook",
+      monitoringAlertWebhookUrl: "https://alerts.example.test/noticecontrol",
+      monitoringAlertWebhookSigningSecret: "alert-signing-secret"
+    });
   });
 });

@@ -110,7 +110,20 @@ Avoid speculative indexes on rarely filtered columns. Every index adds write ove
 
 ## Practical Load-Test Plan
 
-No runtime load-test harness is shipped yet. Use k6 or Artillery against a staging-like environment with production-equivalent Supabase limits.
+Use the lightweight k6 scaffold in `scripts/load/noticecontrol-staging-smoke.k6.js` against staging-like environments with production-equivalent Supabase limits. This is the current k6 or Artillery-compatible load-test plan; it is wired through `npm run load:staging:k6` and uses synthetic/safe payloads only.
+
+Example:
+
+```bash
+BASE_URL=https://staging.noticecontrol.example \
+AUTH_COOKIE="staging-auth-cookie" \
+STAGING_INTERNAL_OPERATIONS_SECRET="staging-ops-secret" \
+STAGING_INTERNAL_OCR_SECRET="staging-ocr-secret" \
+STAGING_CRON_SECRET="staging-cron-secret" \
+npm run load:staging:k6
+```
+
+Do not point this script at production unless a production incident commander explicitly approves the window, data set, and rate limits. Do not embed real secrets in the script; pass staging-only values through environment variables.
 
 Recommended data sets:
 - 500 contracts, 5 owners, 10 departments, 2 reminders per contract

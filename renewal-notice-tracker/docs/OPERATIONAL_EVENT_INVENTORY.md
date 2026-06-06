@@ -1,6 +1,8 @@
 # NoticeControl Operational Event Inventory
 
-Monitoring currently emits through the `structured_log` sink via `lib/observability/monitoring.ts`. Route and business code should call `emitOperationalEvent` only; a future alerting provider should be registered behind the sink/provider resolver so callers do not change.
+Monitoring currently emits through the `structured_log` sink via `lib/observability/monitoring.ts`. Route and business code should call `emitOperationalEvent` only. Optional external alert fanout is available through `MONITORING_EVENT_SINK=structured_log_and_webhook`, which keeps structured logs as the baseline and sends only alert-worthy events (`alert: true`) to `MONITORING_ALERT_WEBHOOK_URL`.
+
+Runbook response guidance lives in `docs/OPERATIONAL_RUNBOOKS.md`.
 
 | Event name | Source | Signal type | Org/user context | Sensitivity | Alert | Severity |
 | --- | --- | --- | --- | --- | --- | --- |

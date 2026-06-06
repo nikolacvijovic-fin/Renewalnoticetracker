@@ -34,7 +34,8 @@ describe("operational maturity boundaries", () => {
   it("documents named monitoring signals for critical operational failures", () => {
     const source = [
       readProjectFile("docs/OPERATIONAL_MATURITY.md"),
-      readProjectFile("docs/OPERATIONAL_EVENT_INVENTORY.md")
+      readProjectFile("docs/OPERATIONAL_EVENT_INVENTORY.md"),
+      readProjectFile("docs/OPERATIONAL_RUNBOOKS.md")
     ].join("\n");
     const requiredSignals = [
       "reminder_dispatch_failed",
@@ -43,12 +44,76 @@ describe("operational maturity boundaries", () => {
       "billing_webhook_failed",
       "workspace_deletion_attempted",
       "workspace_deletion_route_failed",
-      "internal_route_auth_failed"
+      "internal_route_auth_failed",
+      "MONITORING_EVENT_SINK=structured_log_and_webhook",
+      "MONITORING_ALERT_WEBHOOK_URL"
     ];
 
     for (const signal of requiredSignals) {
       expect(source, signal).toContain(signal);
     }
+  });
+
+  it("keeps production runbooks covering P0/P1/P2 operational scenarios", () => {
+    const runbooks = readProjectFile("docs/OPERATIONAL_RUNBOOKS.md");
+
+    for (const required of [
+      "Export Job Failure Or Runaway Queue",
+      "OCR Queue Stuck Or High Terminal Failures",
+      "Reminder Dispatch Failures",
+      "Billing Webhook Failures Or Replays",
+      "Suspected Sensitive-Data Logging Issue",
+      "Tenant Isolation Or Unauthorized Export Incident",
+      "Backup Or Restore Evidence Issue",
+      "P0",
+      "P1",
+      "P2",
+      "failure_code",
+      "failure_category"
+    ]) {
+      expect(runbooks).toContain(required);
+    }
+
+    for (const forbidden of [
+      "raw contract text, full notes, OCR output",
+      "Do not paste raw contract text"
+    ]) {
+      expect(runbooks).toContain(forbidden);
+    }
+  });
+
+  it("ships staging-safe load-test scaffolding without embedded production secrets", () => {
+    const script = readProjectFile("scripts/load/noticecontrol-staging-smoke.k6.js");
+    const packageJson = JSON.parse(readProjectFile("package.json")) as {
+      scripts?: Record<string, string>;
+    };
+    const scaleDoc = readProjectFile("docs/SCALE_AND_PERFORMANCE.md");
+
+    for (const required of [
+      "/dashboard",
+      "/dashboard/contracts",
+      "/dashboard/contracts/export/csv?preset=basic_contract_register",
+      "/api/exports/contracts",
+      "/api/internal/export-jobs",
+      "/api/internal/ocr-jobs",
+      "/api/cron/send-reminders",
+      "/api/webhooks/billing/paddle",
+      "STAGING_INTERNAL_OPERATIONS_SECRET",
+      "STAGING_INTERNAL_OCR_SECRET",
+      "STAGING_CRON_SECRET",
+      "safe-mock-signature"
+    ]) {
+      expect(script).toContain(required);
+    }
+
+    expect(packageJson.scripts?.["load:staging:k6"]).toBe(
+      "k6 run scripts/load/noticecontrol-staging-smoke.k6.js"
+    );
+    expect(scaleDoc).toContain("scripts/load/noticecontrol-staging-smoke.k6.js");
+    expect(script).not.toContain("production");
+    expect(script).not.toContain("sk_");
+    expect(script).not.toContain("raw contract text");
+    expect(script).not.toContain("full notes");
   });
 
   it("keeps internal ops summaries aware of export and OCR job health without customer content", () => {

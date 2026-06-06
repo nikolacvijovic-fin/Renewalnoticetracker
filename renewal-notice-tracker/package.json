@@ -36,7 +36,8 @@
     "e2e": "playwright test",
     "e2e:p0": "node scripts/run-p0-e2e.mjs",
     "e2e:p0:required": "node scripts/run-p0-e2e.mjs --require-auth",
-    "smoke:staging": "node scripts/run-staging-smoke.mjs"
+    "smoke:staging": "node scripts/run-staging-smoke.mjs",
+    "load:staging:k6": "k6 run scripts/load/noticecontrol-staging-smoke.k6.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

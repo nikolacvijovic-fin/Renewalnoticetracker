@@ -10,7 +10,9 @@ vi.mock("@/lib/notifications/reminders", () => ({
 
 vi.mock("@/lib/observability/server-logger", () => ({
   logServerError,
-  logServerWarn
+  logServerWarn,
+  sanitizeOperationalError: vi.fn(() => ({ name: "Error", message: "[REDACTED]" })),
+  sanitizeOperationalValue: vi.fn((value: unknown) => value)
 }));
 
 describe("send reminders cron route", () => {

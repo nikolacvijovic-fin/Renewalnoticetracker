@@ -11,6 +11,10 @@ const optionalEmail = z.preprocess(
   emptyStringToUndefined,
   z.string().trim().email().optional()
 );
+const optionalUrl = z.preprocess(
+  emptyStringToUndefined,
+  z.string().trim().url().optional()
+);
 const optionalEnum = <T extends [string, ...string[]]>(values: T) =>
   z.preprocess(emptyStringToUndefined, z.enum(values).optional());
 const operationalInt = (input: { min: number; max: number; fallback: number }) =>
@@ -19,7 +23,7 @@ const operationalInt = (input: { min: number; max: number; fallback: number }) =
     z.coerce.number().int().min(input.min).max(input.max).default(input.fallback)
   );
 
-const rawEnvSchema = z.object({
+const rawEnvBaseSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmptyString,
@@ -54,12 +58,27 @@ const rawEnvSchema = z.object({
   INTERNAL_OPERATOR_ALLOWLIST: z.string().optional(),
   MONITORING_EVENT_SINK: z.preprocess(
     emptyStringToUndefined,
-    z.enum(["structured_log"]).default("structured_log")
+    z.enum(["structured_log", "structured_log_and_webhook"]).default("structured_log")
   ),
+  MONITORING_ALERT_WEBHOOK_URL: optionalUrl,
+  MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: optionalNonEmptyString,
   BACKGROUND_EXPORT_PAGE_SIZE: operationalInt({ min: 100, max: 5000, fallback: 1000 }),
   BACKGROUND_EXPORT_JOB_LIMIT: operationalInt({ min: 1, max: 10, fallback: 3 }),
   REMINDER_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 15 }),
   OCR_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 30 })
+});
+
+const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
+  if (
+    value.MONITORING_EVENT_SINK === "structured_log_and_webhook" &&
+    !value.MONITORING_ALERT_WEBHOOK_URL
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["MONITORING_ALERT_WEBHOOK_URL"],
+      message: "MONITORING_ALERT_WEBHOOK_URL is required when MONITORING_EVENT_SINK is structured_log_and_webhook."
+    });
+  }
 });
 
 export type RawConfig = z.infer<typeof rawEnvSchema>;
@@ -111,7 +130,9 @@ export type AppConfig = {
     paddleGrowthPriceId: string | null;
   };
   operations: {
-    monitoringEventSink: "structured_log";
+    monitoringEventSink: "structured_log" | "structured_log_and_webhook";
+    monitoringAlertWebhookUrl: string | null;
+    monitoringAlertWebhookSigningSecret: string | null;
     backgroundExportPageSize: number;
     backgroundExportJobLimit: number;
     reminderProcessingLeaseMinutes: number;
@@ -197,6 +218,8 @@ export function parseAppConfig(
     },
     operations: {
       monitoringEventSink: raw.MONITORING_EVENT_SINK,
+      monitoringAlertWebhookUrl: nullable(raw.MONITORING_ALERT_WEBHOOK_URL),
+      monitoringAlertWebhookSigningSecret: nullable(raw.MONITORING_ALERT_WEBHOOK_SIGNING_SECRET),
       backgroundExportPageSize: raw.BACKGROUND_EXPORT_PAGE_SIZE,
       backgroundExportJobLimit: raw.BACKGROUND_EXPORT_JOB_LIMIT,
       reminderProcessingLeaseMinutes: raw.REMINDER_PROCESSING_LEASE_MINUTES,
@@ -206,7 +229,7 @@ export function parseAppConfig(
   };
 }
 
-const publicEnvSchema = rawEnvSchema.pick({
+const publicEnvSchema = rawEnvBaseSchema.pick({
   NEXT_PUBLIC_APP_URL: true,
   NEXT_PUBLIC_SUPABASE_URL: true,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: true

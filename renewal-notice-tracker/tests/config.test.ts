@@ -14,6 +14,8 @@ function makeValidEnv(
     BACKGROUND_EXPORT_PAGE_SIZE: "1000",
     BACKGROUND_EXPORT_JOB_LIMIT: "3",
     MONITORING_EVENT_SINK: "structured_log",
+    MONITORING_ALERT_WEBHOOK_URL: "",
+    MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "",
     REMINDER_PROCESSING_LEASE_MINUTES: "15",
     OCR_PROCESSING_LEASE_MINUTES: "30",
     OPENAI_API_KEY: "test-openai-key",
@@ -64,6 +66,8 @@ describe("runtime configuration", () => {
     });
     expect(config.operations).toMatchObject({
       monitoringEventSink: "structured_log",
+      monitoringAlertWebhookUrl: null,
+      monitoringAlertWebhookSigningSecret: null,
       backgroundExportPageSize: 1000,
       backgroundExportJobLimit: 3,
       reminderProcessingLeaseMinutes: 15,
@@ -127,6 +131,22 @@ describe("runtime configuration", () => {
     expect(() =>
       parseAppConfig(
         makeValidEnv({
+          MONITORING_EVENT_SINK: "structured_log_and_webhook"
+        })
+      )
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_URL/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          MONITORING_ALERT_WEBHOOK_URL: "not-a-url"
+        })
+      )
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_URL/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
           REMINDER_PROCESSING_LEASE_MINUTES: "0"
         })
       )
@@ -153,5 +173,21 @@ describe("runtime configuration", () => {
     expect(config.ocr.openaiApiKey).toBeNull();
     expect(config.email.actionSecret).toBeNull();
     expect(config.billing.paddleApiKey).toBeNull();
+  });
+
+  it("allows optional external alert webhook config when explicitly selected", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        MONITORING_EVENT_SINK: "structured_log_and_webhook",
+        MONITORING_ALERT_WEBHOOK_URL: "https://alerts.example.test/noticecontrol",
+        MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "test-alert-signing-secret"
+      })
+    );
+
+    expect(config.operations).toMatchObject({
+      monitoringEventSink: "structured_log_and_webhook",
+      monitoringAlertWebhookUrl: "https://alerts.example.test/noticecontrol",
+      monitoringAlertWebhookSigningSecret: "test-alert-signing-secret"
+    });
   });
 });

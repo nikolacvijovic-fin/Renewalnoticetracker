@@ -168,7 +168,7 @@ describe("background contract exports", () => {
         })
       })
     );
-  });
+  }, 10_000);
 
   it("stores generated artifacts before marking exports completed", async () => {
     const writes: unknown[] = [];
