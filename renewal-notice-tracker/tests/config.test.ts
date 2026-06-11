@@ -16,6 +16,8 @@ function makeValidEnv(
     MONITORING_EVENT_SINK: "structured_log",
     MONITORING_ALERT_WEBHOOK_URL: "",
     MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "",
+    MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "2500",
+    MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "await",
     REMINDER_PROCESSING_LEASE_MINUTES: "15",
     OCR_PROCESSING_LEASE_MINUTES: "30",
     OPENAI_API_KEY: "test-openai-key",
@@ -68,6 +70,8 @@ describe("runtime configuration", () => {
       monitoringEventSink: "structured_log",
       monitoringAlertWebhookUrl: null,
       monitoringAlertWebhookSigningSecret: null,
+      monitoringAlertWebhookTimeoutMs: 2500,
+      monitoringAlertWebhookDeliveryMode: "await",
       backgroundExportPageSize: 1000,
       backgroundExportJobLimit: 3,
       reminderProcessingLeaseMinutes: 15,
@@ -147,6 +151,30 @@ describe("runtime configuration", () => {
     expect(() =>
       parseAppConfig(
         makeValidEnv({
+          MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "0"
+        })
+      )
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_TIMEOUT_MS/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "20000"
+        })
+      )
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_TIMEOUT_MS/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "blocking_forever"
+        })
+      )
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_DELIVERY_MODE/i);
+
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
           REMINDER_PROCESSING_LEASE_MINUTES: "0"
         })
       )
@@ -187,7 +215,27 @@ describe("runtime configuration", () => {
     expect(config.operations).toMatchObject({
       monitoringEventSink: "structured_log_and_webhook",
       monitoringAlertWebhookUrl: "https://alerts.example.test/noticecontrol",
-      monitoringAlertWebhookSigningSecret: "test-alert-signing-secret"
+      monitoringAlertWebhookSigningSecret: "test-alert-signing-secret",
+      monitoringAlertWebhookTimeoutMs: 2500,
+      monitoringAlertWebhookDeliveryMode: "await"
+    });
+  });
+
+  it("allows explicit fire-and-forget alert webhook fanout mode", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        MONITORING_EVENT_SINK: "structured_log_and_webhook",
+        MONITORING_ALERT_WEBHOOK_URL: "https://alerts.example.test/noticecontrol",
+        MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "750",
+        MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "fire_and_forget"
+      })
+    );
+
+    expect(config.operations).toMatchObject({
+      monitoringEventSink: "structured_log_and_webhook",
+      monitoringAlertWebhookUrl: "https://alerts.example.test/noticecontrol",
+      monitoringAlertWebhookTimeoutMs: 750,
+      monitoringAlertWebhookDeliveryMode: "fire_and_forget"
     });
   });
 });

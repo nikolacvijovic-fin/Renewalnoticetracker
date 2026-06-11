@@ -11,6 +11,14 @@ import { createHmac } from "node:crypto";
 export type OperationalAlertSeverity = "P0" | "P1" | "P2" | "P3";
 export type OperationalSensitivity = "public" | "internal" | "customer_sensitive" | "restricted";
 export type OperationalEventSinkProvider = "structured_log" | "structured_log_and_webhook";
+export type AlertWebhookDeliveryMode = "await" | "fire_and_forget";
+
+export type AlertWebhookDeliveryConfig = {
+  url: string | null;
+  signingSecret: string | null;
+  timeoutMs: number;
+  deliveryMode: AlertWebhookDeliveryMode;
+};
 
 export type OperationalEventInput = {
   eventName: string;
@@ -120,11 +128,42 @@ function signAlertWebhookPayload(body: string, secret: string) {
   return createHmac("sha256", secret).update(body).digest("hex");
 }
 
-export async function alertWebhookOperationalEventSink(event: OperationalEvent) {
-  if (!event.alert) return;
-
+function getAlertWebhookDeliveryConfig(): AlertWebhookDeliveryConfig {
   const config = getAppConfig().operations;
-  if (!config.monitoringAlertWebhookUrl) {
+
+  return {
+    url: config.monitoringAlertWebhookUrl,
+    signingSecret: config.monitoringAlertWebhookSigningSecret,
+    timeoutMs: config.monitoringAlertWebhookTimeoutMs,
+    deliveryMode: config.monitoringAlertWebhookDeliveryMode
+  };
+}
+
+function isTimeoutError(error: unknown, signal: AbortSignal) {
+  if (signal.aborted) return true;
+
+  return (
+    error instanceof Error &&
+    (error.name === "AbortError" || error.message.toLowerCase().includes("abort"))
+  );
+}
+
+function logAlertWebhookUnexpectedError(event: OperationalEvent, error: unknown) {
+  logServerError({
+    event: "monitoring.alert_webhook_unexpected_error",
+    metadata: {
+      monitoring_event: event.eventName,
+      severity: event.severity
+    },
+    error
+  });
+}
+
+export async function deliverAlertWebhookEvent(
+  event: OperationalEvent,
+  config: AlertWebhookDeliveryConfig
+) {
+  if (!config.url) {
     logServerWarn({
       event: "monitoring.alert_webhook_missing_config",
       metadata: {
@@ -143,18 +182,22 @@ export async function alertWebhookOperationalEventSink(event: OperationalEvent) 
     "x-noticecontrol-severity": event.severity
   };
 
-  if (config.monitoringAlertWebhookSigningSecret) {
+  if (config.signingSecret) {
     headers["x-noticecontrol-signature-sha256"] = signAlertWebhookPayload(
       body,
-      config.monitoringAlertWebhookSigningSecret
+      config.signingSecret
     );
   }
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+
   try {
-    const response = await fetch(config.monitoringAlertWebhookUrl, {
+    const response = await fetch(config.url, {
       method: "POST",
       headers,
-      body
+      body,
+      signal: controller.signal
     });
 
     if (!response.ok) {
@@ -163,25 +206,65 @@ export async function alertWebhookOperationalEventSink(event: OperationalEvent) 
         metadata: {
           monitoring_event: event.eventName,
           severity: event.severity,
-          status: response.status
+          status: response.status,
+          timeout_ms: config.timeoutMs
         }
       });
     }
   } catch (error) {
+    if (isTimeoutError(error, controller.signal)) {
+      logServerWarn({
+        event: "monitoring.alert_webhook_delivery_timeout",
+        metadata: {
+          monitoring_event: event.eventName,
+          severity: event.severity,
+          timeout_ms: config.timeoutMs
+        },
+        error
+      });
+      return;
+    }
+
     logServerError({
       event: "monitoring.alert_webhook_delivery_error",
       metadata: {
         monitoring_event: event.eventName,
-        severity: event.severity
+        severity: event.severity,
+        timeout_ms: config.timeoutMs
       },
       error
     });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-export async function structuredLogAndWebhookOperationalEventSink(event: OperationalEvent) {
+export async function alertWebhookOperationalEventSink(
+  event: OperationalEvent,
+  config: AlertWebhookDeliveryConfig = getAlertWebhookDeliveryConfig()
+) {
+  if (!event.alert) return;
+
+  if (config.deliveryMode === "fire_and_forget") {
+    void deliverAlertWebhookEvent(event, config).catch((error) =>
+      logAlertWebhookUnexpectedError(event, error)
+    );
+    return;
+  }
+
+  try {
+    await deliverAlertWebhookEvent(event, config);
+  } catch (error) {
+    logAlertWebhookUnexpectedError(event, error);
+  }
+}
+
+export async function structuredLogAndWebhookOperationalEventSink(
+  event: OperationalEvent,
+  config?: AlertWebhookDeliveryConfig
+) {
   structuredLogOperationalEventSink(event);
-  await alertWebhookOperationalEventSink(event);
+  await alertWebhookOperationalEventSink(event, config);
 }
 
 export function resolveOperationalEventSink(

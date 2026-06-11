@@ -46,7 +46,10 @@ describe("operational maturity boundaries", () => {
       "workspace_deletion_route_failed",
       "internal_route_auth_failed",
       "MONITORING_EVENT_SINK=structured_log_and_webhook",
-      "MONITORING_ALERT_WEBHOOK_URL"
+      "MONITORING_ALERT_WEBHOOK_URL",
+      "MONITORING_ALERT_WEBHOOK_TIMEOUT_MS",
+      "MONITORING_ALERT_WEBHOOK_DELIVERY_MODE",
+      "MONITORING_EVENT_SINK=structured_log"
     ];
 
     for (const signal of requiredSignals) {
@@ -69,7 +72,11 @@ describe("operational maturity boundaries", () => {
       "P1",
       "P2",
       "failure_code",
-      "failure_category"
+      "failure_category",
+      "MONITORING_ALERT_WEBHOOK_TIMEOUT_MS",
+      "MONITORING_ALERT_WEBHOOK_DELIVERY_MODE",
+      "MONITORING_EVENT_SINK=structured_log",
+      "fire_and_forget"
     ]) {
       expect(runbooks).toContain(required);
     }

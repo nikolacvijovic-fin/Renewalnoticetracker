@@ -3,8 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  alertWebhookOperationalEventSink,
   buildAlertWebhookPayload,
   buildOperationalEvent,
+  deliverAlertWebhookEvent,
   emitOperationalEvent,
   resolveOperationalEventSink,
   resetOperationalEventSinkForTesting,
@@ -40,6 +42,8 @@ function makeMonitoringConfig(overrides: Record<string, string | undefined> = {}
     MONITORING_EVENT_SINK: "structured_log",
     MONITORING_ALERT_WEBHOOK_URL: "",
     MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "",
+    MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "2500",
+    MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "await",
     BACKGROUND_EXPORT_PAGE_SIZE: "1000",
     BACKGROUND_EXPORT_JOB_LIMIT: "3",
     REMINDER_PROCESSING_LEASE_MINUTES: "15",
@@ -196,6 +200,112 @@ describe("monitoring readiness", () => {
     expect(serialized).not.toContain("supabase/storage/private/object");
   });
 
+  it("aborts slow alert webhook delivery without leaking raw error text", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
+      const signal = (init as RequestInit).signal;
+
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => {
+          const error = new Error("raw contract text should never leak from timeout");
+          error.name = "AbortError";
+          reject(error);
+        });
+      });
+    });
+
+    const event = buildOperationalEvent({
+      eventName: "export_background_failed",
+      severity: "P1",
+      sensitivity: "customer_sensitive",
+      alert: true,
+      organizationId: "org-1",
+      requestId: "request-timeout",
+      metadata: {
+        export_request_id: "export-1"
+      }
+    });
+
+    await expect(
+      deliverAlertWebhookEvent(event, {
+        url: "https://alerts.example.test/noticecontrol",
+        signingSecret: null,
+        timeoutMs: 1,
+        deliveryMode: "await"
+      })
+    ).resolves.toBeUndefined();
+
+    const logs = JSON.stringify(warnSpy.mock.calls);
+    expect(logs).toContain("monitoring.alert_webhook_delivery_timeout");
+    expect(logs).toContain("timeout_ms");
+    expect(logs).not.toContain("raw contract text should never leak from timeout");
+  });
+
+  it("does not throw when webhook delivery fails and keeps structured logs as baseline", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(
+      new Error("raw note text and provider payload should not leak")
+    );
+
+    const event = buildOperationalEvent({
+      eventName: "billing_webhook_failed",
+      severity: "P1",
+      sensitivity: "restricted",
+      alert: true,
+      route: "/api/webhooks/billing/paddle",
+      requestId: "request-webhook-failure",
+      metadata: {
+        provider: "paddle"
+      }
+    });
+
+    await expect(
+      structuredLogAndWebhookOperationalEventSink(event, {
+        url: "https://alerts.example.test/noticecontrol",
+        signingSecret: null,
+        timeoutMs: 2500,
+        deliveryMode: "await"
+      })
+    ).resolves.toBeUndefined();
+
+    const logs = JSON.stringify(errorSpy.mock.calls);
+    expect(logs).toContain("monitoring.operational_event");
+    expect(logs).toContain("monitoring.alert_webhook_delivery_error");
+    expect(logs).not.toContain("raw note text");
+    expect(logs).not.toContain("provider payload should not leak");
+  });
+
+  it("can fire-and-forget webhook fanout without waiting on delivery", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 202 }));
+
+    const event = buildOperationalEvent({
+      eventName: "reminder_dispatch_failed",
+      severity: "P1",
+      sensitivity: "customer_sensitive",
+      alert: true,
+      route: "/api/cron/send-reminders",
+      requestId: "request-fire-and-forget"
+    });
+
+    await expect(
+      alertWebhookOperationalEventSink(event, {
+        url: "https://alerts.example.test/noticecontrol",
+        signingSecret: null,
+        timeoutMs: 2500,
+        deliveryMode: "fire_and_forget"
+      })
+    ).resolves.toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      "https://alerts.example.test/noticecontrol",
+      expect.objectContaining({
+        method: "POST",
+        signal: expect.any(AbortSignal)
+      })
+    );
+  });
+
   it("documents the operational inventory and alert severity policy", () => {
     const doc = readRepoFile("docs", "OPERATIONAL_EVENT_INVENTORY.md");
 
@@ -254,6 +364,8 @@ describe("monitoring readiness", () => {
       monitoringEventSink: "structured_log",
       monitoringAlertWebhookUrl: null,
       monitoringAlertWebhookSigningSecret: null,
+      monitoringAlertWebhookTimeoutMs: 2500,
+      monitoringAlertWebhookDeliveryMode: "await",
       backgroundExportPageSize: 1000,
       backgroundExportJobLimit: 3,
       reminderProcessingLeaseMinutes: 15,
@@ -269,6 +381,12 @@ describe("monitoring readiness", () => {
     expect(() =>
       parseAppConfig(makeMonitoringConfig({ MONITORING_EVENT_SINK: "structured_log_and_webhook" }))
     ).toThrow(/MONITORING_ALERT_WEBHOOK_URL/i);
+    expect(() =>
+      parseAppConfig(makeMonitoringConfig({ MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "0" }))
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_TIMEOUT_MS/i);
+    expect(() =>
+      parseAppConfig(makeMonitoringConfig({ MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "forever" }))
+    ).toThrow(/MONITORING_ALERT_WEBHOOK_DELIVERY_MODE/i);
     expect(
       parseAppConfig(
         makeMonitoringConfig({
@@ -280,7 +398,9 @@ describe("monitoring readiness", () => {
     ).toMatchObject({
       monitoringEventSink: "structured_log_and_webhook",
       monitoringAlertWebhookUrl: "https://alerts.example.test/noticecontrol",
-      monitoringAlertWebhookSigningSecret: "alert-signing-secret"
+      monitoringAlertWebhookSigningSecret: "alert-signing-secret",
+      monitoringAlertWebhookTimeoutMs: 2500,
+      monitoringAlertWebhookDeliveryMode: "await"
     });
   });
 });

@@ -70,7 +70,10 @@ Optional external alert fanout:
 - `MONITORING_EVENT_SINK=structured_log` keeps the current default behavior.
 - `MONITORING_EVENT_SINK=structured_log_and_webhook` keeps structured logs and sends alert-worthy events to `MONITORING_ALERT_WEBHOOK_URL`.
 - `MONITORING_ALERT_WEBHOOK_SIGNING_SECRET` optionally signs webhook payloads.
+- `MONITORING_ALERT_WEBHOOK_TIMEOUT_MS` bounds delivery time so alert fanout does not become business-path availability risk.
+- `MONITORING_ALERT_WEBHOOK_DELIVERY_MODE=await` waits only for the bounded timeout; `fire_and_forget` returns after structured logging and schedules delivery.
 - Missing webhook config must not break local/dev while the default sink is `structured_log`.
+- During alert-provider incidents, disable fanout with `MONITORING_EVENT_SINK=structured_log`; route and worker callers should not change.
 
 Operational runtime knobs are validated in `lib/config.ts` and read through `getAppConfig().operations`:
 - `BACKGROUND_EXPORT_PAGE_SIZE` controls background export row paging.
