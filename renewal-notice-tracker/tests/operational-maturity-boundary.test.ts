@@ -76,6 +76,8 @@ describe("operational maturity boundaries", () => {
       "MONITORING_ALERT_WEBHOOK_TIMEOUT_MS",
       "MONITORING_ALERT_WEBHOOK_DELIVERY_MODE",
       "MONITORING_EVENT_SINK=structured_log",
+      "x-noticecontrol-signature-sha256",
+      "HMAC-SHA-256",
       "fire_and_forget"
     ]) {
       expect(runbooks).toContain(required);

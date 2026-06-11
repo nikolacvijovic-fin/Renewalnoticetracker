@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -200,6 +201,78 @@ describe("monitoring readiness", () => {
     expect(serialized).not.toContain("supabase/storage/private/object");
   });
 
+  it("signs alert webhook delivery over the exact JSON request body when configured", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    const event = buildOperationalEvent({
+      eventName: "workspace_deletion_route_failed",
+      severity: "P1",
+      sensitivity: "restricted",
+      alert: true,
+      organizationId: "org-1",
+      actorUserId: "operator-1",
+      requestId: "request-signature",
+      metadata: {
+        failure_code: "ERR_WORKSPACE_DELETE_FAILED_001",
+        raw_contract_text: "raw contract should be redacted before signing"
+      }
+    });
+
+    await deliverAlertWebhookEvent(event, {
+      url: "https://alerts.example.test/noticecontrol",
+      signingSecret: "alert-signing-secret",
+      timeoutMs: 2500,
+      deliveryMode: "await"
+    });
+
+    const init = fetchSpy.mock.calls[0]?.[1] as
+      | (RequestInit & { headers: Record<string, string>; body: string })
+      | undefined;
+    expect(init).toBeDefined();
+    expect(typeof init?.body).toBe("string");
+
+    const expectedSignature = createHmac("sha256", "alert-signing-secret")
+      .update(init?.body ?? "")
+      .digest("hex");
+
+    expect(init?.headers["x-noticecontrol-signature-sha256"]).toBe(expectedSignature);
+    expect(JSON.parse(init?.body ?? "{}")).toMatchObject({
+      event_name: "workspace_deletion_route_failed",
+      metadata: expect.objectContaining({
+        failure_code: "ERR_WORKSPACE_DELETE_FAILED_001",
+        raw_contract_text: "[REDACTED]"
+      })
+    });
+    expect(init?.body).not.toContain("raw contract should be redacted before signing");
+  });
+
+  it("omits the alert webhook signature header when no signing secret is configured", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    const event = buildOperationalEvent({
+      eventName: "export_background_failed",
+      severity: "P1",
+      sensitivity: "customer_sensitive",
+      alert: true,
+      organizationId: "org-1",
+      requestId: "request-no-signature"
+    });
+
+    await deliverAlertWebhookEvent(event, {
+      url: "https://alerts.example.test/noticecontrol",
+      signingSecret: null,
+      timeoutMs: 2500,
+      deliveryMode: "await"
+    });
+
+    const init = fetchSpy.mock.calls[0]?.[1] as
+      | (RequestInit & { headers: Record<string, string> })
+      | undefined;
+    expect(init?.headers).not.toHaveProperty("x-noticecontrol-signature-sha256");
+  });
+
   it("aborts slow alert webhook delivery without leaking raw error text", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
@@ -276,9 +349,17 @@ describe("monitoring readiness", () => {
   });
 
   it("can fire-and-forget webhook fanout without waiting on delivery", async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(null, { status: 202 }));
+    let fetchResolved = false;
+    let resolveFetch!: (response: Response) => void;
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = (response) => {
+            fetchResolved = true;
+            resolve(response);
+          };
+        })
+    );
 
     const event = buildOperationalEvent({
       eventName: "reminder_dispatch_failed",
@@ -297,6 +378,7 @@ describe("monitoring readiness", () => {
         deliveryMode: "fire_and_forget"
       })
     ).resolves.toBeUndefined();
+    expect(fetchResolved).toBe(false);
     expect(fetchSpy).toHaveBeenCalledWith(
       "https://alerts.example.test/noticecontrol",
       expect.objectContaining({
@@ -304,6 +386,10 @@ describe("monitoring readiness", () => {
         signal: expect.any(AbortSignal)
       })
     );
+
+    resolveFetch(new Response(null, { status: 202 }));
+    await Promise.resolve();
+    await Promise.resolve();
   });
 
   it("documents the operational inventory and alert severity policy", () => {

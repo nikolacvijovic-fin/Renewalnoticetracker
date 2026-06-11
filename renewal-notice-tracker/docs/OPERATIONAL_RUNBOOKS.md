@@ -164,6 +164,7 @@ Rules:
 - Only alert-worthy events (`alert: true`) are sent to the webhook sink.
 - Structured logs remain the baseline signal.
 - Payloads are normalized and sanitized before sink delivery.
+- When signing is configured, the webhook includes `x-noticecontrol-signature-sha256` as a lowercase hex HMAC-SHA-256 digest over the exact JSON request body, with no prefix.
 - Failed or timed-out webhook delivery logs safe metadata only and must not fail the business route.
 - Request-path events should keep the timeout short; switch back to `MONITORING_EVENT_SINK=structured_log` to disable webhook fanout during an alert-provider incident.
 - Worker-path events may use the same bounded `await` mode for better delivery evidence; `fire_and_forget` reduces request latency but may lose delivery if the process exits.

@@ -221,6 +221,16 @@ describe("runtime configuration", () => {
     });
   });
 
+  it("uses the safe default alert webhook timeout when the env var is omitted", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: undefined
+      })
+    );
+
+    expect(config.operations.monitoringAlertWebhookTimeoutMs).toBe(2500);
+  });
+
   it("allows explicit fire-and-forget alert webhook fanout mode", () => {
     const config = parseAppConfig(
       makeValidEnv({
