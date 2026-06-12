@@ -36,6 +36,20 @@ function readRepoFile(relativePath: string) {
   return fs.readFileSync(path.join(repoRoot, relativePath), "utf8");
 }
 
+function walkMarkdownFiles(root: string): string[] {
+  const absoluteRoot = path.join(repoRoot, root);
+  const entries = fs.readdirSync(absoluteRoot, { withFileTypes: true });
+
+  return entries.flatMap((entry) => {
+    const relativePath = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      return walkMarkdownFiles(relativePath);
+    }
+
+    return entry.isFile() && entry.name.endsWith(".md") ? [relativePath] : [];
+  });
+}
+
 describe("current product truth docs", () => {
   it("keeps current-scope docs free of deferred feature language", () => {
     for (const docPath of currentScopeDocs) {
@@ -50,11 +64,29 @@ describe("current product truth docs", () => {
   it("keeps future-facing material isolated under docs/reference", () => {
     const futureIndex = readRepoFile(path.join("docs", "FUTURE_REFERENCE_INDEX.md"));
 
-    expect(futureIndex).toContain("docs/reference/future");
-    expect(futureIndex).toContain("docs/reference/legacy");
-    expect(futureIndex).toContain("docs/reference/founder-operating-system");
+    expect(futureIndex).toContain("reference/future");
+    expect(futureIndex).toContain("reference/legacy");
+    expect(futureIndex).toContain("reference/founder-operating-system");
     expect(fs.existsSync(path.join(repoRoot, "docs", "reference", "future"))).toBe(true);
     expect(fs.existsSync(path.join(repoRoot, "docs", "reference", "legacy"))).toBe(true);
     expect(fs.existsSync(path.join(repoRoot, "docs", "reference", "founder-operating-system"))).toBe(true);
+  });
+
+  it("keeps repository documentation free of machine-local absolute paths", () => {
+    const docs = [
+      ...fs
+        .readdirSync(repoRoot)
+        .filter((entry) => entry.endsWith(".md")),
+      ...walkMarkdownFiles("docs")
+    ];
+    const forbiddenLocalPathPatterns = [/C:\/Users\//, /C:\\Users\\/, /\/Users\//, /\/home\//];
+
+    for (const docPath of docs) {
+      const content = readRepoFile(docPath);
+
+      for (const pattern of forbiddenLocalPathPatterns) {
+        expect(content, `${docPath} should not contain ${pattern}`).not.toMatch(pattern);
+      }
+    }
   });
 });

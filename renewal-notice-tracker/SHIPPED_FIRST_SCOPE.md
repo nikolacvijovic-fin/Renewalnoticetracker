@@ -26,8 +26,8 @@ Customer-visible scope:
 - services page trimmed to onboarding, import cleanup, and renewal-ops setup
 
 Canonical source in code:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\product\shipping-profile.ts`
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\product\deferred-capabilities.ts`
+- [lib/product/shipping-profile.ts](lib/product/shipping-profile.ts)
+- [lib/product/deferred-capabilities.ts](lib/product/deferred-capabilities.ts)
 
 Boundary rule:
 - shipped-first runtime must not import deferred capabilities

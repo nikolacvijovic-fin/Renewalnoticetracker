@@ -16,7 +16,7 @@ Shipped runtime scan roots:
 
 Allowed exceptions:
 
-- [lib/product/deferred-capabilities.ts](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/lib/product/deferred-capabilities.ts:1)
+- [lib/product/deferred-capabilities.ts](../lib/product/deferred-capabilities.ts)
 - tests that specifically assert deferred isolation
 
 The shipped runtime fails boundary tests if it imports from:

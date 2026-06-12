@@ -3,7 +3,7 @@
 This document is the admin/debug/internal-tooling hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\internal-tooling-hardening.ts`
+- [lib/commercial/internal-tooling-hardening.ts](../../../lib/commercial/internal-tooling-hardening.ts)
 
 It covers:
 - risk map for `/dashboard/admin`, rescue actions, internal health, debug data, retry visibility, and secret-based tooling

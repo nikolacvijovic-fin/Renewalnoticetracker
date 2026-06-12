@@ -16,7 +16,7 @@ Deferred or internal-only:
 - retention health surfaces and broader analytics/runtime strategy dashboards
 
 Canonical deferred registry:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\product\deferred-capabilities.ts`
+- [lib/product/deferred-capabilities.ts](lib/product/deferred-capabilities.ts)
 
 Explicitly not the product:
 - full CLM

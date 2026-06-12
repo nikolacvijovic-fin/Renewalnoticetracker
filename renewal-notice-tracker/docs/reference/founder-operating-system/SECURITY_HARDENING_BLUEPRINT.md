@@ -3,7 +3,7 @@
 This document is the execution-ready security, permissions, privacy, and compliance hardening plan for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\security-hardening.ts`
+- [lib/commercial/security-hardening.ts](../../../lib/commercial/security-hardening.ts)
 
 It covers:
 - current auth, role, tenant, billing, audit, and privacy posture

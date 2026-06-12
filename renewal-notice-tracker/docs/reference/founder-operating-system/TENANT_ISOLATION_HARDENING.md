@@ -3,7 +3,7 @@
 This document is the paranoid tenant-isolation hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\tenant-isolation-hardening.ts`
+- [lib/commercial/tenant-isolation-hardening.ts](../../../lib/commercial/tenant-isolation-hardening.ts)
 
 It covers:
 - tenant boundary model

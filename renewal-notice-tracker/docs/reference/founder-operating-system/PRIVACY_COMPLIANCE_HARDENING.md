@@ -3,7 +3,7 @@
 This document is the pragmatic privacy and compliance hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\privacy-compliance-hardening.ts`
+- [lib/commercial/privacy-compliance-hardening.ts](../../../lib/commercial/privacy-compliance-hardening.ts)
 
 It covers:
 - data categories

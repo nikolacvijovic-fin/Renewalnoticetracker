@@ -3,7 +3,7 @@
 This document is the file, extraction, and review security hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\document-processing-hardening.ts`
+- [lib/commercial/document-processing-hardening.ts](../../../lib/commercial/document-processing-hardening.ts)
 
 It covers:
 - upload security risks

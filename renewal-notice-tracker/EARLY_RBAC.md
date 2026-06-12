@@ -14,7 +14,7 @@ Rules:
 - customer routes never receive internal-only reference or debug payloads
 - internal-only routes are enforced at auth, routing, and payload boundaries
 - legacy `member` data is normalized to `operator` for early-product behavior
-- every shipped-first action is enforced through the canonical matrix in [lib/product/action-matrix.ts](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/lib/product/action-matrix.ts:1)
+- every shipped-first action is enforced through the canonical matrix in [lib/product/action-matrix.ts](lib/product/action-matrix.ts)
 - trust-sensitive preview routes (`/api/extract`, `/api/reminders`) require authenticated active-org customer access and review-lane permissions
 - active organization context is the only shipped runtime org context; customer actions do not fall back to ambiguous membership lookup
 - CSV/XLSX exports are paid structured exports, while per-contract ICS export is a shipped baseline export path

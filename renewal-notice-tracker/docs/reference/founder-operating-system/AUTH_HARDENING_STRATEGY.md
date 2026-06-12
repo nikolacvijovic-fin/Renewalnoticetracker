@@ -3,7 +3,7 @@
 This document is the auth-focused hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\auth-hardening.ts`
+- [lib/commercial/auth-hardening.ts](../../../lib/commercial/auth-hardening.ts)
 
 It covers:
 - current passwordless and callback reality

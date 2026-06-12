@@ -3,7 +3,7 @@
 This document is the security logging, monitoring, and alerting blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\security-monitoring.ts`
+- [lib/commercial/security-monitoring.ts](../../../lib/commercial/security-monitoring.ts)
 
 It covers:
 - suspicious auth event logging

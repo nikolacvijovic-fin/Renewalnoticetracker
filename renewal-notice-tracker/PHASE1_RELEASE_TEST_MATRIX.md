@@ -62,4 +62,4 @@ Can an actual customer safely run the shipped weekly renewal-control loop inside
 
 Future/reference suites are still useful, but they are not allowed to dilute the shipped release gate.
 
-The release gate also requires the two-week operator autonomy checklist in [docs/TWO_WEEK_AUTONOMY_GATE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/TWO_WEEK_AUTONOMY_GATE.md).
+The release gate also requires the two-week operator autonomy checklist in [docs/TWO_WEEK_AUTONOMY_GATE.md](docs/TWO_WEEK_AUTONOMY_GATE.md).

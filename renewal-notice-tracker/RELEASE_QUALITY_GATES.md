@@ -4,10 +4,10 @@ This file exists only to point at the shipped Phase-1 release truth.
 
 Canonical runtime release sources:
 
-- [PHASE1_DEFINITION_OF_DONE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/PHASE1_DEFINITION_OF_DONE.md)
-- [PHASE1_RELEASE_CRITICAL.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/PHASE1_RELEASE_CRITICAL.md)
-- [PHASE1_RELEASE_TEST_MATRIX.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/PHASE1_RELEASE_TEST_MATRIX.md)
-- [scripts/phase1-release-gates.mjs](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/scripts/phase1-release-gates.mjs)
+- [PHASE1_DEFINITION_OF_DONE.md](PHASE1_DEFINITION_OF_DONE.md)
+- [PHASE1_RELEASE_CRITICAL.md](PHASE1_RELEASE_CRITICAL.md)
+- [PHASE1_RELEASE_TEST_MATRIX.md](PHASE1_RELEASE_TEST_MATRIX.md)
+- [scripts/phase1-release-gates.mjs](scripts/phase1-release-gates.mjs)
 
 For the shipped runtime, release quality is pass/fail, not a maturity score:
 

@@ -2,7 +2,7 @@
 
 NoticeControl is a renewal-control product, not a general CLM suite. Architecture should keep that boundary obvious.
 
-The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/PLATFORM_MODULE_REGISTRY.md), backed by `lib/product/platform-modules.ts`.
+The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md), backed by [lib/product/platform-modules.ts](../lib/product/platform-modules.ts).
 
 ## Shipped Kernel
 

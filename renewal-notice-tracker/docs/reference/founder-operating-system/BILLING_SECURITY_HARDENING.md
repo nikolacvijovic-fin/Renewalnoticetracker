@@ -3,7 +3,7 @@
 This document is the billing, entitlements, and commercial security hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\billing-security-hardening.ts`
+- [lib/commercial/billing-security-hardening.ts](../../../lib/commercial/billing-security-hardening.ts)
 
 It covers:
 - risk map

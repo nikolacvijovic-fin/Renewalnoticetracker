@@ -3,7 +3,7 @@
 This document is the RBAC and authorization hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\authorization-hardening.ts`
+- [lib/commercial/authorization-hardening.ts](../../../lib/commercial/authorization-hardening.ts)
 
 It covers:
 - critique of the current likely owner/admin/member model

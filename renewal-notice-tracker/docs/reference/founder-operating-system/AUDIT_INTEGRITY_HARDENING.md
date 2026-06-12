@@ -3,7 +3,7 @@
 This document is the audit-log and integrity hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\audit-integrity-hardening.ts`
+- [lib/commercial/audit-integrity-hardening.ts](../../../lib/commercial/audit-integrity-hardening.ts)
 
 It covers:
 - what must always be audited

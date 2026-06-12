@@ -2,7 +2,7 @@
 
 The shipped kernel is the only customer-facing runtime NoticeControl is allowed to expose in Phase 1.
 
-The canonical code source is [lib/product/shipped-kernel.ts](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/lib/product/shipped-kernel.ts:1).
+The canonical code source is [lib/product/shipped-kernel.ts](lib/product/shipped-kernel.ts).
 
 The kernel is one weekly operator loop:
 

@@ -3,7 +3,7 @@
 This document is the webhook, cron, and internal-route hardening blueprint for Renewal / Notice Date Tracker.
 
 Canonical source:
-- `C:\Users\Lenovo\Documents\Playground\renewal-notice-tracker\lib\commercial\webhook-cron-hardening.ts`
+- [lib/commercial/webhook-cron-hardening.ts](../../../lib/commercial/webhook-cron-hardening.ts)
 
 It covers:
 - endpoint-by-endpoint risk review

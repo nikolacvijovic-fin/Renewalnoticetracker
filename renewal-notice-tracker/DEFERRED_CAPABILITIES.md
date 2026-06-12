@@ -4,8 +4,8 @@ Deferred capabilities are preserved for later development, but they are not part
 
 Canonical source:
 
-- [lib/product/deferred-capabilities.ts](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/lib/product/deferred-capabilities.ts:1)
-- [lib/product/platform-modules.ts](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/lib/product/platform-modules.ts:1) for module/add-on status and promotion gates
+- [lib/product/deferred-capabilities.ts](lib/product/deferred-capabilities.ts)
+- [lib/product/platform-modules.ts](lib/product/platform-modules.ts) for module/add-on status and promotion gates
 
 Allowed forms:
 

@@ -33,7 +33,7 @@ describe("shipped-first docs", () => {
     expect(notShipped).toContain("Stripe");
     expect(deferred).toContain("playbooks");
     expect(deferred).toContain("custom reminder rules");
-    expect(futureIndex).toContain("docs/reference/future");
+    expect(futureIndex).toContain("reference/future");
     expect(shippedKernel).toContain("must not import deferred modules");
   });
 

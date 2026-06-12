@@ -14,4 +14,4 @@ These analytics events are preserved for later capability work and must not leak
 
 Canonical future event source:
 
-- [lib/analytics/future-events.ts](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/lib/analytics/future-events.ts:1)
+- [lib/analytics/future-events.ts](../lib/analytics/future-events.ts)

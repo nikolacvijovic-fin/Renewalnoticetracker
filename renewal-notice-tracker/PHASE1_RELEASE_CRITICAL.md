@@ -29,7 +29,7 @@ Release-critical proof explicitly does not expand into:
 - playbooks
 - custom reminder rules
 
-Release is still blocked if the shipped loop depends on hidden founder rescue instead of auditable operator/support actions. See [docs/TWO_WEEK_AUTONOMY_GATE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/TWO_WEEK_AUTONOMY_GATE.md).
+Release is still blocked if the shipped loop depends on hidden founder rescue instead of auditable operator/support actions. See [docs/TWO_WEEK_AUTONOMY_GATE.md](docs/TWO_WEEK_AUTONOMY_GATE.md).
 
 Proof commands:
 

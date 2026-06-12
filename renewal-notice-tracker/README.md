@@ -33,10 +33,10 @@ NoticeControl ships first as a vendor-side renewal and notice control product.
 
 ## Scope boundaries
 
-- shipped runtime follows the single operator loop defined in [docs/CURRENT_PRODUCT_TRUTH.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/CURRENT_PRODUCT_TRUTH.md)
-- deferred capabilities are cataloged in [DEFERRED_CAPABILITIES.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/DEFERRED_CAPABILITIES.md)
-- future activation requirements are defined in [FUTURE_ACTIVATION_RULES.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/FUTURE_ACTIVATION_RULES.md)
-- broader strategy, legacy, and founder-operating-system material lives under [docs/reference](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/reference)
+- shipped runtime follows the single operator loop defined in [docs/CURRENT_PRODUCT_TRUTH.md](docs/CURRENT_PRODUCT_TRUTH.md)
+- deferred capabilities are cataloged in [DEFERRED_CAPABILITIES.md](DEFERRED_CAPABILITIES.md)
+- future activation requirements are defined in [FUTURE_ACTIVATION_RULES.md](FUTURE_ACTIVATION_RULES.md)
+- broader strategy, legacy, and founder-operating-system material lives under [docs/reference](docs/reference)
 
 ## Verification
 
@@ -49,12 +49,12 @@ npm run release:check
 
 ## Canonical scope docs
 
-- [docs/CURRENT_PRODUCT_TRUTH.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/CURRENT_PRODUCT_TRUTH.md)
-- [docs/FUTURE_REFERENCE_INDEX.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/FUTURE_REFERENCE_INDEX.md)
-- [SHIPPED_FIRST_SCOPE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/SHIPPED_FIRST_SCOPE.md)
-- [SHIPPED_KERNEL.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/SHIPPED_KERNEL.md)
-- [NOT_SHIPPED_FIRST.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/NOT_SHIPPED_FIRST.md)
-- [DEFERRED_CAPABILITIES.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/DEFERRED_CAPABILITIES.md)
-- [FUTURE_ACTIVATION_RULES.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/FUTURE_ACTIVATION_RULES.md)
-- [EARLY_RBAC.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/EARLY_RBAC.md)
-- [PHASE1_DEFINITION_OF_DONE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/PHASE1_DEFINITION_OF_DONE.md)
+- [docs/CURRENT_PRODUCT_TRUTH.md](docs/CURRENT_PRODUCT_TRUTH.md)
+- [docs/FUTURE_REFERENCE_INDEX.md](docs/FUTURE_REFERENCE_INDEX.md)
+- [SHIPPED_FIRST_SCOPE.md](SHIPPED_FIRST_SCOPE.md)
+- [SHIPPED_KERNEL.md](SHIPPED_KERNEL.md)
+- [NOT_SHIPPED_FIRST.md](NOT_SHIPPED_FIRST.md)
+- [DEFERRED_CAPABILITIES.md](DEFERRED_CAPABILITIES.md)
+- [FUTURE_ACTIVATION_RULES.md](FUTURE_ACTIVATION_RULES.md)
+- [EARLY_RBAC.md](EARLY_RBAC.md)
+- [PHASE1_DEFINITION_OF_DONE.md](PHASE1_DEFINITION_OF_DONE.md)
