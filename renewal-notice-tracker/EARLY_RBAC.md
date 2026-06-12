@@ -1,5 +1,7 @@
 ## Early RBAC
 
+Detailed enterprise identity and future granular RBAC boundaries are tracked in [docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by [lib/product/enterprise-rbac.ts](lib/product/enterprise-rbac.ts) and [lib/product/enterprise-identity.ts](lib/product/enterprise-identity.ts). SSO, SCIM, future viewer/security/billing/compliance/integration roles, permission groups, and delegated admin are deferred until a future enterprise gate.
+
 Customer roles:
 - Admin
 - Operator

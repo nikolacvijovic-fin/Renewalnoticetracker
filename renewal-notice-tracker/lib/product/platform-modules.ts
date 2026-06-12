@@ -287,10 +287,20 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     ownerSurfaces: {
       routes: [],
       components: [],
-      modules: [],
-      docs: ["docs/reference/future/PERMISSIONS_TESTING_STRATEGY.md", "docs/reference/founder-operating-system/SECURITY_QUESTIONNAIRE_READINESS.md"]
+      modules: ["lib/product/enterprise-rbac.ts", "lib/product/enterprise-identity.ts"],
+      docs: [
+        "docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md",
+        "docs/enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md",
+        "docs/enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md",
+        "docs/reference/future/PERMISSIONS_TESTING_STRATEGY.md",
+        "docs/reference/founder-operating-system/SECURITY_QUESTIONNAIRE_READINESS.md"
+      ]
     },
-    requiredTestsOrReleaseGates: ["future enterprise release gate required before activation"],
+    requiredTestsOrReleaseGates: [
+      "tests/enterprise-identity-rbac.test.ts",
+      "tests/enterprise-identity-readiness.test.ts",
+      "future enterprise release gate required before activation"
+    ],
     deferredCapabilitySlugs: ["advanced_governance_dashboards"],
     promotionCriteria: ["SSO/RBAC/retention policy is implemented, tested, documented, and paid-plan packaged."],
     notAllowed: ["Granular enterprise RBAC exposed as current shipped scope", "retention settings without deletion/privacy controls"]

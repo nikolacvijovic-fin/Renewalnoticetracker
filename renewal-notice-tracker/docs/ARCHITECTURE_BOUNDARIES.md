@@ -4,6 +4,8 @@ NoticeControl is a renewal-control product, not a general CLM suite. Architectur
 
 The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md), backed by [lib/product/platform-modules.ts](../lib/product/platform-modules.ts).
 
+Enterprise identity and granular RBAC expansion is governed by [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by [lib/product/enterprise-rbac.ts](../lib/product/enterprise-rbac.ts) and [lib/product/enterprise-identity.ts](../lib/product/enterprise-identity.ts). SSO, SCIM, future enterprise roles, permission groups, retention controls, and delegated administration are not shipped runtime features until that boundary moves through a future enterprise release gate.
+
 ## Shipped Kernel
 
 The shipped kernel is the narrow operating loop:
@@ -80,6 +82,7 @@ Do not mix these concepts to make implementation easier. A customer-visible audi
 When adding a new capability, decide first:
 - Is it shipped or deferred?
 - Is it represented in the platform module registry with status, gate, owner surfaces, and required release proof?
+- If it changes roles, permissions, identity, retention, SSO, SCIM, or admin delegation, is it represented in the enterprise RBAC boundary registry?
 - Which shared helper owns the rule?
 - Which route/page consumes it?
 - Which audit, analytics, log, and monitoring signal applies?

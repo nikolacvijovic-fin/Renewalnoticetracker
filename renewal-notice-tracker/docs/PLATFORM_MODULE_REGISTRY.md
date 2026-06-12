@@ -4,6 +4,8 @@ Canonical code source: `lib/product/platform-modules.ts`.
 
 NoticeControl is currently a focused renewal-control product with gated intelligence and operations modules. Platform expansion must move through this registry before it appears in customer navigation, route behavior, pricing copy, release-critical tests, or support operations.
 
+Enterprise identity/RBAC details live in [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by `lib/product/enterprise-rbac.ts` and `lib/product/enterprise-identity.ts`.
+
 ## Module Classification
 
 | Module ID | Status | Current shipped kernel? | Gate / entitlement source | Required proof |
@@ -32,6 +34,7 @@ A module may move from deferred or experimental to shipped only when all of thes
 - Customer-facing docs are updated to describe the exact shipped scope and what remains disallowed.
 - Privacy, audit, export, billing, tenant-isolation, monitoring, and support-readiness boundaries are reviewed where relevant.
 - The shipped kernel remains renewal-control focused and does not become full CLM, negotiation, e-signature, generic workflow, or integration theater.
+- Enterprise identity changes must also update `lib/product/enterprise-rbac.ts`, `lib/product/enterprise-identity.ts`, [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and the implementation/admin docs under [enterprise/](enterprise/).
 
 ## Drift Rules
 
