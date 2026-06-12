@@ -1,0 +1,42 @@
+# NoticeControl Platform Module Registry
+
+Canonical code source: `lib/product/platform-modules.ts`.
+
+NoticeControl is currently a focused renewal-control product with gated intelligence and operations modules. Platform expansion must move through this registry before it appears in customer navigation, route behavior, pricing copy, release-critical tests, or support operations.
+
+## Module Classification
+
+| Module ID | Status | Current shipped kernel? | Gate / entitlement source | Required proof |
+| --- | --- | --- | --- | --- |
+| `core_renewal_control_kernel` | shipped | yes | active org, role checks, shipped action matrix, Starter paid gates where applicable | `test:release-critical`, shipped-kernel boundary tests |
+| `contract_intelligence_risk_explanation` | shipped | yes | `risk_badges`, `risk_scores`, shared intelligence access | `test:intelligence-release-gate`, risk-score and surface consistency tests |
+| `financial_exposure_intelligence` | shipped | yes | `financial_intelligence`, Growth plan, admin-only access | `test:intelligence-release-gate`, financial exposure/page tests |
+| `procurement_vendor_analytics` | shipped | yes | `procurement_analytics`, Growth plan, admin/operator access | `test:intelligence-release-gate`, procurement query/page tests |
+| `export_reporting_intelligence` | shipped | yes | export preset policy with `exports` and risk/intelligence gates where needed | `test:release-critical:exports`, `test:background-exports`, export privacy/scale tests |
+| `ocr_import_intelligence` | shipped | yes | active org, review gates, OCR/internal job controls, Starter paid gates where applicable | intake/review and OCR trust tests |
+| `reminder_workflow_automation` | shipped | yes | fixed trusted reminder kernel; `multi_recipient_reminders` for broader recipient behavior | workflow/reminder control-plane tests |
+| `billing_entitlement_control` | shipped | yes | canonical billing snapshot and Paddle-first provider policy | billing release-critical/control-plane tests |
+| `admin_support_operations` | shipped | yes | internal role, separated internal secrets, destructive auth where needed | ops, monitoring, deletion control-plane tests |
+| `enterprise_identity_rbac_retention` | deferred | no | future Enterprise policy | future enterprise release gate required before activation |
+| `enterprise_integrations` | deferred | no | future Enterprise integration policy | future integration release gate required before activation |
+| `advanced_retention_governance_analytics` | experimental | no | future Portfolio/Enterprise analytics policy | future analytics release gate required before activation |
+| `full_clm_expansion` | excluded | no | excluded from product direction | current-scope and shipped-first tests must keep it out |
+
+## Promotion Rules
+
+A module may move from deferred or experimental to shipped only when all of these are true:
+
+- The registry status changes in `lib/product/platform-modules.ts`.
+- The module declares its entitlement source, minimum plan, and owner surfaces.
+- The module has at least one concrete test or release gate mapped in `requiredTestsOrReleaseGates`.
+- Customer-facing docs are updated to describe the exact shipped scope and what remains disallowed.
+- Privacy, audit, export, billing, tenant-isolation, monitoring, and support-readiness boundaries are reviewed where relevant.
+- The shipped kernel remains renewal-control focused and does not become full CLM, negotiation, e-signature, generic workflow, or integration theater.
+
+## Drift Rules
+
+- Deferred, experimental, and excluded modules must not appear in customer navigation as shipped product.
+- A shipped module without mapped tests or release gates is not release-grade.
+- Entitlement-gated modules must declare the commercial feature, export preset policy, internal role policy, or future policy that governs access.
+- Docs and registry must agree on status labels: shipped, deferred, experimental, or excluded.
+- Existing strategic/reference docs may remain, but they are not evidence that a module is shipped.

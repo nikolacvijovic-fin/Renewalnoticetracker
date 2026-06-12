@@ -13,8 +13,11 @@ NoticeControl currently ships one narrow product:
 Current customer-facing runtime includes only:
 
 - the shipped kernel in [SHIPPED_KERNEL.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/SHIPPED_KERNEL.md)
+- the platform module/add-on registry in [PLATFORM_MODULE_REGISTRY.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/PLATFORM_MODULE_REGISTRY.md)
 - shipped-first scope in [SHIPPED_FIRST_SCOPE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/SHIPPED_FIRST_SCOPE.md)
 - early role model in [EARLY_RBAC.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/EARLY_RBAC.md)
 - Phase-1 release gates in [PHASE1_DEFINITION_OF_DONE.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/PHASE1_DEFINITION_OF_DONE.md) and [RELEASE_QUALITY_GATES.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/RELEASE_QUALITY_GATES.md)
+
+Gated intelligence, financial exposure, procurement analytics, exports, OCR/import, reminders, billing, and internal operations may ship only as renewal-control modules classified in the registry. Enterprise controls, broad integrations, advanced analytics, and full CLM remain deferred, experimental, or excluded until the registry and release gates explicitly promote them.
 
 Anything outside this loop belongs in deferred capability records, future activation rules, or reference-only material.

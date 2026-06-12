@@ -2,6 +2,8 @@
 
 NoticeControl is a renewal-control product, not a general CLM suite. Architecture should keep that boundary obvious.
 
+The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](C:/Users/Lenovo/Documents/Playground/renewal-notice-tracker/docs/PLATFORM_MODULE_REGISTRY.md), backed by `lib/product/platform-modules.ts`.
+
 ## Shipped Kernel
 
 The shipped kernel is the narrow operating loop:
@@ -77,6 +79,7 @@ Do not mix these concepts to make implementation easier. A customer-visible audi
 
 When adding a new capability, decide first:
 - Is it shipped or deferred?
+- Is it represented in the platform module registry with status, gate, owner surfaces, and required release proof?
 - Which shared helper owns the rule?
 - Which route/page consumes it?
 - Which audit, analytics, log, and monitoring signal applies?
