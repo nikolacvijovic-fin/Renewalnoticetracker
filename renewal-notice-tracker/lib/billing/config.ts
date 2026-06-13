@@ -1,5 +1,6 @@
 import { getAppConfig } from "@/lib/config";
 import type { BillingProviderName } from "@/lib/billing/types";
+import { getBillingProviderPolicy } from "@/lib/billing/provider-policy";
 
 export function getBillingDefaultProvider(): BillingProviderName {
   return "paddle";
@@ -41,8 +42,9 @@ export function getPaddleConfig() {
 
 export function isBillingConfigured(provider: BillingProviderName) {
   try {
-    if (provider === "manual") return true;
-    if (provider !== "paddle") return false;
+    const policy = getBillingProviderPolicy(provider);
+    if (policy.state === "support_led_exception") return true;
+    if (policy.state !== "active_self_serve") return false;
     getPaddleConfig();
     return true;
   } catch {

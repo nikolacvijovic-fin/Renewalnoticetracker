@@ -37,6 +37,11 @@ function walkFiles(directory: string, collected: string[] = []) {
   return collected;
 }
 
+function extractTrackedAnalyticsEventNames(content: string) {
+  return [...content.matchAll(/trackServerAnalyticsEvent\(\s*\{[\s\S]*?eventName:\s*"([^"]+)"/g)]
+    .map((match) => match[1]);
+}
+
 describe("phase-1 analytics taxonomy", () => {
   it("keeps the phase-1 runtime taxonomy small and future taxonomy detached", () => {
     expect(PHASE1_ANALYTICS_EVENT_NAMES).toEqual([
@@ -80,10 +85,10 @@ describe("phase-1 analytics taxonomy", () => {
         "@/lib/analytics/future-events"
       );
 
-      for (const match of content.matchAll(/eventName:\s*"([^"]+)"/g)) {
+      for (const eventName of extractTrackedAnalyticsEventNames(content)) {
         expect(
-          allowedEvents.has(match[1] as (typeof PHASE1_ANALYTICS_EVENT_NAMES)[number]),
-          `${path.relative(repoRoot, filePath)} emits non-phase1 event ${match[1]}`
+          allowedEvents.has(eventName as (typeof PHASE1_ANALYTICS_EVENT_NAMES)[number]),
+          `${path.relative(repoRoot, filePath)} emits non-phase1 analytics event ${eventName}`
         ).toBe(true);
       }
     }

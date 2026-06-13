@@ -228,10 +228,10 @@ What is not allowed:
 ## Billing Purity
 
 Current status:
-- Pass with evidence. Billing is Paddle-first, manual exceptions are explicit, and PayPal/Stripe are legacy-disabled.
+- Pass with evidence. Billing is Paddle-first for self-serve, manual invoice / wire transfer and PayPal are support-led exceptions, and Stripe is legacy migration-only.
 
 Pass condition:
-- shipped runtime exposes Paddle self-serve only, manual invoice is support-led, and legacy provider routes do not behave as active product
+- shipped runtime exposes Paddle self-serve only, manual invoice / wire transfer and PayPal are support-led, exception-billed entitlements come from canonical billing snapshot state, and legacy provider routes do not behave as active product
 
 Blocking tests:
 - `tests/billing-provider.test.ts`
@@ -246,7 +246,7 @@ Owning files:
 - `legacy/billing/`
 
 What is not allowed:
-- provider-neutral billing language or active PayPal/Stripe parity in shipped runtime
+- provider-neutral billing language, public PayPal checkout parity, fake support-led billing portals, or active Stripe parity in shipped runtime
 
 ## Internal Ops Minimalism
 

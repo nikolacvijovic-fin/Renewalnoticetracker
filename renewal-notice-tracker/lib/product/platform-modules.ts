@@ -287,11 +287,17 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     ownerSurfaces: {
       routes: [],
       components: [],
-      modules: ["lib/product/enterprise-rbac.ts", "lib/product/enterprise-identity.ts"],
+      modules: [
+        "lib/product/enterprise-rbac.ts",
+        "lib/product/enterprise-identity.ts",
+        "lib/product/data-governance.ts"
+      ],
       docs: [
         "docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md",
+        "docs/DATA_GOVERNANCE_RETENTION_BOUNDARY.md",
         "docs/enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md",
         "docs/enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md",
+        "docs/enterprise/DATA_GOVERNANCE_IMPLEMENTATION_PLAN.md",
         "docs/reference/future/PERMISSIONS_TESTING_STRATEGY.md",
         "docs/reference/founder-operating-system/SECURITY_QUESTIONNAIRE_READINESS.md"
       ]
@@ -299,9 +305,10 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     requiredTestsOrReleaseGates: [
       "tests/enterprise-identity-rbac.test.ts",
       "tests/enterprise-identity-readiness.test.ts",
+      "tests/data-governance-boundary.test.ts",
       "future enterprise release gate required before activation"
     ],
-    deferredCapabilitySlugs: ["advanced_governance_dashboards"],
+    deferredCapabilitySlugs: ["advanced_governance_dashboards", "enterprise_data_governance_retention"],
     promotionCriteria: ["SSO/RBAC/retention policy is implemented, tested, documented, and paid-plan packaged."],
     notAllowed: ["Granular enterprise RBAC exposed as current shipped scope", "retention settings without deletion/privacy controls"]
   },
@@ -318,11 +325,23 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     ownerSurfaces: {
       routes: [],
       components: [],
-      modules: ["deferred/integrations/slack.ts", "deferred/integrations/teams.ts"],
-      docs: ["docs/reference/future/INTEGRATION_TESTING_STRATEGY.md", "docs/reference/future/PACKAGING_STRATEGY.md"]
+      modules: [
+        "lib/product/platform-api.ts",
+        "deferred/integrations/slack.ts",
+        "deferred/integrations/teams.ts"
+      ],
+      docs: [
+        "docs/API_AND_INTEGRATION_BOUNDARY.md",
+        "docs/enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md",
+        "docs/reference/future/INTEGRATION_TESTING_STRATEGY.md",
+        "docs/reference/future/PACKAGING_STRATEGY.md"
+      ]
     },
-    requiredTestsOrReleaseGates: ["future integration release gate required before activation"],
-    deferredCapabilitySlugs: ["advanced_integrations"],
+    requiredTestsOrReleaseGates: [
+      "tests/platform-api-boundary.test.ts",
+      "future integration release gate required before activation"
+    ],
+    deferredCapabilitySlugs: ["advanced_integrations", "public_api_integrations"],
     promotionCriteria: ["A specific integration proves renewal-workflow value and has provider auth, replay, alerting, and support runbooks."],
     notAllowed: ["Slack/Teams delivery as shipped kernel", "ERP sync without scoped data contracts", "customer API without platform API gate"]
   },

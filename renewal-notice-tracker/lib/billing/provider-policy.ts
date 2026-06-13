@@ -6,6 +6,8 @@ type BillingProviderPolicy = {
   label: string;
   checkoutSupported: boolean;
   managementSupported: boolean;
+  publicCheckoutAllowed: boolean;
+  requiresExplicitSupportSetup: boolean;
   customerMessage: string;
 };
 
@@ -16,31 +18,41 @@ export const BILLING_PROVIDER_POLICY: Record<BillingProviderName, BillingProvide
     label: "Paddle",
     checkoutSupported: true,
     managementSupported: true,
+    publicCheckoutAllowed: true,
+    requiresExplicitSupportSetup: false,
     customerMessage: "Paddle is the only shipped-first self-serve billing provider."
   },
   manual: {
     provider: "manual",
-    state: "internal_exception",
-    label: "Manual invoice exception",
+    state: "support_led_exception",
+    label: "Manual invoice / wire transfer exception",
     checkoutSupported: false,
     managementSupported: false,
-    customerMessage: "Manual invoice exceptions are support-led and are not self-serve in shipped-first runtime."
+    publicCheckoutAllowed: false,
+    requiresExplicitSupportSetup: true,
+    customerMessage:
+      "Manual invoice and wire transfer billing are support-led exceptions. Contact support for billing changes."
   },
   paypal: {
     provider: "paypal",
-    state: "legacy_disabled",
-    label: "Legacy billing migration",
+    state: "support_led_exception",
+    label: "PayPal support-led exception",
     checkoutSupported: false,
     managementSupported: false,
-    customerMessage: "PayPal is disabled in shipped-first runtime and only remains as legacy migration history."
+    publicCheckoutAllowed: false,
+    requiresExplicitSupportSetup: true,
+    customerMessage:
+      "PayPal billing is available only as a support-led exception and does not include a self-serve billing portal."
   },
   stripe: {
     provider: "stripe",
-    state: "legacy_disabled",
-    label: "Legacy billing migration",
+    state: "legacy_migration_only",
+    label: "Legacy Stripe migration-only",
     checkoutSupported: false,
     managementSupported: false,
-    customerMessage: "Stripe is disabled in shipped-first runtime and only remains as legacy migration history."
+    publicCheckoutAllowed: false,
+    requiresExplicitSupportSetup: false,
+    customerMessage: "Legacy Stripe billing is migration-only and inactive in shipped runtime."
   }
 };
 
@@ -52,7 +64,8 @@ export function parseBillingProviderName(value: string | null | undefined): Bill
 export function getBillingProviderPolicy(
   provider: BillingProviderName | string | null | undefined
 ): BillingProviderPolicy {
-  const normalized = parseBillingProviderName(typeof provider === "string" ? provider : provider ?? null);
+  if (!provider) return BILLING_PROVIDER_POLICY.paddle;
+  const normalized = parseBillingProviderName(provider);
   return BILLING_PROVIDER_POLICY[normalized ?? "manual"];
 }
 
@@ -60,5 +73,13 @@ export function getCustomerBillingProvider(
   provider: BillingProviderName | string | null | undefined
 ): BillingProviderName {
   const policy = getBillingProviderPolicy(provider);
-  return policy.provider === "paddle" ? "paddle" : "manual";
+  return policy.provider;
+}
+
+export function isSupportLedBillingProvider(provider: BillingProviderName | string | null | undefined) {
+  return getBillingProviderPolicy(provider).state === "support_led_exception";
+}
+
+export function isSelfServeBillingProvider(provider: BillingProviderName | string | null | undefined) {
+  return getBillingProviderPolicy(provider).state === "active_self_serve";
 }

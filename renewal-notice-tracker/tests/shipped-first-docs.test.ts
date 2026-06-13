@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { BILLING_PROVIDER_POLICY } from "@/lib/billing/provider-policy";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -37,13 +38,32 @@ describe("shipped-first docs", () => {
     expect(shippedKernel).toContain("must not import deferred modules");
   });
 
-  it("keeps the billing smoke checklist on Paddle and manual invoice only", () => {
+  it("keeps the billing smoke checklist on Paddle plus support-led exceptions only", () => {
     const checklist = readRepoFile("tests", "billing-commercial-smoke-checklist.md");
 
     expect(checklist).toContain("Paddle");
     expect(checklist).toContain("manual invoice");
+    expect(checklist).toContain("PayPal support-led exception");
     expect(checklist).toContain("does not mention monthly digest, Slack, Teams, or provider parity");
-    expect(checklist).not.toContain("PayPal orgs show");
     expect(checklist).not.toContain("legacy Stripe orgs can still use management");
+  });
+
+  it("keeps billing provider docs aligned with the provider registry", () => {
+    const billingDocs = [
+      readRepoFile("README.md"),
+      readRepoFile("tests", "billing-commercial-smoke-checklist.md"),
+      readRepoFile("docs", "reference", "legacy", "MIGRATION_BILLING.md")
+    ].join("\n");
+
+    expect(BILLING_PROVIDER_POLICY.paddle.state).toBe("active_self_serve");
+    expect(BILLING_PROVIDER_POLICY.manual.state).toBe("support_led_exception");
+    expect(BILLING_PROVIDER_POLICY.paypal.state).toBe("support_led_exception");
+    expect(BILLING_PROVIDER_POLICY.stripe.state).toBe("legacy_migration_only");
+
+    expect(billingDocs).toContain("Paddle as the only self-serve billing provider");
+    expect(billingDocs).toContain("manual invoice / wire transfer");
+    expect(billingDocs).toContain("PayPal support-led exception");
+    expect(billingDocs).toContain("Stripe");
+    expect(billingDocs).toContain("migration-only");
   });
 });

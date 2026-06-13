@@ -3,7 +3,8 @@
 NoticeControl Phase 1 ships with:
 
 - Paddle as the only self-serve billing provider
-- manual invoice exceptions handled internally
+- manual invoice / wire transfer exceptions handled internally
+- PayPal as a support-led exception only
 - no active self-serve PayPal or Stripe checkout/management paths
 
 ## Active customer-facing routes
@@ -30,11 +31,12 @@ Shipped-first setup requires only:
 - `PADDLE_STARTER_PRICE_ID`
 - `PADDLE_GROWTH_PRICE_ID`
 
-PayPal and Stripe env vars are intentionally omitted from `.env.example` so new environments do not imply provider parity.
+PayPal and Stripe env vars are intentionally omitted from `.env.example` so new environments do not imply provider parity. PayPal exception billing requires explicit internal/admin setup and canonical plan/status fields; Stripe remains legacy migration-only.
 
 ## Verification
 
 1. Confirm settings presents Paddle as the self-serve billing path.
-2. Confirm legacy/manual billing states show a support-led management message.
-3. Confirm `POST /api/billing/checkout?provider=paypal` and `provider=stripe` return `400`.
-4. Confirm `POST /api/webhooks/billing/paypal` and `POST /api/webhooks/stripe` return `410`.
+2. Confirm manual invoice / wire transfer and PayPal exception billing states show support-led guidance with no fake portal.
+3. Confirm `POST /api/billing/checkout?provider=paypal` redirects to support-led guidance without starting checkout.
+4. Confirm `POST /api/billing/checkout?provider=stripe` returns a controlled billing-state error.
+5. Confirm `POST /api/webhooks/billing/paypal` and `POST /api/webhooks/stripe` return `410`.

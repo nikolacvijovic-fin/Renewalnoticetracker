@@ -15,7 +15,8 @@ import { getBillingProviderPolicy } from "@/lib/billing/provider-policy";
 
 export function getBillingProvider(provider: BillingProviderName): BillingProvider {
   if (provider === "paddle") return paddleProvider;
-  throw new Error("Legacy billing providers are not active in shipped-first runtime.");
+  const policy = getBillingProviderPolicy(provider);
+  throw new Error(`${policy.label} is not available for self-serve billing runtime.`);
 }
 
 export function resolveBillingProvider(

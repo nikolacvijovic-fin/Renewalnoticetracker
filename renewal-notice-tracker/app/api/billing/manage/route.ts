@@ -6,9 +6,12 @@ import {
 } from "@/lib/http";
 import { getOrganizationBilling } from "@/lib/contracts/kernel-queries";
 import { createBillingManagementSession } from "@/lib/billing/service";
-import type { BillingProviderName } from "@/lib/billing/types";
 import { getBillingProviderCapability, resolveBillingProvider } from "@/lib/billing/provider";
-import { getBillingProviderPolicy, getCustomerBillingProvider } from "@/lib/billing/provider-policy";
+import {
+  getBillingProviderPolicy,
+  getCustomerBillingProvider,
+  parseBillingProviderName
+} from "@/lib/billing/provider-policy";
 
 export const POST = createRouteHandler(
   {
@@ -20,12 +23,25 @@ export const POST = createRouteHandler(
   async ({ auth: context, url, audit, redirect }) => {
     const { user, organizationId } = context;
     const billing = await getOrganizationBilling(organizationId);
-    const providerOverride = url.searchParams.get("provider") as BillingProviderName | null;
+    const providerOverrideParam = url.searchParams.get("provider");
+    const providerOverride = parseBillingProviderName(providerOverrideParam);
     const source = url.searchParams.get("source");
 
-    if (providerOverride === "paypal" || providerOverride === "stripe") {
+    if (providerOverrideParam && !providerOverride) {
       throw routeValidationError(
         "Unsupported billing provider.",
+        "ERR_BILLING_STATE_INVALID"
+      );
+    }
+
+    const requestedPolicy = providerOverride ? getBillingProviderPolicy(providerOverride) : null;
+    if (
+      requestedPolicy &&
+      requestedPolicy.state !== "active_self_serve" &&
+      requestedPolicy.state !== "support_led_exception"
+    ) {
+      throw routeValidationError(
+        requestedPolicy.customerMessage,
         "ERR_BILLING_STATE_INVALID"
       );
     }
@@ -33,6 +49,8 @@ export const POST = createRouteHandler(
     const providerName =
       providerOverride === "manual"
         ? "manual"
+        : providerOverride === "paypal"
+          ? "paypal"
         : billing.billing_provider === "paddle"
           ? resolveBillingProvider(billing, "paddle")
           : getCustomerBillingProvider(billing.billing_provider);

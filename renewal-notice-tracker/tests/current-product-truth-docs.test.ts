@@ -20,8 +20,6 @@ const currentScopeDocs = [
 const forbiddenPhrases = [
   "Slack",
   "Teams",
-  "PayPal",
-  "Stripe",
   "monthly digest",
   "playbook",
   "custom reminder rule",
@@ -30,6 +28,16 @@ const forbiddenPhrases = [
   "advanced governance",
   "profitability",
   "capacity scoring",
+];
+
+const forbiddenBillingScopePhrases = [
+  "PayPal optional",
+  "PayPal public self-serve",
+  "PayPal checkout parity",
+  "PayPal as an active customer billing provider",
+  "Stripe as an active customer billing provider",
+  "Stripe checkout parity",
+  "provider parity"
 ];
 
 function readRepoFile(relativePath: string) {
@@ -56,6 +64,10 @@ describe("current product truth docs", () => {
       const content = readRepoFile(docPath);
 
       for (const phrase of forbiddenPhrases) {
+        expect(content, `${docPath} should not contain ${phrase}`).not.toContain(phrase);
+      }
+
+      for (const phrase of forbiddenBillingScopePhrases) {
         expect(content, `${docPath} should not contain ${phrase}`).not.toContain(phrase);
       }
     }

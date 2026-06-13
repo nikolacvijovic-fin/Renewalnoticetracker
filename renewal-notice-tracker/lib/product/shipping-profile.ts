@@ -186,7 +186,8 @@ export const SHIPPED_FIRST_SCOPE = {
       description: "Custom rollout, governance, and support for larger portfolios without drifting into CLM.",
       features: [
         "Custom contract bands",
-        "Manual invoice exceptions",
+        "Manual invoice / wire transfer exceptions",
+        "PayPal support-led exceptions by arrangement",
         "Governance and rollout support",
         "Custom implementation planning"
       ]

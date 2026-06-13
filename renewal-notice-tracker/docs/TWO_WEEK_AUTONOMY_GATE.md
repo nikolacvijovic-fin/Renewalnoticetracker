@@ -22,7 +22,7 @@ Over two consecutive weeks, a normal operator team can:
 - reminders blocked by review
 - reminders blocked by missing owner
 - reminder delivery retries or visible failures
-- manual invoice exception routing through support-led billing paths
+- support-led manual invoice / wire transfer or PayPal exception billing paths
 
 ## Hidden rescue that fails release
 

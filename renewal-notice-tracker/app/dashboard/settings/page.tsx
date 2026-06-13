@@ -87,6 +87,7 @@ export default async function SettingsPage() {
           subscription_current_period_end: billing.subscription_current_period_end,
           billing_provider_label: providerLabel,
           billing_provider_name: providerName,
+          checkout_supported: providerCapability.checkout.supported,
           management_supported: providerCapability.management.supported,
           management_message: providerCapability.management.message,
           trial_started_at: billing.trial_started_at,

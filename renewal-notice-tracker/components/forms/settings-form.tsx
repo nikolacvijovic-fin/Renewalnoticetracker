@@ -28,6 +28,7 @@ export function SettingsForm({
     subscription_current_period_end: string | null;
     billing_provider_label: string;
     billing_provider_name: string;
+    checkout_supported: boolean;
     management_supported: boolean;
     management_message: string;
     trial_started_at: string | null;
@@ -134,29 +135,31 @@ export function SettingsForm({
             </p>
           ) : null}
           <p className="text-sm text-slate-500">
-            Paddle is the only shipped-first self-serve billing path. Manual invoice exceptions stay
-            internal and support-led.
+            Paddle is the default self-serve billing path. PayPal and manual invoice / wire
+            transfer are support-led exceptions and do not expose a self-serve billing portal.
           </p>
           {canManageOrg ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <form
-                  action="/api/billing/checkout?plan=starter&source=settings_billing"
-                  method="post"
-                >
-                  <Button type="submit" variant="secondary" className="w-full">
-                    Choose Starter
-                  </Button>
-                </form>
-                <form
-                  action="/api/billing/checkout?plan=growth&source=settings_billing"
-                  method="post"
-                >
-                  <Button type="submit" className="w-full">
-                    Upgrade to Growth
-                  </Button>
-                </form>
-              </div>
+              {billing.checkout_supported && billing.billing_provider_name === "paddle" ? (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <form
+                    action="/api/billing/checkout?plan=starter&source=settings_billing"
+                    method="post"
+                  >
+                    <Button type="submit" variant="secondary" className="w-full">
+                      Choose Starter
+                    </Button>
+                  </form>
+                  <form
+                    action="/api/billing/checkout?plan=growth&source=settings_billing"
+                    method="post"
+                  >
+                    <Button type="submit" className="w-full">
+                      Upgrade to Growth
+                    </Button>
+                  </form>
+                </div>
+              ) : null}
               {billing.management_supported ? (
                 <form
                   action={`/api/billing/manage?provider=paddle&source=settings_billing`}

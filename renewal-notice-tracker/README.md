@@ -12,7 +12,8 @@ NoticeControl ships first as a vendor-side renewal and notice control product.
 - per-contract ICS export
 - customer roles: Admin, Operator, Reviewer, Owner
 - Paddle as the only shipped-first self-serve billing provider
-- manual invoice exceptions handled internally
+- manual invoice / wire transfer exceptions handled internally
+- PayPal available only as a support-led exception, not public self-serve checkout
 - customer-facing services limited to onboarding, import cleanup, and renewal-ops setup
 
 ## Trust-sensitive routes
@@ -28,8 +29,9 @@ NoticeControl ships first as a vendor-side renewal and notice control product.
 ## Billing runtime
 
 - `/api/billing/checkout` and `/api/billing/manage` are Paddle-only in shipped-first runtime
+- PayPal and manual invoice / wire transfer billing are support-led exceptions and do not expose a self-serve portal
 - `/api/webhooks/billing/paddle` remains active
-- legacy billing webhook routes are quarantined and return `410`
+- PayPal and legacy Stripe webhook routes are quarantined and return `410` until a real provider integration exists
 
 ## Scope boundaries
 

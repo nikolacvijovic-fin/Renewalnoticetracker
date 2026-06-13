@@ -27,8 +27,10 @@ Current notable deferred items:
 - playbooks
 - custom reminder rules
 - retention health surfaces
+- customer-facing retention settings, legal hold, data residency, and broad customer data export
 - advanced governance dashboards
 - advanced integrations
+- public API keys, scoped API tokens, customer webhooks, OAuth app connections, and data warehouse export
 - broader counterparty system
 - monthly digest
-- PayPal and legacy Stripe migration-only paths
+- public self-serve PayPal checkout/management and legacy Stripe migration-only paths

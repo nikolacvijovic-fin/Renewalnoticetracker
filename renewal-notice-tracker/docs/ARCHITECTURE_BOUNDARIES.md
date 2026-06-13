@@ -6,6 +6,10 @@ The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODU
 
 Enterprise identity and granular RBAC expansion is governed by [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by [lib/product/enterprise-rbac.ts](../lib/product/enterprise-rbac.ts) and [lib/product/enterprise-identity.ts](../lib/product/enterprise-identity.ts). SSO, SCIM, future enterprise roles, permission groups, retention controls, and delegated administration are not shipped runtime features until that boundary moves through a future enterprise release gate.
 
+Data governance and retention expansion is governed by [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), backed by [lib/product/data-governance.ts](../lib/product/data-governance.ts). Customer-facing retention settings, legal hold, configurable deletion windows, data residency, broad customer data export, and support-access review portals are not shipped runtime features.
+
+Public API and integration expansion is governed by [API_AND_INTEGRATION_BOUNDARY.md](API_AND_INTEGRATION_BOUNDARY.md), backed by [lib/product/platform-api.ts](../lib/product/platform-api.ts). Public API keys, scoped tokens, OAuth app connections, customer webhooks, Slack, Teams, calendar sync, ERP/CRM/accounting/procurement sync, and data warehouse export are not shipped runtime features.
+
 ## Shipped Kernel
 
 The shipped kernel is the narrow operating loop:
@@ -18,7 +22,7 @@ The shipped kernel is the narrow operating loop:
 - decision
 - cycle close/reopen
 - CSV/XLSX and ICS export
-- Paddle checkout/manage and manual invoice exception
+- Paddle checkout/manage plus support-led manual invoice / wire transfer and PayPal exceptions
 - audited internal rescue
 - cross-tenant denial
 
@@ -83,6 +87,8 @@ When adding a new capability, decide first:
 - Is it shipped or deferred?
 - Is it represented in the platform module registry with status, gate, owner surfaces, and required release proof?
 - If it changes roles, permissions, identity, retention, SSO, SCIM, or admin delegation, is it represented in the enterprise RBAC boundary registry?
+- If it changes retention, deletion windows, legal hold, data residency, customer data export, support access, or backup evidence, is it represented in the data governance boundary registry?
+- If it changes public API, customer webhooks, OAuth, Slack/Teams, calendar, ERP, CRM, procurement, accounting, or data warehouse behavior, is it represented in the API/integration boundary registry?
 - Which shared helper owns the rule?
 - Which route/page consumes it?
 - Which audit, analytics, log, and monitoring signal applies?

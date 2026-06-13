@@ -5,9 +5,8 @@ import {
 } from "@/lib/http";
 import { getOrganizationBilling } from "@/lib/contracts/kernel-queries";
 import { createBillingCheckoutSession } from "@/lib/billing/service";
-import type { BillingProviderName } from "@/lib/billing/types";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
-import { getBillingProviderPolicy } from "@/lib/billing/provider-policy";
+import { getBillingProviderPolicy, parseBillingProviderName } from "@/lib/billing/provider-policy";
 
 export const POST = createRouteHandler(
   {
@@ -19,31 +18,40 @@ export const POST = createRouteHandler(
   async ({ auth: context, url, request, audit, redirect }) => {
     const { user, organizationId } = context;
     const plan = (url.searchParams.get("plan") ?? "growth") as "starter" | "growth";
-    const providerOverride = url.searchParams.get("provider") as BillingProviderName | null;
+    const providerOverrideParam = url.searchParams.get("provider");
+    const providerOverride = parseBillingProviderName(providerOverrideParam);
     const source = url.searchParams.get("source");
 
-    if (providerOverride === "paypal" || providerOverride === "stripe") {
+    if (providerOverrideParam && !providerOverride) {
       throw routeValidationError(
         "Unsupported billing provider.",
         "ERR_BILLING_STATE_INVALID"
       );
     }
 
-    if (providerOverride === "manual") {
-      const policy = getBillingProviderPolicy("manual");
+    const requestedPolicy = providerOverride ? getBillingProviderPolicy(providerOverride) : null;
+
+    if (requestedPolicy?.state === "support_led_exception") {
       await audit({
         organizationId,
         actorUserId: user.id,
         action: "billing.checkout_unavailable",
         entityType: "billing",
         details: {
-          provider: "manual",
-          provider_state: policy.state,
-          reason: policy.customerMessage
+          provider: requestedPolicy.provider,
+          provider_state: requestedPolicy.state,
+          reason: requestedPolicy.customerMessage
         }
       });
       return redirect(
-        `${new URL(request.url).origin}/dashboard/settings?billing=contact-support&provider=manual`
+        `${new URL(request.url).origin}/dashboard/settings?billing=contact-support&provider=${requestedPolicy.provider}`
+      );
+    }
+
+    if (requestedPolicy && requestedPolicy.state !== "active_self_serve") {
+      throw routeValidationError(
+        requestedPolicy.customerMessage,
+        "ERR_BILLING_STATE_INVALID"
       );
     }
 

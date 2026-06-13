@@ -3,8 +3,9 @@ export const BILLING_PROVIDERS = ["paddle", "manual", "paypal", "stripe"] as con
 export type BillingProviderName = (typeof BILLING_PROVIDERS)[number];
 export type BillingProviderState =
   | "active_self_serve"
-  | "internal_exception"
-  | "legacy_disabled";
+  | "support_led_exception"
+  | "legacy_migration_only"
+  | "disabled";
 
 export type PlanTier = "starter" | "growth";
 

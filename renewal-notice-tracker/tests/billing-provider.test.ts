@@ -15,7 +15,7 @@ describe("billing provider resolution", () => {
     vi.resetModules();
   });
 
-  it("keeps Paddle as the shipped-first checkout provider", async () => {
+  it("keeps Paddle as the self-serve checkout provider even for support-led exception orgs", async () => {
     const { resolveBillingProvider } = await import("@/lib/billing/provider");
     const provider = resolveBillingProvider({ ...baseBilling, billing_provider: "paypal" }, undefined);
     expect(provider).toBe("paddle");
@@ -33,12 +33,17 @@ describe("billing provider resolution", () => {
     expect(provider).toBe("paddle");
   });
 
+  it("shows Paddle as the default customer billing provider when none is configured", async () => {
+    const { getCustomerBillingProvider } = await import("@/lib/billing/provider-policy");
+    expect(getCustomerBillingProvider(null)).toBe("paddle");
+  });
+
   it("labels providers consistently", async () => {
     const { getBillingProviderLabel } = await import("@/lib/billing/provider");
     expect(getBillingProviderLabel("paddle")).toBe("Paddle");
-    expect(getBillingProviderLabel("manual")).toBe("Manual invoice exception");
-    expect(getBillingProviderLabel("paypal")).toBe("Legacy billing migration");
-    expect(getBillingProviderLabel("stripe")).toBe("Legacy billing migration");
+    expect(getBillingProviderLabel("manual")).toBe("Manual invoice / wire transfer exception");
+    expect(getBillingProviderLabel("paypal")).toBe("PayPal support-led exception");
+    expect(getBillingProviderLabel("stripe")).toBe("Legacy Stripe migration-only");
   });
 
   it("quarantines non-Paddle provider capabilities from shipped-first self-serve billing", async () => {
@@ -52,8 +57,17 @@ describe("billing provider resolution", () => {
   it("encodes canonical provider states for shipped-first billing", async () => {
     const { getBillingProviderPolicy } = await import("@/lib/billing/provider-policy");
     expect(getBillingProviderPolicy("paddle").state).toBe("active_self_serve");
-    expect(getBillingProviderPolicy("manual").state).toBe("internal_exception");
-    expect(getBillingProviderPolicy("paypal").state).toBe("legacy_disabled");
-    expect(getBillingProviderPolicy("stripe").state).toBe("legacy_disabled");
+    expect(getBillingProviderPolicy("manual").state).toBe("support_led_exception");
+    expect(getBillingProviderPolicy("paypal").state).toBe("support_led_exception");
+    expect(getBillingProviderPolicy("stripe").state).toBe("legacy_migration_only");
+  });
+
+  it("keeps support-led providers out of public self-serve checkout", async () => {
+    const { getBillingProviderPolicy } = await import("@/lib/billing/provider-policy");
+    expect(getBillingProviderPolicy("paypal").publicCheckoutAllowed).toBe(false);
+    expect(getBillingProviderPolicy("manual").publicCheckoutAllowed).toBe(false);
+    expect(getBillingProviderPolicy("paypal").requiresExplicitSupportSetup).toBe(true);
+    expect(getBillingProviderPolicy("manual").requiresExplicitSupportSetup).toBe(true);
+    expect(getBillingProviderPolicy("paddle").publicCheckoutAllowed).toBe(true);
   });
 });

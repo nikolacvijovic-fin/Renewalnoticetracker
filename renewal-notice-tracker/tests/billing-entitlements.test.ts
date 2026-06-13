@@ -83,6 +83,52 @@ describe("billing entitlements", () => {
     expect(access.minimumPlan).toBe("growth");
   });
 
+  it("allows support-led exception providers only when canonical billing state is active", () => {
+    const activePayPalSnapshot = normalizeBillingSnapshot({
+      organizationId: "org-paypal-active",
+      plan_tier: "growth",
+      subscription_status: "active",
+      billing_provider: "paypal"
+    });
+    const inactivePayPalSnapshot = normalizeBillingSnapshot({
+      organizationId: "org-paypal-inactive",
+      plan_tier: "growth",
+      subscription_status: "inactive",
+      billing_provider: "paypal"
+    });
+    const activeManualSnapshot = normalizeBillingSnapshot({
+      organizationId: "org-manual-active",
+      plan_tier: "starter",
+      subscription_status: "active",
+      billing_provider: "manual"
+    });
+
+    expect(activePayPalSnapshot.billingProvider).toBe("paypal");
+    expect(canUseFeature(activePayPalSnapshot, "financial_intelligence")).toBe(true);
+    expect(getFeatureAccessResult(inactivePayPalSnapshot, "financial_intelligence").allowed).toBe(false);
+    expect(canUseFeature(activeManualSnapshot, "exports")).toBe(true);
+  });
+
+  it("does not infer paid access from provider label alone", () => {
+    const freePayPalSnapshot = normalizeBillingSnapshot({
+      organizationId: "org-paypal-free",
+      plan_tier: "free",
+      subscription_status: "active",
+      billing_provider: "paypal"
+    });
+    const activeStripeSnapshot = normalizeBillingSnapshot({
+      organizationId: "org-stripe-migration",
+      plan_tier: "growth",
+      subscription_status: "active",
+      billing_provider: "stripe"
+    });
+
+    expect(getFeatureAccessResult(freePayPalSnapshot, "exports").reason).toBe("upgrade_required");
+    expect(getFeatureAccessResult(activeStripeSnapshot, "exports").reason).toBe(
+      "provider_not_configured"
+    );
+  });
+
   it("caps free contract tracking and leaves room on starter", () => {
     const freeLimit = getContractTrackingLimitResult(freeSnapshot, 5);
     expect(freeLimit.allowed).toBe(false);

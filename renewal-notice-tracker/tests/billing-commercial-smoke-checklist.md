@@ -15,10 +15,14 @@
 ## Billing runtime
 
 1. Confirm Paddle orgs show a working `Manage billing` CTA.
-2. Confirm legacy or manual invoice orgs do not show a fake portal and instead show the support-led billing message.
-3. Confirm `/api/billing/checkout?provider=paypal` and `provider=stripe` return `400`.
-4. Confirm `/api/webhooks/billing/paypal` and `/api/webhooks/stripe` return `410`.
-5. Confirm `/api/billing/portal` still behaves as the compatibility alias for `/api/billing/manage`.
+2. Confirm manual invoice / wire transfer orgs do not show a fake portal and instead show the support-led billing message.
+3. Confirm PayPal support-led exception orgs do not show a fake portal and instead show the support-led billing message.
+4. Confirm `/api/billing/checkout?provider=paypal` redirects to support-led guidance and does not start public checkout.
+5. Confirm `/api/billing/checkout?provider=stripe` returns a controlled billing-state error.
+6. Confirm `/api/webhooks/billing/paypal` and `/api/webhooks/stripe` return `410`.
+7. Confirm canonical billing snapshot fields, not provider labels, decide paid entitlement access.
+8. Confirm legacy Stripe orgs remain migration-only and inactive for self-serve checkout/manage.
+9. Confirm `/api/billing/portal` still behaves as the compatibility alias for `/api/billing/manage`.
 
 ## Scope guardrails
 

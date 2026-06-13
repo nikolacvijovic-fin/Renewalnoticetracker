@@ -119,7 +119,7 @@ describe("billing routes", () => {
     expect(createBillingCheckoutSession).not.toHaveBeenCalled();
   });
 
-  it("rejects legacy provider overrides before checkout starts", async () => {
+  it("redirects PayPal checkout requests to the support-led billing path and audits them", async () => {
     const { POST } = await import("@/app/api/billing/checkout/route");
     const response = await POST(
       new Request("http://localhost/api/billing/checkout?plan=starter&provider=paypal", {
@@ -127,8 +127,22 @@ describe("billing routes", () => {
       })
     );
 
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toContain(
+      "/dashboard/settings?billing=contact-support&provider=paypal"
+    );
     expect(createBillingCheckoutSession).not.toHaveBeenCalled();
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "billing.checkout_unavailable",
+        details: expect.objectContaining({
+          provider: "paypal",
+          provider_state: "support_led_exception",
+          request_id: expect.any(String)
+        })
+      }),
+      undefined
+    );
   });
 
   it("rejects Stripe checkout overrides before checkout starts", async () => {
@@ -161,7 +175,7 @@ describe("billing routes", () => {
         action: "billing.checkout_unavailable",
         details: expect.objectContaining({
           provider: "manual",
-          provider_state: "internal_exception",
+          provider_state: "support_led_exception",
           request_id: expect.any(String)
         })
       }),
@@ -226,7 +240,7 @@ describe("billing routes", () => {
     expect(createBillingManagementSession).not.toHaveBeenCalled();
   });
 
-  it("redirects back to settings when the org is on a legacy/manual billing path", async () => {
+  it("redirects back to settings when the org is on a manual support-led billing path", async () => {
     getOrganizationBilling.mockResolvedValue({
       id: "org-1",
       billing_email: "billing@example.com",
@@ -240,7 +254,7 @@ describe("billing routes", () => {
       checkout: { supported: true, message: "ok" },
       management: {
         supported: false,
-        message: "Manual invoice exceptions are support-led and are not self-serve in shipped-first runtime."
+        message: "Manual invoice and wire transfer billing are support-led exceptions."
       }
     });
     resolveBillingProvider.mockReturnValue("paddle");
@@ -262,7 +276,7 @@ describe("billing routes", () => {
         action: "billing.management_unavailable",
         details: expect.objectContaining({
           provider: "manual",
-          provider_state: "internal_exception",
+          provider_state: "support_led_exception",
           request_id: expect.any(String)
         })
       }),
@@ -280,6 +294,52 @@ describe("billing routes", () => {
 
     expect(response.status).toBe(400);
     expect(createBillingManagementSession).not.toHaveBeenCalled();
+  });
+
+  it("does not expose a fake management portal for PayPal exception orgs", async () => {
+    getOrganizationBilling.mockResolvedValue({
+      id: "org-1",
+      billing_email: "billing@example.com",
+      billing_provider: "paypal",
+      billing_customer_id: "paypal_1",
+      plan_tier: "growth",
+      subscription_status: "active",
+      subscription_current_period_end: null
+    });
+    getBillingProviderCapability.mockReturnValue({
+      checkout: {
+        supported: false,
+        message: "PayPal billing is available only as a support-led exception."
+      },
+      management: {
+        supported: false,
+        message: "PayPal billing is available only as a support-led exception."
+      }
+    });
+
+    const { POST } = await import("@/app/api/billing/manage/route");
+    const response = await POST(
+      new Request("http://localhost/api/billing/manage", {
+        method: "POST"
+      })
+    );
+
+    expect(createBillingManagementSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toContain(
+      "/dashboard/settings?billing=contact-support&provider=paypal"
+    );
+    expect(createAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "billing.management_unavailable",
+        details: expect.objectContaining({
+          provider: "paypal",
+          provider_state: "support_led_exception",
+          request_id: expect.any(String)
+        })
+      }),
+      undefined
+    );
   });
 
   it("keeps /api/billing/portal as a thin compatibility alias", async () => {

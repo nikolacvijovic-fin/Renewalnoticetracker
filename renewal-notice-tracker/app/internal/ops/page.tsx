@@ -6,15 +6,21 @@ import {
   getPrivacyOperationsSnapshot
 } from "@/lib/internal/ops-queries";
 import { requireInternalRole } from "@/lib/internal-access";
+import { getBillingProviderLabel } from "@/lib/billing/provider";
+import { getBillingProviderPolicy } from "@/lib/billing/provider-policy";
 
 function buildBillingSummary(billing: Awaited<ReturnType<typeof getOrganizationBilling>>): InternalBillingSummary {
   const status = billing.billing_subscription_status ?? billing.subscription_status ?? "unknown";
-  const providerLabel =
-    billing.billing_provider === "paddle" ? "Paddle" : "Manual invoice exception or legacy-disabled provider";
+  const policy = getBillingProviderPolicy(billing.billing_provider);
+  const providerLabel = getBillingProviderLabel(policy.provider);
   const issues: string[] = [];
 
-  if (billing.billing_provider && billing.billing_provider !== "paddle") {
-    issues.push("Workspace is on a manual invoice exception or legacy-disabled billing path.");
+  if (policy.state === "support_led_exception") {
+    issues.push("Workspace is on a support-led billing exception path.");
+  }
+
+  if (policy.state === "legacy_migration_only" || policy.state === "disabled") {
+    issues.push("Workspace is on a legacy or disabled billing path.");
   }
 
   if (["past_due", "unpaid", "paused", "cancelled", "incomplete"].includes(status)) {

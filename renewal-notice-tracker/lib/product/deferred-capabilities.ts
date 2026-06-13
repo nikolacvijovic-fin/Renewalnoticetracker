@@ -72,6 +72,23 @@ export const DEFERRED_CAPABILITIES: DeferredCapability[] = [
     ]
   },
   {
+    slug: "enterprise_data_governance_retention",
+    category: "future_product_capabilities",
+    allowedRuntimeSurface: "none",
+    whyDeferred:
+      "Customer-configurable retention policies, legal hold, data residency, customer data export, and support-access review require Enterprise-grade policy, audit, deletion, backup, privacy, and customer communication controls.",
+    activationRequirements: [
+      "The data governance registry is promoted through a future Enterprise release gate.",
+      "Retention/deletion policy is implemented per data class with legal-hold, backup, audit, and support-access semantics.",
+      "Customer-facing claims are backed by tests, runbooks, and operator evidence rather than aspirational compliance language."
+    ],
+    modulePaths: [
+      "lib/product/data-governance.ts",
+      "docs/DATA_GOVERNANCE_RETENTION_BOUNDARY.md",
+      "docs/enterprise/DATA_GOVERNANCE_IMPLEMENTATION_PLAN.md"
+    ]
+  },
+  {
     slug: "advanced_integrations",
     category: "future_product_capabilities",
     allowedRuntimeSurface: "none",
@@ -85,6 +102,23 @@ export const DEFERRED_CAPABILITIES: DeferredCapability[] = [
     modulePaths: [
       "deferred/integrations/slack.ts",
       "deferred/integrations/teams.ts"
+    ]
+  },
+  {
+    slug: "public_api_integrations",
+    category: "future_product_capabilities",
+    allowedRuntimeSurface: "none",
+    whyDeferred:
+      "Public API keys, scoped tokens, webhooks, OAuth app connections, and external system integrations create platform-grade security, rate-limit, idempotency, audit, and support obligations.",
+    activationRequirements: [
+      "The platform API capability registry is promoted through a future enterprise release gate.",
+      "Organization-scoped token lifecycle, scopes, rate limits, idempotency, audit, monitoring, and support runbooks are implemented.",
+      "No internal route secret or provider webhook secret can be reused as a customer API credential."
+    ],
+    modulePaths: [
+      "lib/product/platform-api.ts",
+      "docs/API_AND_INTEGRATION_BOUNDARY.md",
+      "docs/enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md"
     ]
   },
   {

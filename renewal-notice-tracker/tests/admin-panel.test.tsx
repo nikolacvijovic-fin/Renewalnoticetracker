@@ -128,12 +128,12 @@ describe("AdminPanel", () => {
           ]
         }}
         billing={{
-          providerLabel: "Manual invoice exception or legacy-disabled provider",
+          providerLabel: "PayPal support-led exception",
           planTier: "growth",
           status: "past_due",
           currentPeriodEnd: "2026-05-01T00:00:00.000Z",
           issues: [
-            "Workspace is on a manual invoice exception or legacy-disabled billing path.",
+            "Workspace is on a support-led billing exception path.",
             "Subscription status past_due needs support follow-up."
           ]
         }}
@@ -166,7 +166,7 @@ describe("AdminPanel", () => {
     expect(screen.getByText(/ERR_OCR_JOB_RETRY_SCHEDULED_001/i)).toBeInTheDocument();
     expect(screen.getByText(/ERR_IMPORT_JOB_NEEDS_RESCUE_001/i)).toBeInTheDocument();
     expect(screen.getByText(/completed_with_errors/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/manual invoice exception or legacy-disabled provider/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/PayPal support-led exception/i).length).toBeGreaterThan(0);
 
     expect(screen.queryByText("Unified profitability blueprint")).not.toBeInTheDocument();
     expect(screen.queryByText("Operational readiness and capacity")).not.toBeInTheDocument();
