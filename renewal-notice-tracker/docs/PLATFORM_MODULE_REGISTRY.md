@@ -4,7 +4,7 @@ Canonical code source: `lib/product/platform-modules.ts`.
 
 NoticeControl is currently a focused renewal-control product with gated intelligence and operations modules. Platform expansion must move through this registry before it appears in customer navigation, route behavior, pricing copy, release-critical tests, or support operations.
 
-Enterprise identity/RBAC details live in [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by `lib/product/enterprise-rbac.ts` and `lib/product/enterprise-identity.ts`.
+Enterprise identity/RBAC details live in [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by `lib/product/enterprise-rbac.ts`, `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, and `lib/product/enterprise-identity-routes.ts`.
 
 Data governance and retention expansion is governed by [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), backed by `lib/product/data-governance.ts`.
 
@@ -23,7 +23,7 @@ Public API and integration expansion is governed by [API_AND_INTEGRATION_BOUNDAR
 | `reminder_workflow_automation` | shipped | yes | fixed trusted reminder kernel; `multi_recipient_reminders` for broader recipient behavior | workflow/reminder control-plane tests |
 | `billing_entitlement_control` | shipped | yes | canonical billing snapshot and Paddle-first provider policy | billing release-critical/control-plane tests |
 | `admin_support_operations` | shipped | yes | internal role, separated internal secrets, destructive auth where needed | ops, monitoring, deletion control-plane tests |
-| `enterprise_identity_rbac_retention` | deferred | no | future Enterprise policy | `tests/data-governance-boundary.test.ts`; future enterprise release gate required before activation |
+| `enterprise_identity_rbac_retention` | deferred | no | future Enterprise policy | `tests/enterprise-identity-schema-routes.test.ts`; `tests/data-governance-boundary.test.ts`; future enterprise release gate required before activation |
 | `enterprise_integrations` | deferred | no | future Enterprise integration policy | `tests/platform-api-boundary.test.ts`; future integration release gate required before activation |
 | `advanced_retention_governance_analytics` | experimental | no | future Portfolio/Enterprise analytics policy | future analytics release gate required before activation |
 | `full_clm_expansion` | excluded | no | excluded from product direction | current-scope and shipped-first tests must keep it out |
@@ -38,7 +38,7 @@ A module may move from deferred or experimental to shipped only when all of thes
 - Customer-facing docs are updated to describe the exact shipped scope and what remains disallowed.
 - Privacy, audit, export, billing, tenant-isolation, monitoring, and support-readiness boundaries are reviewed where relevant.
 - The shipped kernel remains renewal-control focused and does not become full CLM, negotiation, e-signature, generic workflow, or integration theater.
-- Enterprise identity changes must also update `lib/product/enterprise-rbac.ts`, `lib/product/enterprise-identity.ts`, [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and the implementation/admin docs under [enterprise/](enterprise/).
+- Enterprise identity changes must also update `lib/product/enterprise-rbac.ts`, `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and the implementation/schema/admin docs under [enterprise/](enterprise/).
 - Data governance or retention changes must also update `lib/product/data-governance.ts`, [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), and [enterprise/DATA_GOVERNANCE_IMPLEMENTATION_PLAN.md](enterprise/DATA_GOVERNANCE_IMPLEMENTATION_PLAN.md).
 - Public API or integration changes must also update `lib/product/platform-api.ts`, [API_AND_INTEGRATION_BOUNDARY.md](API_AND_INTEGRATION_BOUNDARY.md), and [enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md](enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md).
 

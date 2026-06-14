@@ -350,11 +350,13 @@ export const ENTERPRISE_IDENTITY_PACKAGE_GATE: EnterpriseIdentityPackageGate = {
   allowedCurrentRuntimeRoutes: [],
   requiredDocs: [
     "docs/enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md",
+    "docs/enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md",
     "docs/enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md",
     "docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md"
   ],
   requiredTestsOrReleaseGates: [
     "tests/enterprise-identity-readiness.test.ts",
+    "tests/enterprise-identity-schema-routes.test.ts",
     "future enterprise identity release gate required before activation"
   ]
 } as const;
@@ -384,4 +386,3 @@ export function getEnterpriseIdentityPackagingGateEvidence() {
     gate: ENTERPRISE_IDENTITY_PACKAGE_GATE
   };
 }
-

@@ -4,6 +4,8 @@ This is future-facing documentation. Enterprise SSO, SCIM provisioning, permissi
 
 Use this guide as the customer/admin documentation scaffold once the Enterprise identity module moves through its future release gate.
 
+The future implementation plan lives in [ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md](ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md), and the future table, route, and validation contracts live in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
+
 ## SSO Setup
 
 Future SSO setup will support SAML 2.0 and/or OIDC after provider-specific implementation.
@@ -89,4 +91,3 @@ NoticeControl responsibilities before shipping:
 - Keep logs/audits free of secrets and raw provider payloads.
 - Provide runbooks for lockout, recovery, certificate expiry, and provisioning failures.
 - Preserve the renewal-control product boundary without becoming a full IAM platform.
-

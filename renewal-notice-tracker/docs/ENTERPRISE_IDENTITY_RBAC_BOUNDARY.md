@@ -2,11 +2,13 @@
 
 Canonical code sources: `lib/product/enterprise-rbac.ts` and `lib/product/enterprise-identity.ts`.
 
+Future schema and route contracts are defined in `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, and [enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
+
 NoticeControl currently ships a focused role model for renewal-control operations. Enterprise SSO, SCIM, granular permission groups, retention controls, and delegated administration are intentionally deferred behind the `enterprise_identity_rbac_retention` platform module in [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md).
 
 SSO, SCIM, permission groups, retention controls, and delegated enterprise administration are deferred until a future enterprise release gate.
 
-The future implementation lifecycle, audit-event contract, and packaging gate are defined in [enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md](enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md). Future customer/admin documentation scaffolding lives in [enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md](enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md).
+The future implementation lifecycle, audit-event contract, schema/route contract, and packaging gate are defined in [enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md](enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md) and [enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md). Future customer/admin documentation scaffolding lives in [enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md](enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md).
 
 ## Current Shipped Roles
 
@@ -88,6 +90,7 @@ Before SSO, SCIM, or granular permission groups can ship, the enterprise module 
 
 - A concrete entitlement and packaging policy, likely Enterprise-only.
 - A lifecycle model for login, invite, provisioning, deprovisioning, lockout/recovery, domain verification, metadata/certificate rotation, and fallback admin recovery.
+- Future schema and route contracts for SSO configuration, verified domains, SCIM users, group-role mappings, identity events, validation, idempotency, and safe audit/monitoring metadata.
 - Provider-specific auth and provisioning lifecycle tests.
 - Tenant-isolation, role-escalation, and deprovisioning tests.
 - Audit events for role changes, group mappings, SSO configuration changes, and provisioning failures.

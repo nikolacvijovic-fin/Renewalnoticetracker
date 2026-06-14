@@ -1,6 +1,6 @@
 # Enterprise Identity Implementation Plan
 
-Canonical code source: `lib/product/enterprise-identity.ts`.
+Canonical code sources: `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, and `lib/product/enterprise-identity-routes.ts`.
 
 This is a future Enterprise implementation plan. NoticeControl does not currently ship live SSO, SCIM provisioning, permission groups, retention controls, or customer-facing enterprise identity settings.
 
@@ -36,6 +36,26 @@ Provisioning/deprovisioning states:
 - `soft_deprovisioned`: future-only reversible login block retaining audit history.
 - `hard_deprovisioned`: future-only terminal lifecycle state after retention requirements.
 - `locked`: future-only security/recovery lockout state.
+
+## Future Schema And Route Contracts
+
+The future table, route, and validation contracts live in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
+
+Planned future records:
+- `enterprise_sso_configurations`
+- `enterprise_verified_domains`
+- `enterprise_scim_users`
+- `enterprise_group_role_mappings`
+- `enterprise_identity_events`
+
+Planned future route families:
+- SSO configuration and metadata routes.
+- Domain verification and SSO test routes.
+- SCIM v2 user create/update/delete routes.
+- Group-role mapping routes.
+- Enterprise admin recovery route.
+
+These contracts are not live runtime behavior. They exist so future implementation work has explicit org scoping, lifecycle, audit, rate-limit, idempotency, privacy, and validation expectations before any route or migration ships.
 
 ## Login Lifecycle
 
@@ -122,5 +142,4 @@ Requirements before implementation:
 4. Private enterprise pilot: one IdP/provider path, strict audit/monitoring, no self-serve rollout.
 5. General Enterprise release: SSO/SCIM docs, runbooks, support training, packaging, and release gates complete.
 
-Promotion requires updating `lib/product/enterprise-identity.ts`, `lib/product/enterprise-rbac.ts`, [../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and [../PLATFORM_MODULE_REGISTRY.md](../PLATFORM_MODULE_REGISTRY.md).
-
+Promotion requires updating `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, `lib/product/enterprise-rbac.ts`, [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md), [../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and [../PLATFORM_MODULE_REGISTRY.md](../PLATFORM_MODULE_REGISTRY.md).
