@@ -1,6 +1,6 @@
 # API And Integration Boundary
 
-Canonical code source: [../lib/product/platform-api.ts](../lib/product/platform-api.ts).
+Canonical code sources: [../lib/product/platform-api.ts](../lib/product/platform-api.ts), [../lib/product/platform-api-schema.ts](../lib/product/platform-api-schema.ts), and [../lib/product/platform-api-routes.ts](../lib/product/platform-api-routes.ts).
 
 NoticeControl does not currently ship a public customer API, API keys, scoped tokens, OAuth app connections, customer webhooks, Slack, Teams, ERP, CRM, accounting, procurement-suite sync, calendar sync, data warehouse export, or audit API access.
 
@@ -23,6 +23,8 @@ Future or deferred capability classes are:
 - audit/export API access
 
 Every capability must declare status, runtime surface, plan gate, authentication model, scopes, rate-limit expectations, idempotency expectations, audit expectations, monitoring expectations, release proof, and explicitly forbidden behavior in the registry.
+
+Future implementation-ready schema, route, and validation contracts are documented in [enterprise/API_INTEGRATION_SCHEMA_AND_ROUTES.md](enterprise/API_INTEGRATION_SCHEMA_AND_ROUTES.md). They are not live runtime routes or migrations.
 
 ## Future Scopes
 
@@ -67,6 +69,7 @@ Webhook payloads must never include raw contract text, full notes, OCR output, r
 Before any API or integration capability can ship:
 
 - The registry status must change in `lib/product/platform-api.ts`.
+- Schema contracts in `lib/product/platform-api-schema.ts` and route contracts in `lib/product/platform-api-routes.ts` must be promoted deliberately with migrations/routes/tests.
 - The platform module registry must remain aligned.
 - The capability must have a concrete entitlement or Enterprise packaging gate.
 - Token lifecycle, OAuth lifecycle, or webhook lifecycle must be implemented and tested.

@@ -8,7 +8,9 @@ Enterprise identity/RBAC details live in [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](
 
 Data governance and retention expansion is governed by [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), backed by `lib/product/data-governance.ts`.
 
-Public API and integration expansion is governed by [API_AND_INTEGRATION_BOUNDARY.md](API_AND_INTEGRATION_BOUNDARY.md), backed by `lib/product/platform-api.ts`.
+Public API and integration expansion is governed by [API_AND_INTEGRATION_BOUNDARY.md](API_AND_INTEGRATION_BOUNDARY.md), backed by `lib/product/platform-api.ts`, `lib/product/platform-api-schema.ts`, and `lib/product/platform-api-routes.ts`.
+
+Customer onboarding and support/success operations are governed by [CUSTOMER_ONBOARDING_BOUNDARY.md](CUSTOMER_ONBOARDING_BOUNDARY.md) and [SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md](SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md), backed by `lib/product/customer-onboarding.ts` and `lib/product/support-success.ts`.
 
 ## Module Classification
 
@@ -22,9 +24,9 @@ Public API and integration expansion is governed by [API_AND_INTEGRATION_BOUNDAR
 | `ocr_import_intelligence` | shipped | yes | active org, review gates, OCR/internal job controls, Starter paid gates where applicable | intake/review and OCR trust tests |
 | `reminder_workflow_automation` | shipped | yes | fixed trusted reminder kernel; `multi_recipient_reminders` for broader recipient behavior | workflow/reminder control-plane tests |
 | `billing_entitlement_control` | shipped | yes | canonical billing snapshot and Paddle-first provider policy | billing release-critical/control-plane tests |
-| `admin_support_operations` | shipped | yes | internal role, separated internal secrets, destructive auth where needed | ops, monitoring, deletion control-plane tests |
+| `admin_support_operations` | shipped | yes | internal role, separated internal secrets, destructive auth where needed | ops, monitoring, deletion control-plane tests, `tests/customer-onboarding-support-boundary.test.ts` |
 | `enterprise_identity_rbac_retention` | deferred | no | future Enterprise policy | `tests/enterprise-identity-schema-routes.test.ts`; `tests/data-governance-boundary.test.ts`; future enterprise release gate required before activation |
-| `enterprise_integrations` | deferred | no | future Enterprise integration policy | `tests/platform-api-boundary.test.ts`; future integration release gate required before activation |
+| `enterprise_integrations` | deferred | no | future Enterprise integration policy | `tests/platform-api-boundary.test.ts`; `tests/platform-api-schema-routes.test.ts`; future integration release gate required before activation |
 | `advanced_retention_governance_analytics` | experimental | no | future Portfolio/Enterprise analytics policy | future analytics release gate required before activation |
 | `full_clm_expansion` | excluded | no | excluded from product direction | current-scope and shipped-first tests must keep it out |
 
@@ -40,7 +42,8 @@ A module may move from deferred or experimental to shipped only when all of thes
 - The shipped kernel remains renewal-control focused and does not become full CLM, negotiation, e-signature, generic workflow, or integration theater.
 - Enterprise identity changes must also update `lib/product/enterprise-rbac.ts`, `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and the implementation/schema/admin docs under [enterprise/](enterprise/).
 - Data governance or retention changes must also update `lib/product/data-governance.ts`, [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), and [enterprise/DATA_GOVERNANCE_IMPLEMENTATION_PLAN.md](enterprise/DATA_GOVERNANCE_IMPLEMENTATION_PLAN.md).
-- Public API or integration changes must also update `lib/product/platform-api.ts`, [API_AND_INTEGRATION_BOUNDARY.md](API_AND_INTEGRATION_BOUNDARY.md), and [enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md](enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md).
+- Public API or integration changes must also update `lib/product/platform-api.ts`, `lib/product/platform-api-schema.ts`, `lib/product/platform-api-routes.ts`, [API_AND_INTEGRATION_BOUNDARY.md](API_AND_INTEGRATION_BOUNDARY.md), [enterprise/API_INTEGRATION_SCHEMA_AND_ROUTES.md](enterprise/API_INTEGRATION_SCHEMA_AND_ROUTES.md), and [enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md](enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md).
+- Customer onboarding or support/success changes must also update `lib/product/customer-onboarding.ts`, `lib/product/support-success.ts`, [CUSTOMER_ONBOARDING_BOUNDARY.md](CUSTOMER_ONBOARDING_BOUNDARY.md), [SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md](SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md), and [enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md](enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md).
 
 ## Drift Rules
 

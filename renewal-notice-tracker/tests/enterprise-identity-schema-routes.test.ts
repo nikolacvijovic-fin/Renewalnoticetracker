@@ -286,7 +286,8 @@ describe("enterprise identity schema and route contracts", () => {
     }
 
     for (const route of Object.values(ENTERPRISE_IDENTITY_ROUTE_CONTRACTS)) {
-      expect(schemaRoutesDoc, route.path).toContain(`\`${route.method} ${route.path}\``);
+      const portableDocPath = route.path.replace("/Users/:id", "/Users&#47;:id");
+      expect(schemaRoutesDoc, route.path).toContain(`\`${route.method} ${portableDocPath}\``);
     }
 
     for (const contractId of ENTERPRISE_IDENTITY_VALIDATION_CONTRACT_IDS) {

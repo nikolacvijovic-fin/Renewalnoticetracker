@@ -263,13 +263,26 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     ownerSurfaces: {
       routes: ["/internal/ops", "/api/internal/health", "/api/internal/export-jobs", "/api/internal/workspace-deletion"],
       components: ["AdminPanel"],
-      modules: ["lib/internal", "lib/observability", "lib/organization/workspace-deletion.ts"],
-      docs: ["docs/OPERATIONAL_MATURITY.md", "docs/OPERATIONAL_RUNBOOKS.md"]
+      modules: [
+        "lib/internal",
+        "lib/observability",
+        "lib/organization/workspace-deletion.ts",
+        "lib/product/customer-onboarding.ts",
+        "lib/product/support-success.ts"
+      ],
+      docs: [
+        "docs/OPERATIONAL_MATURITY.md",
+        "docs/OPERATIONAL_RUNBOOKS.md",
+        "docs/CUSTOMER_ONBOARDING_BOUNDARY.md",
+        "docs/SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md",
+        "docs/enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md"
+      ]
     },
     requiredTestsOrReleaseGates: [
       "test:ops-readiness",
       "test:monitoring-readiness",
-      "test:deletion-control-plane"
+      "test:deletion-control-plane",
+      "tests/customer-onboarding-support-boundary.test.ts"
     ],
     promotionCriteria: ["Support diagnostics stay code-first, bounded, tenant-scoped, and free of customer content."],
     notAllowed: ["Broad founder operating system runtime", "raw customer data in support views", "destructive action without stronger auth"]
@@ -331,18 +344,22 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
       components: [],
       modules: [
         "lib/product/platform-api.ts",
+        "lib/product/platform-api-schema.ts",
+        "lib/product/platform-api-routes.ts",
         "deferred/integrations/slack.ts",
         "deferred/integrations/teams.ts"
       ],
       docs: [
         "docs/API_AND_INTEGRATION_BOUNDARY.md",
         "docs/enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md",
+        "docs/enterprise/API_INTEGRATION_SCHEMA_AND_ROUTES.md",
         "docs/reference/future/INTEGRATION_TESTING_STRATEGY.md",
         "docs/reference/future/PACKAGING_STRATEGY.md"
       ]
     },
     requiredTestsOrReleaseGates: [
       "tests/platform-api-boundary.test.ts",
+      "tests/platform-api-schema-routes.test.ts",
       "future integration release gate required before activation"
     ],
     deferredCapabilitySlugs: ["advanced_integrations", "public_api_integrations"],

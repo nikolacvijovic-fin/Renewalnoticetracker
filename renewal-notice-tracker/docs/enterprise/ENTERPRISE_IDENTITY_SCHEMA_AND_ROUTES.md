@@ -37,8 +37,8 @@ The route registry defines future API shape without creating live runtime routes
 | `POST /api/enterprise/identity/sso/domain-verification` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.domain_verification_started` |
 | `POST /api/enterprise/identity/sso/test` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.idp_metadata_changed` |
 | `POST /api/enterprise/identity/scim/v2/Users` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
-| `PATCH /api/enterprise/identity/scim/v2/Users/:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
-| `DELETE /api/enterprise/identity/scim/v2/Users/:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_deprovisioned` |
+| `PATCH /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
+| `DELETE /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_deprovisioned` |
 | `GET /api/enterprise/identity/group-role-mappings` | deferred | future enterprise admin session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
 | `POST /api/enterprise/identity/group-role-mappings` | deferred | future enterprise admin session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
 | `POST /api/enterprise/identity/admin-recovery` | deferred | future enterprise admin break-glass | `future_admin_delegation` | `enterprise.admin_recovery_used` |

@@ -2,15 +2,42 @@
 
 Status: future Enterprise planning only. No public API, customer API keys, OAuth app connections, customer webhooks, Slack, Teams, ERP, CRM, accounting, procurement-suite sync, calendar sync, or data warehouse export is shipped by this document.
 
-Canonical boundary: [../API_AND_INTEGRATION_BOUNDARY.md](../API_AND_INTEGRATION_BOUNDARY.md) and [../../lib/product/platform-api.ts](../../lib/product/platform-api.ts).
+Canonical boundary: [../API_AND_INTEGRATION_BOUNDARY.md](../API_AND_INTEGRATION_BOUNDARY.md), [API_INTEGRATION_SCHEMA_AND_ROUTES.md](API_INTEGRATION_SCHEMA_AND_ROUTES.md), [../../lib/product/platform-api.ts](../../lib/product/platform-api.ts), [../../lib/product/platform-api-schema.ts](../../lib/product/platform-api-schema.ts), and [../../lib/product/platform-api-routes.ts](../../lib/product/platform-api-routes.ts).
 
 ## Phased Rollout
 
 1. Registry and boundary: define scopes, auth model, webhook contracts, rate limits, idempotency, audit, monitoring, and forbidden behavior.
-2. Internal design review: threat-model tenant isolation, token storage, key display, webhook signing, replay protection, export privacy, and support diagnostics.
-3. Single private beta capability: choose one narrow Enterprise use case with explicit customer value and no broad sync claims.
-4. Release gate: prove tests, docs, support runbooks, monitoring, audit, and customer communication are production-ready.
-5. Controlled enablement: activate per organization behind explicit Enterprise packaging and admin approval.
+2. Schema and route contracts: define future tables, future `/api/v1` routes, validation contracts, audit linkage, monitoring linkage, and forbidden sensitive fields.
+3. Internal design review: threat-model tenant isolation, token storage, key display, webhook signing, replay protection, export privacy, and support diagnostics.
+4. Single private beta capability: choose one narrow Enterprise use case with explicit customer value and no broad sync claims.
+5. Release gate: prove tests, docs, support runbooks, monitoring, audit, and customer communication are production-ready.
+6. Controlled enablement: activate per organization behind explicit Enterprise packaging and admin approval.
+
+## Schema And Route Contracts
+
+The future schema and route model lives in [API_INTEGRATION_SCHEMA_AND_ROUTES.md](API_INTEGRATION_SCHEMA_AND_ROUTES.md).
+
+Planned future records include:
+- `api_tokens`
+- `api_token_events`
+- `oauth_connections`
+- `integration_connections`
+- `customer_webhook_endpoints`
+- `customer_webhook_deliveries`
+- `integration_event_ledger`
+- `integration_sync_jobs`
+
+Planned future route families include:
+- contract read APIs
+- export job APIs
+- audit event APIs
+- webhook endpoint management APIs
+- API token lifecycle APIs
+- integration connection/sync APIs
+- OAuth callback APIs
+- provider webhook callback placeholders
+
+These contracts are not live routes or migrations. They exist to keep future API work organization-scoped, rate-limited, idempotent, audited, monitored, and free of raw customer/provider payloads.
 
 ## Token Lifecycle
 
@@ -94,4 +121,4 @@ Sensitive payloads, raw tokens, provider payloads, raw contract text, full notes
 
 Public API and integrations are future Enterprise capabilities until explicitly promoted. Starter, Growth, and Portfolio must not imply API key access, Slack/Teams delivery, ERP/CRM/accounting sync, or customer webhook availability.
 
-Promotion requires registry updates, release-gate tests, docs, support runbooks, monitoring readiness, and customer-facing copy that names the exact shipped scope.
+Promotion requires registry updates, schema/route contract updates, release-gate tests, docs, support runbooks, monitoring readiness, and customer-facing copy that names the exact shipped scope.
