@@ -18,6 +18,7 @@ import {
 } from "@/lib/product/support-success";
 import { PLATFORM_MODULES } from "@/lib/product/platform-modules";
 import { SHIPPED_FIRST_SCOPE } from "@/lib/product/shipping-profile";
+import { PRODUCT_EVENT_TAXONOMY } from "@/lib/product/event-taxonomy";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -46,17 +47,28 @@ describe("customer onboarding and support/success boundary", () => {
       expect(milestone.ownerSurface.trim().length, `${milestoneId} needs an owner surface`).toBeGreaterThan(0);
       expect(
         [
-          ...milestone.requiredSignal.auditEvents,
-          ...milestone.requiredSignal.analyticsEvents,
-          ...milestone.requiredSignal.monitoringEvents
+          ...milestone.evidence.shippedEvidenceEvents,
+          ...milestone.evidence.futureEvidenceEvents,
+          ...milestone.evidence.stateOrQueryFallbacks
         ].length,
-        `${milestoneId} needs at least one event/signal`
+        `${milestoneId} needs at least one evidence source`
       ).toBeGreaterThan(0);
+      for (const eventName of [
+        ...milestone.evidence.shippedEvidenceEvents,
+        ...milestone.evidence.futureEvidenceEvents
+      ]) {
+        expect(PRODUCT_EVENT_TAXONOMY, `${milestoneId} references ${eventName}`).toHaveProperty(
+          eventName
+        );
+      }
       expect(["low", "medium", "high"]).toContain(milestone.privacySensitivity);
       expect(milestone.customerVisibleCopyExpectation.length, `${milestoneId} needs copy expectation`).toBeGreaterThan(20);
       expect(milestone.supportFollowUpExpectation.length, `${milestoneId} needs support expectation`).toBeGreaterThan(20);
       expect(milestone.requiredTestsOrReleaseGates).toContain(
         "tests/customer-onboarding-support-boundary.test.ts"
+      );
+      expect(milestone.requiredTestsOrReleaseGates).toContain(
+        "tests/event-taxonomy-onboarding-support.test.ts"
       );
       expect(milestone.forbiddenBehavior.length, `${milestoneId} needs forbidden behavior`).toBeGreaterThan(0);
     }
@@ -106,6 +118,9 @@ describe("customer onboarding and support/success boundary", () => {
       ).toBeGreaterThan(20);
       expect(capability.requiredTestsOrReleaseGates).toContain(
         "tests/customer-onboarding-support-boundary.test.ts"
+      );
+      expect(capability.requiredTestsOrReleaseGates).toContain(
+        "tests/event-taxonomy-onboarding-support.test.ts"
       );
 
       for (const forbiddenField of SUPPORT_SUCCESS_FORBIDDEN_RAW_CUSTOMER_DATA) {
@@ -157,7 +172,7 @@ describe("customer onboarding and support/success boundary", () => {
     }
   });
 
-  it("keeps customer health signals future-only, internal-only, and safe-metadata-only", () => {
+  it("keeps customer health signals non-customer-facing, source-backed, and safe-metadata-only", () => {
     expect(CUSTOMER_HEALTH_SIGNAL_IDS).toEqual([
       "no_contract_uploaded_after_signup",
       "contracts_uploaded_but_unreviewed",
@@ -174,12 +189,23 @@ describe("customer onboarding and support/success boundary", () => {
     for (const signalId of CUSTOMER_HEALTH_SIGNAL_IDS) {
       const signal = CUSTOMER_HEALTH_SIGNALS[signalId];
       expect(signal.status, signalId).toBe("future");
+      expect(["computable_today", "future_only"]).toContain(signal.computability);
       expect(signal.customerFacing, signalId).toBe(false);
       expect(["P1", "P2", "P3"]).toContain(signal.severity);
       expect(signal.triggerSource.length, `${signalId} needs trigger source`).toBeGreaterThan(10);
+      expect(
+        [...signal.eventEvidence, ...signal.stateOrQuerySources, ...signal.futureEventEvidence].length,
+        `${signalId} needs evidence or source backing`
+      ).toBeGreaterThan(0);
+      for (const eventName of [...signal.eventEvidence, ...signal.futureEventEvidence]) {
+        expect(PRODUCT_EVENT_TAXONOMY, `${signalId} references ${eventName}`).toHaveProperty(eventName);
+      }
       expect(signal.recommendedSupportAction.length, `${signalId} needs support action`).toBeGreaterThan(20);
       expect(signal.requiredTestsOrReleaseGates).toContain(
         "tests/customer-onboarding-support-boundary.test.ts"
+      );
+      expect(signal.requiredTestsOrReleaseGates).toContain(
+        "tests/event-taxonomy-onboarding-support.test.ts"
       );
 
       for (const safeField of signal.safeMetadata) {
@@ -243,17 +269,25 @@ describe("customer onboarding and support/success boundary", () => {
     const module = PLATFORM_MODULES.admin_support_operations;
 
     expect(module.ownerSurfaces.modules).toEqual(
-      expect.arrayContaining(["lib/product/customer-onboarding.ts", "lib/product/support-success.ts"])
+      expect.arrayContaining([
+        "lib/product/customer-onboarding.ts",
+        "lib/product/support-success.ts",
+        "lib/product/event-taxonomy.ts"
+      ])
     );
     expect(module.ownerSurfaces.docs).toEqual(
       expect.arrayContaining([
         "docs/CUSTOMER_ONBOARDING_BOUNDARY.md",
+        "docs/EVENT_TAXONOMY.md",
         "docs/SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md",
         "docs/enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md"
       ])
     );
     expect(module.requiredTestsOrReleaseGates).toContain(
       "tests/customer-onboarding-support-boundary.test.ts"
+    );
+    expect(module.requiredTestsOrReleaseGates).toContain(
+      "tests/event-taxonomy-onboarding-support.test.ts"
     );
 
     for (const milestoneId of CUSTOMER_ONBOARDING_MILESTONE_IDS) {
@@ -270,8 +304,11 @@ describe("customer onboarding and support/success boundary", () => {
 
     expect(implementationDoc).toContain("lib/product/customer-onboarding.ts");
     expect(implementationDoc).toContain("lib/product/support-success.ts");
+    expect(implementationDoc).toContain("lib/product/event-taxonomy.ts");
     expect(platformDoc).toContain("lib/product/customer-onboarding.ts");
     expect(platformDoc).toContain("lib/product/support-success.ts");
+    expect(platformDoc).toContain("lib/product/event-taxonomy.ts");
     expect(platformDoc).toContain("tests/customer-onboarding-support-boundary.test.ts");
+    expect(platformDoc).toContain("tests/event-taxonomy-onboarding-support.test.ts");
   });
 });

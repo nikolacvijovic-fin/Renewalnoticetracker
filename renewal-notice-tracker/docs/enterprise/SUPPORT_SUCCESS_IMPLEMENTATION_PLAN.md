@@ -6,12 +6,14 @@ Canonical boundaries:
 
 - [../CUSTOMER_ONBOARDING_BOUNDARY.md](../CUSTOMER_ONBOARDING_BOUNDARY.md)
 - [../SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md](../SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md)
+- [../EVENT_TAXONOMY.md](../EVENT_TAXONOMY.md)
 - `lib/product/customer-onboarding.ts`
 - `lib/product/support-success.ts`
+- `lib/product/event-taxonomy.ts`
 
 ## Phased Rollout
 
-1. Registry and boundary: define onboarding milestones, support capabilities, health signals, diagnostic fields, forbidden raw data, and release proof.
+1. Registry and boundary: define onboarding milestones, support capabilities, health signals, diagnostic fields, forbidden raw data, event taxonomy evidence, and release proof.
 2. Internal design review: threat-model support data access, purpose limitation, tenant scoping, escalation ownership, and customer communication.
 3. Operational pilot: use existing internal ops diagnostics only, with no impersonation and no raw customer content.
 4. Enterprise support gate: add support-access review, escalation workflow, incident communication, and customer communication evidence.
@@ -51,7 +53,7 @@ Support diagnostics must not collect raw contract text, full notes, OCR output, 
 
 ## Health Signal Lifecycle
 
-Future customer health signals should be internal-only until:
+Future customer health signals should remain internal-only until:
 
 - formulas are documented
 - severity mapping is reviewed
@@ -61,6 +63,12 @@ Future customer health signals should be internal-only until:
 - false-positive handling exists
 
 Signals should route support to product actions: upload, review, assign, trust reminders, decide, export safely, fix billing exception state, or inspect OCR/export/reminder failure codes.
+
+Signals must declare whether they are computable today or future-only:
+
+- Computable-today signals may use shipped audit, analytics, monitoring, and state/query evidence from `lib/product/event-taxonomy.ts`.
+- Future-only signals may reference future event contracts such as `support.escalation_opened` and `support.enterprise_security_review_requested`, but they must not appear as runtime product evidence.
+- No signal may use raw contract text, full notes, OCR output, provider payloads, storage paths, tokens, secrets, or uploaded document contents.
 
 ## Escalation Lifecycle
 
@@ -109,6 +117,8 @@ Support access review remains future-only until Enterprise governance, retention
 Before live support/success tooling ships:
 
 - `lib/product/customer-onboarding.ts` and `lib/product/support-success.ts` must be updated.
+- `lib/product/event-taxonomy.ts` and [../EVENT_TAXONOMY.md](../EVENT_TAXONOMY.md) must distinguish emitted-today events from future/deferred evidence.
 - [../CUSTOMER_ONBOARDING_BOUNDARY.md](../CUSTOMER_ONBOARDING_BOUNDARY.md) and [../SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md](../SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md) must reflect exact shipped scope.
 - `tests/customer-onboarding-support-boundary.test.ts` must prove safe metadata, forbidden raw-data boundaries, no impersonation, no fake health UI, and platform registry alignment.
+- `tests/event-taxonomy-onboarding-support.test.ts` must prove onboarding/support references only real emitted events, explicit future events, or documented state/query fallbacks.
 - Operational runbooks must cover escalation, incident communication, billing exceptions, export/OCR/reminder failures, and support-access review.

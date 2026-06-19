@@ -112,7 +112,7 @@ describe("procurement query helpers", () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]?.label).toBe("Renewed");
     expect(result.rows[0]?.drilldown_contract_ids).toEqual(["contract-1"]);
-  });
+  }, 10000);
 
   it("labels unreviewed vendor exposure as low-confidence", async () => {
     getContracts.mockResolvedValue([

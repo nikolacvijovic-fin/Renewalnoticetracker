@@ -6,6 +6,7 @@ export type SupportSuccessRoleBoundary =
   | "future_enterprise_support_gate";
 export type SupportSuccessPrivacySensitivity = "low" | "medium" | "high" | "restricted";
 export type CustomerHealthSignalSeverity = "P1" | "P2" | "P3";
+export type CustomerHealthSignalComputability = "computable_today" | "future_only";
 
 export type SupportSuccessCapabilityId =
   | "account_health_snapshot"
@@ -71,10 +72,14 @@ export type SupportSuccessCapability = {
 export type CustomerHealthSignal = {
   id: CustomerHealthSignalId;
   status: "future";
+  computability: CustomerHealthSignalComputability;
   safeMetadata: readonly string[];
   forbiddenMetadata: readonly SupportSuccessForbiddenRawCustomerData[];
   severity: CustomerHealthSignalSeverity;
   triggerSource: string;
+  eventEvidence: readonly string[];
+  stateOrQuerySources: readonly string[];
+  futureEventEvidence: readonly string[];
   recommendedSupportAction: string;
   customerFacing: false;
   requiredTestsOrReleaseGates: readonly string[];
@@ -92,6 +97,7 @@ export type SupportDiagnosticBundleContract = {
 
 const commonSupportReleaseProof = [
   "tests/customer-onboarding-support-boundary.test.ts",
+  "tests/event-taxonomy-onboarding-support.test.ts",
   "future support/success operations release gate required before expansion"
 ] as const;
 
@@ -275,72 +281,117 @@ function healthSignal(input: Omit<CustomerHealthSignal, "status" | "customerFaci
 export const CUSTOMER_HEALTH_SIGNALS: Record<CustomerHealthSignalId, CustomerHealthSignal> = {
   no_contract_uploaded_after_signup: healthSignal({
     id: "no_contract_uploaded_after_signup",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "signup_age_days", "contract_count", "plan_tier"],
     severity: "P3",
     triggerSource: "onboarding milestone aggregation",
+    eventEvidence: ["auth_signup_completed"],
+    stateOrQuerySources: ["organization_created_at_query", "organization_scoped_contract_count"],
+    futureEventEvidence: [],
     recommendedSupportAction: "Send setup guidance or offer import cleanup help."
   }),
   contracts_uploaded_but_unreviewed: healthSignal({
     id: "contracts_uploaded_but_unreviewed",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "uploaded_count", "unreviewed_count", "oldest_unreviewed_age_days"],
     severity: "P2",
     triggerSource: "contract review queue summary",
+    eventEvidence: ["contract_upload_completed", "import_completed"],
+    stateOrQuerySources: ["contract_metadata_needs_review_query", "unreviewed_contract_count"],
+    futureEventEvidence: [],
     recommendedSupportAction: "Point the operator to P0 review and explain that reminders need reviewed fields."
   }),
   contracts_without_owner: healthSignal({
     id: "contracts_without_owner",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "contract_count", "missing_owner_count", "department"],
     severity: "P2",
     triggerSource: "owner coverage summary",
+    eventEvidence: ["contract_owner_assigned"],
+    stateOrQuerySources: ["owner_assignment_coverage_query", "contracts_missing_owner_query"],
+    futureEventEvidence: [],
     recommendedSupportAction: "Recommend owner assignment cleanup without assigning owners silently."
   }),
   reminders_not_trusted: healthSignal({
     id: "reminders_not_trusted",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "blocked_reminder_count", "trusted_reminder_count", "blocking_reason_code"],
     severity: "P2",
     triggerSource: "reminder readiness summary",
+    eventEvidence: ["reminder.blocked", "reminder_scheduled", "reminder_failed", "reminder_retry_scheduled"],
+    stateOrQuerySources: ["trusted_reminder_count_query", "reminder_blocking_reason_summary"],
+    futureEventEvidence: ["reminder.trusted", "reminder.activated"],
     recommendedSupportAction: "Explain review/owner/trust blockers and route to workflow actions."
   }),
   decisions_missing: healthSignal({
     id: "decisions_missing",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "undecided_count", "due_window", "owner_user_id"],
     severity: "P2",
     triggerSource: "renewal decision summary",
+    eventEvidence: ["renewal_decision_recorded", "renewal_decision.created"],
+    stateOrQuerySources: ["renewal_decision_status_query", "undecided_contract_count_query"],
+    futureEventEvidence: [],
     recommendedSupportAction: "Route accountable users to record decisions without recommending legal outcomes."
   }),
   export_failed_repeatedly: healthSignal({
     id: "export_failed_repeatedly",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "export_request_id", "failure_code", "failure_category", "attempt_count"],
     severity: "P2",
     triggerSource: "export job monitoring",
+    eventEvidence: [
+      "contracts.export_background_failed",
+      "export_sync_failed",
+      "export_background_failed",
+      "export_background_download_failed"
+    ],
+    stateOrQuerySources: ["background_export_request_status_query", "recent_export_failure_count_query"],
+    futureEventEvidence: [],
     recommendedSupportAction: "Inspect preset/format/scale failure codes and recommend safe CSV/background path where appropriate."
   }),
   billing_exception_needs_followup: healthSignal({
     id: "billing_exception_needs_followup",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "billing_provider", "subscription_status", "plan_tier", "reason_code"],
     severity: "P2",
     triggerSource: "billing snapshot and support-led exception policy",
+    eventEvidence: ["billing.webhook_synced", "billing_webhook_failed"],
+    stateOrQuerySources: ["canonical_billing_snapshot", "billing_provider_policy_query"],
+    futureEventEvidence: ["billing.provider_exception_configured"],
     recommendedSupportAction: "Confirm exception billing state and update customer on support-led path."
   }),
   ocr_queue_delayed: healthSignal({
     id: "ocr_queue_delayed",
+    computability: "computable_today",
     safeMetadata: ["organization_id", "job_id", "queue_status", "oldest_job_age_minutes", "failure_code"],
     severity: "P2",
     triggerSource: "OCR job health summary",
+    eventEvidence: ["ocr_job_failed", "ocr_job_retry_scheduled", "ocr_job_terminal_failed", "ocr_job_stale_rescued"],
+    stateOrQuerySources: ["ocr_job_health_summary_query", "oldest_ocr_job_age_query"],
+    futureEventEvidence: [],
     recommendedSupportAction: "Check OCR queue health and communicate retry/failure code without document content."
   }),
   support_escalation_open: healthSignal({
     id: "support_escalation_open",
+    computability: "future_only",
     safeMetadata: ["organization_id", "escalation_id", "severity", "status", "opened_at"],
     severity: "P1",
     triggerSource: "future escalation workflow",
+    eventEvidence: [],
+    stateOrQuerySources: [],
+    futureEventEvidence: ["support.escalation_opened"],
     recommendedSupportAction: "Assign an escalation owner and define customer communication timing."
   }),
   enterprise_security_review_pending: healthSignal({
     id: "enterprise_security_review_pending",
+    computability: "future_only",
     safeMetadata: ["organization_id", "review_id", "status", "requested_at", "owner_role"],
     severity: "P3",
     triggerSource: "future enterprise security review workflow",
+    eventEvidence: [],
+    stateOrQuerySources: [],
+    futureEventEvidence: ["support.enterprise_security_review_requested"],
     recommendedSupportAction: "Track requested security materials and avoid making unsupported compliance claims."
   })
 } as const;

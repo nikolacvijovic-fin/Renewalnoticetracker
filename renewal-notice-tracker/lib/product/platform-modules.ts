@@ -267,10 +267,12 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
         "lib/internal",
         "lib/observability",
         "lib/organization/workspace-deletion.ts",
+        "lib/product/event-taxonomy.ts",
         "lib/product/customer-onboarding.ts",
         "lib/product/support-success.ts"
       ],
       docs: [
+        "docs/EVENT_TAXONOMY.md",
         "docs/OPERATIONAL_MATURITY.md",
         "docs/OPERATIONAL_RUNBOOKS.md",
         "docs/CUSTOMER_ONBOARDING_BOUNDARY.md",
@@ -282,7 +284,8 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
       "test:ops-readiness",
       "test:monitoring-readiness",
       "test:deletion-control-plane",
-      "tests/customer-onboarding-support-boundary.test.ts"
+      "tests/customer-onboarding-support-boundary.test.ts",
+      "tests/event-taxonomy-onboarding-support.test.ts"
     ],
     promotionCriteria: ["Support diagnostics stay code-first, bounded, tenant-scoped, and free of customer content."],
     notAllowed: ["Broad founder operating system runtime", "raw customer data in support views", "destructive action without stronger auth"]

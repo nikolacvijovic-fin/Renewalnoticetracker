@@ -1,6 +1,6 @@
 # Support Success Operations Boundary
 
-Canonical code source: `lib/product/support-success.ts`.
+Canonical code sources: `lib/product/support-success.ts` and `lib/product/event-taxonomy.ts`.
 
 NoticeControl support and success operations exist to keep the renewal-control product safe to operate. They are not a full CRM, helpdesk, customer success platform, impersonation system, or raw-data browsing console.
 
@@ -57,9 +57,9 @@ Diagnostics must not include:
 
 ## Customer Health Signals
 
-Customer health signals are future-only and internal-only. They may guide support action, but they must not appear as customer-facing scores until formulas, copy, support response, privacy, and appeal paths are proven.
+Customer health signals are future-runtime and internal-only. Some signals are computable today from shipped events or state/query summaries, but none appear as customer-facing scores or a support dashboard. Customer-facing scores require formulas, copy, support response, privacy, and appeal paths to be proven first.
 
-Future signals include:
+Computable today from safe event or state/query sources:
 
 - `no_contract_uploaded_after_signup`
 - `contracts_uploaded_but_unreviewed`
@@ -69,10 +69,24 @@ Future signals include:
 - `export_failed_repeatedly`
 - `billing_exception_needs_followup`
 - `ocr_queue_delayed`
+
+Future-only signals:
+
 - `support_escalation_open`
 - `enterprise_security_review_pending`
 
-Each signal must use safe metadata only and must not carry customer content.
+Each signal must declare whether it is `computable_today` or `future_only`. Computable-today signals must reference real emitted events from [EVENT_TAXONOMY.md](EVENT_TAXONOMY.md) or real state/query sources. Future-only signals must reference future/deferred event contracts only. Each signal must use safe metadata only and must not carry customer content.
+
+## Evidence Sources
+
+Support signals may use:
+
+- shipped audit events such as `contracts.export_background_failed` or `billing.webhook_synced`
+- shipped analytics events such as `contract_upload_completed`, `contract_review_completed`, and `renewal_decision_recorded`
+- shipped monitoring events such as `ocr_job_failed`, `reminder_retry_scheduled`, and `billing_webhook_failed`
+- state/query summaries such as reviewed contract counts, owner coverage, reminder blocked-state summaries, export job status, OCR queue health, and canonical billing snapshots
+
+Support signals must not depend on aspirational event names unless those names are explicitly marked future/deferred in `lib/product/event-taxonomy.ts`.
 
 ## Escalation And Incident Communication
 
@@ -106,6 +120,7 @@ No current support surface may imply:
 Before live support/success tooling ships, the product must have:
 
 - explicit registry status change
+- event taxonomy update proving emitted versus future evidence
 - tenant-scoped data access
 - support role/auth boundary
 - diagnostic allowlist and raw-data denylist

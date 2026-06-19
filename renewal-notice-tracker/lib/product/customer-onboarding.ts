@@ -14,10 +14,10 @@ export type CustomerOnboardingMilestoneId =
   | "first_intelligence_viewed"
   | "renewal_loop_completed";
 
-export type CustomerOnboardingSignalContract = {
-  auditEvents: readonly string[];
-  analyticsEvents: readonly string[];
-  monitoringEvents: readonly string[];
+export type CustomerOnboardingEvidenceContract = {
+  shippedEvidenceEvents: readonly string[];
+  futureEvidenceEvents: readonly string[];
+  stateOrQueryFallbacks: readonly string[];
 };
 
 export type CustomerOnboardingMilestone = {
@@ -25,7 +25,7 @@ export type CustomerOnboardingMilestone = {
   label: string;
   status: CustomerOnboardingMilestoneStatus;
   ownerSurface: string;
-  requiredSignal: CustomerOnboardingSignalContract;
+  evidence: CustomerOnboardingEvidenceContract;
   privacySensitivity: CustomerOnboardingPrivacySensitivity;
   customerVisibleCopyExpectation: string;
   supportFollowUpExpectation: string;
@@ -35,6 +35,7 @@ export type CustomerOnboardingMilestone = {
 
 const commonOnboardingReleaseProof = [
   "tests/customer-onboarding-support-boundary.test.ts",
+  "tests/event-taxonomy-onboarding-support.test.ts",
   "future customer onboarding/support success release gate required before expansion"
 ] as const;
 
@@ -47,10 +48,10 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "Workspace created",
     status: "shipped",
     ownerSurface: "auth callback and active organization setup",
-    requiredSignal: {
-      auditEvents: ["organization.created", "organization.member_created"],
-      analyticsEvents: ["workspace_created"],
-      monitoringEvents: []
+    evidence: {
+      shippedEvidenceEvents: ["auth_signup_completed", "trial.started"],
+      futureEvidenceEvents: ["organization.created", "organization.member_created"],
+      stateOrQueryFallbacks: ["active_organization_membership_query", "organization_created_at_query"]
     },
     privacySensitivity: "low",
     customerVisibleCopyExpectation: "Confirm the workspace exists and guide the operator to upload the first contract.",
@@ -63,10 +64,16 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First contract uploaded",
     status: "shipped",
     ownerSurface: "contract upload/import",
-    requiredSignal: {
-      auditEvents: ["contract.uploaded", "contracts.imported"],
-      analyticsEvents: ["contract_uploaded", "contract_import_completed"],
-      monitoringEvents: ["ocr_job_queued"]
+    evidence: {
+      shippedEvidenceEvents: [
+        "contract.created",
+        "contract.manual_created",
+        "contracts.imported",
+        "contract_upload_completed",
+        "import_completed"
+      ],
+      futureEvidenceEvents: [],
+      stateOrQueryFallbacks: ["organization_scoped_contract_count", "contract_processing_status_summary"]
     },
     privacySensitivity: "high",
     customerVisibleCopyExpectation: "Explain that uploaded contracts must still be reviewed before workflow trust.",
@@ -79,10 +86,10 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First contract reviewed",
     status: "shipped",
     ownerSurface: "P0 review workflow",
-    requiredSignal: {
-      auditEvents: ["contract.reviewed", "contract.trust_changed"],
-      analyticsEvents: ["contract_review_completed"],
-      monitoringEvents: []
+    evidence: {
+      shippedEvidenceEvents: ["contract.review_updated", "contract_review_completed"],
+      futureEvidenceEvents: [],
+      stateOrQueryFallbacks: ["reviewed_contract_count", "contract_metadata_needs_review_query"]
     },
     privacySensitivity: "medium",
     customerVisibleCopyExpectation: "Make clear that reviewed P0 fields become workflow-ready evidence.",
@@ -95,10 +102,10 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First owner assigned",
     status: "shipped",
     ownerSurface: "owner assignment workflow",
-    requiredSignal: {
-      auditEvents: ["contract.owner_assigned"],
-      analyticsEvents: ["owner_assigned"],
-      monitoringEvents: []
+    evidence: {
+      shippedEvidenceEvents: ["contract_owner_assigned"],
+      futureEvidenceEvents: [],
+      stateOrQueryFallbacks: ["owner_assignment_coverage_query", "contracts_missing_owner_query"]
     },
     privacySensitivity: "medium",
     customerVisibleCopyExpectation: "Explain that an accountable owner is required before trusted reminders.",
@@ -111,10 +118,10 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First reminder trusted",
     status: "shipped",
     ownerSurface: "trusted reminder activation",
-    requiredSignal: {
-      auditEvents: ["reminder.trusted", "reminder.activated"],
-      analyticsEvents: ["trusted_reminder_ready"],
-      monitoringEvents: ["reminder_claimed", "reminder_sent"]
+    evidence: {
+      shippedEvidenceEvents: ["reminder.created", "reminder_scheduled", "reminder_claimed", "reminder_sent"],
+      futureEvidenceEvents: ["reminder.trusted", "reminder.activated"],
+      stateOrQueryFallbacks: ["trusted_reminder_count_query", "reminder_blocking_reason_summary"]
     },
     privacySensitivity: "medium",
     customerVisibleCopyExpectation: "Show that reminders activate only after review, owner, and trust gates.",
@@ -127,10 +134,10 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First decision recorded",
     status: "shipped",
     ownerSurface: "renewal decision workflow",
-    requiredSignal: {
-      auditEvents: ["renewal.decision_recorded"],
-      analyticsEvents: ["renewal_decision_recorded"],
-      monitoringEvents: []
+    evidence: {
+      shippedEvidenceEvents: ["renewal_decision.created", "renewal_decision_recorded"],
+      futureEvidenceEvents: [],
+      stateOrQueryFallbacks: ["renewal_decision_status_query", "latest_decision_by_contract_query"]
     },
     privacySensitivity: "medium",
     customerVisibleCopyExpectation: "Frame decisions as workflow records, not legal advice.",
@@ -143,10 +150,17 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First export completed",
     status: "shipped",
     ownerSurface: "export/reporting presets",
-    requiredSignal: {
-      auditEvents: ["contracts.export_attempted", "contracts.exported"],
-      analyticsEvents: ["export_requested"],
-      monitoringEvents: ["sync_export_completed", "background_export_completed"]
+    evidence: {
+      shippedEvidenceEvents: [
+        "contracts.export_attempted",
+        "contracts.exported",
+        "contracts.export_background_completed",
+        "export_requested",
+        "export_sync_completed",
+        "export_background_completed"
+      ],
+      futureEvidenceEvents: [],
+      stateOrQueryFallbacks: ["export_request_status_query", "latest_export_artifact_status_query"]
     },
     privacySensitivity: "high",
     customerVisibleCopyExpectation: "Explain which export preset was used and whether sensitive sections were included.",
@@ -159,10 +173,16 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "Billing configured",
     status: "shipped",
     ownerSurface: "billing settings and support-led exceptions",
-    requiredSignal: {
-      auditEvents: ["billing.checkout_completed", "billing.provider_exception_configured"],
-      analyticsEvents: ["billing_configured"],
-      monitoringEvents: ["billing_webhook_succeeded"]
+    evidence: {
+      shippedEvidenceEvents: [
+        "billing.checkout_started",
+        "billing.webhook_synced",
+        "billing_checkout_started",
+        "checkout_completed",
+        "billing_webhook_succeeded"
+      ],
+      futureEvidenceEvents: ["billing.provider_exception_configured"],
+      stateOrQueryFallbacks: ["canonical_billing_snapshot", "support_led_billing_provider_policy_query"]
     },
     privacySensitivity: "high",
     customerVisibleCopyExpectation: "Distinguish Paddle self-serve billing from support-led PayPal/manual invoice exceptions.",
@@ -175,10 +195,16 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "First intelligence viewed",
     status: "shipped",
     ownerSurface: "risk, financial, and procurement intelligence surfaces",
-    requiredSignal: {
-      auditEvents: ["intelligence.risk_score_viewed", "financial_intelligence.viewed", "procurement_analytics.viewed"],
-      analyticsEvents: ["intelligence_surface_viewed"],
-      monitoringEvents: ["intelligence_access_denied"]
+    evidence: {
+      shippedEvidenceEvents: [
+        "intelligence.risk_badge_viewed",
+        "intelligence.risk_explanation_viewed",
+        "intelligence.risk_queue_viewed",
+        "intelligence.financial_viewed",
+        "intelligence.procurement_viewed"
+      ],
+      futureEvidenceEvents: [],
+      stateOrQueryFallbacks: ["intelligence_surface_access_map", "canonical_billing_snapshot"]
     },
     privacySensitivity: "high",
     customerVisibleCopyExpectation: "Show confidence/trust labels and action links instead of pretending finance/procurement/legal authority.",
@@ -191,10 +217,17 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     label: "Renewal loop completed",
     status: "shipped",
     ownerSurface: "acknowledgment, decision, close/reopen workflow",
-    requiredSignal: {
-      auditEvents: ["reminder.acknowledged", "renewal.decision_recorded", "cycle.closed"],
-      analyticsEvents: ["renewal_loop_completed"],
-      monitoringEvents: []
+    evidence: {
+      shippedEvidenceEvents: [
+        "contract.acknowledged",
+        "contract.acknowledged_from_email",
+        "acknowledgment_recorded",
+        "renewal_decision.created",
+        "renewal_decision_recorded",
+        "renewal_cycle.updated"
+      ],
+      futureEvidenceEvents: ["cycle.closed"],
+      stateOrQueryFallbacks: ["cycle_status_closed_or_reopened_query", "renewal_loop_completion_summary_query"]
     },
     privacySensitivity: "medium",
     customerVisibleCopyExpectation: "Celebrate a completed renewal-control loop without implying full CLM completion.",
