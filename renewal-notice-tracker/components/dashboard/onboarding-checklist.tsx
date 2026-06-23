@@ -1,8 +1,15 @@
 import Link from "next/link";
-import type { OnboardingChecklistItem } from "@/lib/commercial/conversion";
 import type { ActivationStatus } from "@/lib/commercial/activation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+
+export type OnboardingChecklistDisplayItem = {
+  key: string;
+  label: string;
+  description: string;
+  completed: boolean;
+  href: string;
+};
 
 export function OnboardingChecklist({
   items,
@@ -10,7 +17,7 @@ export function OnboardingChecklist({
   activationStatus,
   activationWindowLabel
 }: {
-  items: OnboardingChecklistItem[];
+  items: OnboardingChecklistDisplayItem[];
   firstValueMilestone: string;
   activationStatus: ActivationStatus;
   activationWindowLabel: string;

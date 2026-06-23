@@ -4,6 +4,8 @@ Canonical code sources: `lib/product/support-success.ts` and `lib/product/event-
 
 NoticeControl support and success operations exist to keep the renewal-control product safe to operate. They are not a full CRM, helpdesk, customer success platform, impersonation system, or raw-data browsing console.
 
+The shipped customer onboarding checklist is a first-value product surface, not a support dashboard. Its progress model lives in `lib/product/customer-onboarding-progress.ts` and may use only shipped event evidence or durable state/query fallbacks from the onboarding registry.
+
 ## Capability Boundary
 
 | Capability | Status | Current runtime surface |
@@ -20,7 +22,7 @@ NoticeControl support and success operations exist to keep the renewal-control p
 | `billing_exception_support` | shipped | internal ops and support-led billing exceptions |
 | `data_export_deletion_support` | deferred | internal ops status only |
 
-Shipped support surfaces are intentionally narrow: internal ops diagnostics, billing exception visibility, and assisted troubleshooting using codes and counts. Future support/success tooling needs an Enterprise support gate before becoming runtime product.
+Shipped support surfaces are intentionally narrow: the customer onboarding checklist, internal ops diagnostics, billing exception visibility, and assisted troubleshooting using codes and counts. Future support/success tooling needs an Enterprise support gate before becoming runtime product.
 
 ## Safe Diagnostic Bundle
 

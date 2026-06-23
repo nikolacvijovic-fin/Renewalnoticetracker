@@ -9,6 +9,7 @@ This taxonomy maps onboarding and support-success evidence to actual NoticeContr
 - Shipped evidence must reference events marked as emitted today in `lib/product/event-taxonomy.ts`.
 - Future evidence must be marked `emittedToday: false` and must not be treated as live instrumentation.
 - State/query fallback evidence may be used when the product has reliable stored state but no exact event today.
+- Customer onboarding progress in `lib/product/customer-onboarding-progress.ts` may complete milestones from shipped event evidence or durable state/query fallback evidence only; future/deferred event contracts do not complete customer-visible progress.
 - Safe metadata may include IDs, counts, status values, failure codes, categories, timestamps, route/action context, and bounded plan/provider labels.
 - Event metadata must never include raw contract text, full notes, OCR output, raw extracted evidence, provider payloads, storage paths, tokens, secrets, full billing payloads, raw customer files, uploaded document contents, email bodies, or debug traces.
 
@@ -91,9 +92,6 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `intelligence.risk_queue_viewed`
 - `intelligence.risk_badge_viewed`
 - `intelligence.risk_explanation_viewed`
-- `intelligence.risk_score_recalculated`
-- `intelligence.export_requested`
-- `intelligence.settings_changed`
 - `intelligence.access_denied`
 - `intelligence_access_denied`
 - `internal_route_auth_failed`
@@ -114,6 +112,9 @@ These events are registry contracts only. They must not be counted as live evide
 - `reminder.activated`
 - `cycle.closed`
 - `billing.provider_exception_configured`
+- `intelligence.risk_score_recalculated`
+- `intelligence.export_requested`
+- `intelligence.settings_changed`
 - `privacy.workspace_deletion_failed`
 - `support.escalation_opened`
 - `support.enterprise_security_review_requested`

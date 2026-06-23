@@ -1,8 +1,10 @@
 # Customer Onboarding Boundary
 
-Canonical code sources: `lib/product/customer-onboarding.ts` and `lib/product/event-taxonomy.ts`.
+Canonical code sources: `lib/product/customer-onboarding.ts`, `lib/product/customer-onboarding-progress.ts`, `lib/product/event-taxonomy.ts`, and the bounded onboarding evidence query in `lib/contracts/kernel-queries.ts`.
 
 NoticeControl onboarding is a first-value path for the renewal-control kernel. It is not a customer success platform, CRM, health-score product, or full implementation-management suite.
+
+The dashboard checklist is the current customer-facing onboarding surface. It renders the canonical progress view model from `lib/product/customer-onboarding-progress.ts`; page code should not invent milestone completion rules inline.
 
 ## First-Value Path
 
@@ -37,6 +39,8 @@ Each milestone must declare:
 
 Onboarding copy should move operators toward upload, review, owner assignment, trusted reminder activation, decision, export, and loop closure.
 
+The customer-facing progress model must use only shipped event evidence or durable state/query fallback evidence. Future/deferred events such as `reminder.trusted`, `reminder.activated`, `cycle.closed`, and `billing.provider_exception_configured` may remain in the registry, but they must not complete milestones until real emitting code exists.
+
 ## Measurable Today
 
 The following milestones are measurable today through shipped event evidence, state/query fallback evidence, or both:
@@ -55,6 +59,23 @@ The following milestones are measurable today through shipped event evidence, st
 | `renewal_loop_completed` | `acknowledgment_recorded`, `renewal_decision_recorded`, `renewal_cycle.updated` | cycle status and renewal-loop completion summaries |
 
 Future event evidence such as `organization.created`, `reminder.trusted`, `reminder.activated`, `cycle.closed`, and `billing.provider_exception_configured` is intentionally not treated as shipped telemetry until emitting code exists.
+
+## Current Runtime Surface
+
+The dashboard checklist currently exposes progress for the first-value path only:
+
+- workspace context
+- first contract uploaded
+- first contract reviewed
+- first owner assigned
+- first trusted reminder
+- first decision recorded
+- first export completed
+- billing configured through canonical billing truth
+- first intelligence surface viewed
+- renewal-control loop completed
+
+The helper returns labels, short action descriptions, links, completion state, and evidence category only. It must not return raw contract text, OCR output, full notes, provider payloads, storage paths, secrets, uploaded document contents, or support-only health signals.
 
 ## Privacy Boundary
 

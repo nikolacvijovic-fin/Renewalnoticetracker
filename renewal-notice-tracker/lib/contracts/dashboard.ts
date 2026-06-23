@@ -11,6 +11,7 @@ export type DashboardContractRow = {
   owner_name?: string;
   counterparty_id?: string | null;
   renewal_decision_status?: string | null;
+  last_acknowledged_at?: string | null;
   created_at?: string;
   contract_metadata?: {
     contract_title?: string | null;

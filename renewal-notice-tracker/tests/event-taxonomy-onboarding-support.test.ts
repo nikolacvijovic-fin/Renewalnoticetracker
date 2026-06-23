@@ -29,6 +29,23 @@ function allMilestoneEvents(milestoneId: (typeof CUSTOMER_ONBOARDING_MILESTONE_I
   return [...evidence.shippedEvidenceEvents, ...evidence.futureEvidenceEvents];
 }
 
+function sourcePathsFrom(source: string) {
+  return [...source.matchAll(/\b(?:app|lib|components|tests|scripts)\/[^\s,;]+?\.(?:ts|tsx|js|mjs)\b/g)].map(
+    (match) => match[0]
+  );
+}
+
+function readSourceFile(repoRelativePath: string) {
+  return readRepoFile(...repoRelativePath.split("/"));
+}
+
+function extractDocSection(content: string, heading: string) {
+  const start = content.indexOf(`## ${heading}`);
+  if (start === -1) return "";
+  const next = content.indexOf("\n## ", start + 1);
+  return content.slice(start, next === -1 ? content.length : next);
+}
+
 describe("event taxonomy, onboarding, and support-success evidence alignment", () => {
   it("defines a unique safe event taxonomy for shipped and future evidence", () => {
     const eventNamesFromEntries = PRODUCT_EVENT_NAMES.map((eventName) => {
@@ -55,6 +72,41 @@ describe("event taxonomy, onboarding, and support-success evidence alignment", (
     });
 
     expect(new Set(eventNamesFromEntries).size).toBe(eventNamesFromEntries.length);
+  });
+
+  it("backs every emitted-today event with a real source file containing that event name", () => {
+    for (const eventName of PRODUCT_EVENT_NAMES) {
+      const event = PRODUCT_EVENT_TAXONOMY[eventName];
+      const sourcePaths = sourcePathsFrom(event.source);
+
+      if (!event.emittedToday) {
+        expect(
+          event.source.toLowerCase(),
+          `${eventName} future/deferred event needs an explicit non-runtime source description`
+        ).toMatch(/future|deferred|reserved/);
+        continue;
+      }
+
+      expect(sourcePaths.length, `${eventName} needs at least one concrete source file`).toBeGreaterThan(0);
+
+      let foundInReferencedSource = false;
+      for (const sourcePath of sourcePaths) {
+        const absolutePath = path.join(repoRoot, ...sourcePath.split("/"));
+        expect(fs.existsSync(absolutePath), `${eventName} source file should exist: ${sourcePath}`).toBe(
+          true
+        );
+
+        const sourceContent = readSourceFile(sourcePath);
+        if (sourceContent.includes(eventName)) {
+          foundInReferencedSource = true;
+        }
+      }
+
+      expect(
+        foundInReferencedSource,
+        `${eventName} is marked emittedToday but does not appear in its referenced runtime source`
+      ).toBe(true);
+    }
   });
 
   it("requires shipped onboarding milestones to reference real emitted events or real state/query fallbacks", () => {
@@ -141,6 +193,27 @@ describe("event taxonomy, onboarding, and support-success evidence alignment", (
 
     for (const eventName of PRODUCT_EVENT_NAMES) {
       expect(eventTaxonomyDoc, eventName).toContain(`\`${eventName}\``);
+    }
+
+    const shippedSection = extractDocSection(eventTaxonomyDoc, "Current Shipped Event Evidence");
+    const futureSection = extractDocSection(eventTaxonomyDoc, "Future Or Deferred Event Evidence");
+    for (const eventName of PRODUCT_EVENT_NAMES) {
+      const event = PRODUCT_EVENT_TAXONOMY[eventName];
+      if (event.emittedToday) {
+        expect(shippedSection, `${eventName} should be documented as shipped`).toContain(
+          `\`${eventName}\``
+        );
+        expect(futureSection, `${eventName} should not be documented as future`).not.toContain(
+          `\`${eventName}\``
+        );
+      } else {
+        expect(futureSection, `${eventName} should be documented as future/deferred`).toContain(
+          `\`${eventName}\``
+        );
+        expect(shippedSection, `${eventName} should not be documented as shipped`).not.toContain(
+          `\`${eventName}\``
+        );
+      }
     }
 
     for (const milestoneId of CUSTOMER_ONBOARDING_MILESTONE_IDS) {

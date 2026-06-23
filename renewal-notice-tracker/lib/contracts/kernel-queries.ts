@@ -87,6 +87,14 @@ export type ExportRowsPage = {
   totalRowCount: number;
 };
 
+export type CustomerOnboardingQueryEvidence = {
+  hasActiveOrganizationMembership: boolean;
+  completedImportCount30d: number;
+  trustedReminderCount: number;
+  completedExportCount: number;
+  intelligenceViewCount: number;
+};
+
 const EXPORT_BASE_SELECT = `
   id,
   status,
@@ -163,6 +171,79 @@ export async function getDashboardMetrics(organizationId: string) {
   return calculateDashboardMetrics(contracts);
 }
 
+export async function getCustomerOnboardingQueryEvidence(
+  organizationId: string
+): Promise<CustomerOnboardingQueryEvidence> {
+  const supabase = createServerSupabaseClient();
+  const last30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [
+    activeMemberships,
+    completedImports,
+    trustedReminders,
+    completedDataExports,
+    completedExportAudits,
+    intelligenceViews
+  ] = await Promise.all([
+    supabase
+      .from("memberships")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .limit(1),
+    supabase
+      .from("import_jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .in("status", ["completed", "completed_with_errors"])
+      .gte("created_at", last30d),
+    supabase
+      .from("reminders")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .not("status", "in", '("cancelled","superseded")'),
+    supabase
+      .from("data_export_requests")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "completed"),
+    supabase
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .in("action", ["contracts.exported", "contracts.export_background_completed"]),
+    supabase
+      .from("audit_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .in("action", [
+        "intelligence.risk_badge_viewed",
+        "intelligence.risk_explanation_viewed",
+        "intelligence.risk_queue_viewed",
+        "intelligence.financial_viewed",
+        "intelligence.procurement_viewed"
+      ])
+  ]);
+
+  for (const result of [
+    activeMemberships,
+    completedImports,
+    trustedReminders,
+    completedDataExports,
+    completedExportAudits,
+    intelligenceViews
+  ]) {
+    if (result.error) throw result.error;
+  }
+
+  return {
+    hasActiveOrganizationMembership: (activeMemberships.count ?? 0) > 0,
+    completedImportCount30d: completedImports.count ?? 0,
+    trustedReminderCount: trustedReminders.count ?? 0,
+    completedExportCount: (completedDataExports.count ?? 0) + (completedExportAudits.count ?? 0),
+    intelligenceViewCount: intelligenceViews.count ?? 0
+  };
+}
+
 export async function getOrganizationContractCount(organizationId: string) {
   const supabase = createServerSupabaseClient();
   const { count, error } = await supabase
@@ -196,6 +277,7 @@ export async function getContracts(
       owner_user_id,
       counterparty_id,
       renewal_decision_status,
+      last_acknowledged_at,
       created_at,
         contract_metadata (
           contract_title,

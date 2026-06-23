@@ -3,16 +3,16 @@ import { requireOrganization } from "@/lib/auth";
 import {
   getContracts,
   getDashboardMetrics,
+  getCustomerOnboardingQueryEvidence,
   getOrganizationBilling
 } from "@/lib/contracts/kernel-queries";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   ACTIVATION_POLICY,
   conversionAnalysis,
-  getOnboardingChecklist,
   getUpgradePrompts
 } from "@/lib/commercial/conversion";
 import { getActivationStatus } from "@/lib/commercial/activation";
+import { buildCustomerOnboardingProgress } from "@/lib/product/customer-onboarding-progress";
 import { summarizeWorkflowGuardrails } from "@/lib/contracts/workflow-guardrails";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
@@ -23,18 +23,12 @@ import { Button } from "@/components/ui/button";
 
 export default async function DashboardPage() {
   const { organizationId } = await requireOrganization();
-  const [metrics, contracts, billing] = await Promise.all([
+  const [metrics, contracts, billing, onboardingEvidence] = await Promise.all([
     getDashboardMetrics(organizationId),
     getContracts(organizationId, "all"),
-    getOrganizationBilling(organizationId)
+    getOrganizationBilling(organizationId),
+    getCustomerOnboardingQueryEvidence(organizationId)
   ]);
-  const supabase = createServerSupabaseClient();
-  const { count: completedImportCount30d } = await supabase
-    .from("import_jobs")
-    .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId)
-    .in("status", ["completed", "completed_with_errors"])
-    .gte("created_at", new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
   const reviewedContracts = contracts.filter(
     (contract) => contract.contract_metadata?.needs_review === false
   ).length;
@@ -44,32 +38,39 @@ export default async function DashboardPage() {
   const decisionCount = contracts.filter(
     (contract) => (contract.renewal_decision_status ?? "undecided") !== "undecided"
   ).length;
+  const acknowledgedContractCount = contracts.filter((contract) => contract.last_acknowledged_at).length;
+  const closedOrReopenedCycleCount = contracts.filter((contract) =>
+    ["closed", "reopened"].includes(contract.cycle_status ?? "")
+  ).length;
   const activationStatus = getActivationStatus({
     organizationCreatedAt: billing.created_at ?? billing.trial_started_at ?? null,
     totalContracts: metrics.totalContracts,
     reviewedContracts,
     ownerAssignedContracts,
     liveObligationCount: metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
-    reminderCount: metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
+    reminderCount: onboardingEvidence.trustedReminderCount,
     decisionCount,
-    completedImportCount30d: completedImportCount30d ?? 0
+    completedImportCount30d: onboardingEvidence.completedImportCount30d
   });
-  const checklist = getOnboardingChecklist({
+  const onboardingProgress = buildCustomerOnboardingProgress({
     organizationId,
     organizationCreatedAt: billing.created_at ?? billing.trial_started_at ?? null,
     planTier: billing.plan_tier,
     subscriptionStatus: billing.subscription_status,
     billingProvider: billing.billing_provider,
     trialEndsAt: billing.trial_ends_at,
+    subscriptionCurrentPeriodEnd: billing.subscription_current_period_end,
+    hasActiveOrganizationMembership: onboardingEvidence.hasActiveOrganizationMembership,
     totalContracts: metrics.totalContracts,
-    needsReview: metrics.needsReview,
-    renewalsDueSoon: metrics.renewalsDueSoon,
-    noticeDeadlinesDueSoon: metrics.noticeDeadlinesDueSoon,
     reviewedContracts,
     ownerAssignedContracts,
-    reminderCount: metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
+    trustedReminderCount: onboardingEvidence.trustedReminderCount,
+    liveObligationCount: metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
     decisionCount,
-    completedImportCount30d: completedImportCount30d ?? 0
+    completedExportCount: onboardingEvidence.completedExportCount,
+    intelligenceViewCount: onboardingEvidence.intelligenceViewCount,
+    acknowledgedContractCount,
+    closedOrReopenedCycleCount
   });
   const upgradePrompts = getUpgradePrompts({
     organizationId,
@@ -169,8 +170,8 @@ export default async function DashboardPage() {
         ]}
       />
       <OnboardingChecklist
-        items={checklist}
-        firstValueMilestone={conversionAnalysis.firstValueMilestone}
+        items={onboardingProgress.milestones}
+        firstValueMilestone={onboardingProgress.customerSafeSummary}
         activationStatus={activationStatus}
         activationWindowLabel={`Activation window: ${ACTIVATION_POLICY.activationWindowDays} days`}
       />

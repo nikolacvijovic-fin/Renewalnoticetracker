@@ -906,8 +906,8 @@ export const PRODUCT_EVENT_TAXONOMY = {
   "intelligence.risk_score_recalculated": taxonomyEvent({
     name: "intelligence.risk_score_recalculated",
     type: "audit",
-    emittedToday: true,
-    source: "lib/intelligence/audit.ts reserved explicit workflow",
+    emittedToday: false,
+    source: "future explicit risk-score recalculation workflow; helper contract is defined in lib/intelligence/audit.ts",
     privacySensitivity: "high",
     safeMetadataFields: intelligenceSafeMetadata,
     owningProductModule: "contract_intelligence_risk_explanation"
@@ -915,8 +915,8 @@ export const PRODUCT_EVENT_TAXONOMY = {
   "intelligence.export_requested": taxonomyEvent({
     name: "intelligence.export_requested",
     type: "audit",
-    emittedToday: true,
-    source: "lib/intelligence/audit.ts",
+    emittedToday: false,
+    source: "future explicit intelligence export workflow; helper contract is defined in lib/intelligence/audit.ts",
     privacySensitivity: "high",
     safeMetadataFields: ["organization_id", "actor_user_id", "export_type", "contract_count"],
     owningProductModule: "export_reporting_intelligence"
@@ -924,8 +924,8 @@ export const PRODUCT_EVENT_TAXONOMY = {
   "intelligence.settings_changed": taxonomyEvent({
     name: "intelligence.settings_changed",
     type: "audit",
-    emittedToday: true,
-    source: "lib/intelligence/audit.ts",
+    emittedToday: false,
+    source: "future intelligence settings workflow; helper contract is defined in lib/intelligence/audit.ts",
     privacySensitivity: "high",
     safeMetadataFields: ["organization_id", "actor_user_id", "changed_key_count", "changed_keys"],
     owningProductModule: "contract_intelligence_risk_explanation"
