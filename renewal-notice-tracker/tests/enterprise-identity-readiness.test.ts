@@ -206,6 +206,6 @@ describe("enterprise identity implementation readiness", () => {
     expect(rbacBoundary).toContain("enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md");
     expect(rbacBoundary).toContain("enterprise/ENTERPRISE_ADMIN_IDENTITY_GUIDE.md");
     expect(moduleRegistry).toContain("lib/product/enterprise-identity.ts");
+    expect(moduleRegistry).toContain("lib/product/enterprise-identity-runtime.ts");
   });
 });
-

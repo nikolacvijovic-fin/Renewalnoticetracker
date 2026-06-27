@@ -1,6 +1,6 @@
 # Enterprise Identity Implementation Plan
 
-Canonical code sources: `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, and `lib/product/enterprise-identity-routes.ts`.
+Canonical code sources: `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-runtime.ts`, `lib/product/enterprise-identity-schema.ts`, and `lib/product/enterprise-identity-routes.ts`.
 
 This is a future Enterprise implementation plan. NoticeControl does not currently ship live SSO, SCIM provisioning, permission groups, retention controls, or customer-facing enterprise identity settings.
 
@@ -56,6 +56,19 @@ Planned future route families:
 - Enterprise admin recovery route.
 
 These contracts are not live runtime behavior. They exist so future implementation work has explicit org scoping, lifecycle, audit, rate-limit, idempotency, privacy, and validation expectations before any route or migration ships.
+
+## Current Safe Runtime Bridge
+
+`lib/product/enterprise-identity-runtime.ts` is the current implementation seam. It does not add live SSO login, live SCIM endpoints, customer-visible identity settings, or provider calls. It exists so future route/service code cannot improvise identity truth.
+
+The bridge currently provides:
+- Enterprise identity admin access evaluation requiring org admin role, Enterprise plan, active/trialing subscription status, and explicit feature enablement.
+- Provisioning-state login behavior where only `active` may authenticate; `pending`, `soft_deprovisioned`, `hard_deprovisioned`, and `locked` are fail-closed.
+- SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
+- Group-role mapping normalization that can map only current customer runtime roles except `owner`; future enterprise roles and internal roles remain inert and cannot be granted through provider groups.
+- Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only.
+
+The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. Those steps require the future Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
 
 ## Login Lifecycle
 
@@ -142,4 +155,4 @@ Requirements before implementation:
 4. Private enterprise pilot: one IdP/provider path, strict audit/monitoring, no self-serve rollout.
 5. General Enterprise release: SSO/SCIM docs, runbooks, support training, packaging, and release gates complete.
 
-Promotion requires updating `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, `lib/product/enterprise-rbac.ts`, [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md), [../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and [../PLATFORM_MODULE_REGISTRY.md](../PLATFORM_MODULE_REGISTRY.md).
+Promotion requires updating `lib/product/enterprise-identity.ts`, `lib/product/enterprise-identity-runtime.ts`, `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, `lib/product/enterprise-rbac.ts`, [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md), [../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](../ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), and [../PLATFORM_MODULE_REGISTRY.md](../PLATFORM_MODULE_REGISTRY.md).

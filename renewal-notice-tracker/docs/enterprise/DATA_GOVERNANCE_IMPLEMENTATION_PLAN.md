@@ -2,7 +2,7 @@
 
 Status: future Enterprise planning only. No live customer-facing retention settings, legal hold, data residency, broad customer data export, or support-access review portal is shipped by this document.
 
-Canonical boundary: [../DATA_GOVERNANCE_RETENTION_BOUNDARY.md](../DATA_GOVERNANCE_RETENTION_BOUNDARY.md) and [../../lib/product/data-governance.ts](../../lib/product/data-governance.ts).
+Canonical boundary: [../DATA_GOVERNANCE_RETENTION_BOUNDARY.md](../DATA_GOVERNANCE_RETENTION_BOUNDARY.md), [../../lib/product/data-governance.ts](../../lib/product/data-governance.ts), and [../../lib/product/data-governance-runtime.ts](../../lib/product/data-governance-runtime.ts).
 
 ## Phased Rollout
 
@@ -94,11 +94,27 @@ Future support-access evidence should record purpose, actor, role, organization,
 
 Support diagnostics remain operational metadata, not a customer data browsing surface.
 
+## Current Runtime Bridge
+
+`lib/product/data-governance-runtime.ts` is the current safe implementation seam. It does not ship customer-facing retention settings, legal hold, data residency, broad customer data export, or a support-access portal.
+
+The bridge currently provides:
+
+- Admin/owner plus Enterprise-gate checks for future retention policy changes.
+- Lifecycle normalization for workspace deletion, contract export, and support-access records.
+- Explicit `requested`, `queued`, `processing`, `completed`, `failed`, `cancelled`, and `expired` state semantics.
+- Downloadability checks that keep expired export artifacts unavailable.
+- Purpose-code requirements for support diagnostics.
+- Safe governance audit metadata shaping.
+
+Future live governance routes must use this bridge before writing retention/deletion/export/support-access records.
+
 ## Release Gate
 
 Before live retention/legal hold ships:
 
 - data classes must be implemented end-to-end
+- runtime lifecycle helpers must keep completed, failed, queued, cancelled, and expired states distinct
 - legal hold must block relevant deletion/expiry operations
 - audit events must be safe and complete
 - tenant isolation must be proven

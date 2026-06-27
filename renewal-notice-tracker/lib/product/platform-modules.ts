@@ -308,9 +308,11 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
       modules: [
         "lib/product/enterprise-rbac.ts",
         "lib/product/enterprise-identity.ts",
+        "lib/product/enterprise-identity-runtime.ts",
         "lib/product/enterprise-identity-schema.ts",
         "lib/product/enterprise-identity-routes.ts",
-        "lib/product/data-governance.ts"
+        "lib/product/data-governance.ts",
+        "lib/product/data-governance-runtime.ts"
       ],
       docs: [
         "docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md",
@@ -327,7 +329,9 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
       "tests/enterprise-identity-rbac.test.ts",
       "tests/enterprise-identity-readiness.test.ts",
       "tests/enterprise-identity-schema-routes.test.ts",
+      "tests/enterprise-identity-runtime.test.ts",
       "tests/data-governance-boundary.test.ts",
+      "tests/data-governance-runtime.test.ts",
       "future enterprise release gate required before activation"
     ],
     deferredCapabilitySlugs: ["advanced_governance_dashboards", "enterprise_data_governance_retention"],

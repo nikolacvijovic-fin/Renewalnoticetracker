@@ -1,6 +1,6 @@
 # Data Governance Retention Boundary
 
-Canonical code source: [../lib/product/data-governance.ts](../lib/product/data-governance.ts).
+Canonical code sources: [../lib/product/data-governance.ts](../lib/product/data-governance.ts) and [../lib/product/data-governance-runtime.ts](../lib/product/data-governance-runtime.ts).
 
 NoticeControl does not currently ship customer-facing retention settings, legal hold, configurable deletion windows, data residency selection, broad customer data export, or support-access review portals.
 
@@ -42,6 +42,14 @@ Workspace deletion exists today as an owner-requested workflow with internal des
 Background export artifacts exist today as bounded artifacts with expiry metadata. Storage paths must not appear in customer UI, audit details, logs, monitoring, or support diagnostics.
 
 Backup readiness and restore drill evidence exists today as internal operational evidence. Evidence may include status, timestamps, safe summaries, and recovery metrics. It must not include backup contents, storage paths, secrets, or raw customer data.
+
+The runtime governance bridge in `lib/product/data-governance-runtime.ts` currently enforces safe state shaping for deletion/export/support-access operations:
+
+- Retention policy changes require admin or owner authority, Enterprise plan, active/trialing subscription state, and explicit governance enablement. No customer-facing retention settings are shipped yet.
+- Export and deletion lifecycle states are normalized as `requested`, `queued`, `processing`, `completed`, `failed`, `cancelled`, or `expired` so completed states cannot silently look like failed or queued states.
+- Expired export artifacts are never considered downloadable, even if stale evidence still contains a download flag.
+- Support diagnostics require a purpose code and governed object class before any safe diagnostic metadata can be produced.
+- Governance audit inputs are built from allow-listed metadata only.
 
 ## Deferred Enterprise Behavior
 

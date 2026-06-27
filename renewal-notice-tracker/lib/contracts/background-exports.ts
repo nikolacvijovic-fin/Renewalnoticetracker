@@ -23,6 +23,7 @@ import { iterateExportRows } from "@/lib/contracts/kernel-queries";
 import { buildExportRequestEvidence } from "@/lib/commercial/privacy-operations";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { logServerError, logServerWarn } from "@/lib/observability/server-logger";
+import { normalizeGovernanceLifecycleState } from "@/lib/product/data-governance-runtime";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import type { Database, Json } from "@/lib/supabase/database.types";
 import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
@@ -331,7 +332,22 @@ function emitBackgroundExportLifecycleEvent(input: {
 
 export function toBackgroundExportStatusResponse(row: DataExportRequestRow) {
   const evidence = asEvidence(row.evidence_json);
-  const downloadAvailable = isStoredCompletedExport(row, evidence);
+  const governanceState = normalizeGovernanceLifecycleState({
+    kind: "contract_export",
+    id: row.id,
+    organizationId: row.organization_id,
+    status: row.status,
+    requestedAt: row.requested_at,
+    processingStartedAt: evidence.processing_started_at as string | undefined,
+    completedAt: row.completed_at ?? (evidence.completed_at as string | undefined),
+    failedAt: evidence.failed_at as string | undefined,
+    expiredAt: evidence.expired_at as string | undefined,
+    failureCode: evidence.failure_code as string | undefined,
+    failureCategory: evidence.failure_category as string | undefined,
+    artifactStorage: evidence.artifact_storage as string | undefined,
+    expiresAt: evidence.expires_at as string | undefined,
+    downloadAvailable: evidence.download_available as boolean | undefined
+  });
   return {
     id: row.id,
     status: row.status as BackgroundExportStatus,
@@ -346,14 +362,17 @@ export function toBackgroundExportStatusResponse(row: DataExportRequestRow) {
     failedAt: evidence.failed_at ?? null,
     failureCode: evidence.failure_code ?? null,
     failureCategory: evidence.failure_category ?? null,
-    downloadAvailable,
+    downloadAvailable: governanceState.downloadable,
     expiresAt: evidence.expires_at ?? null,
     artifactSizeBytes: evidence.artifact_size_bytes ?? null,
     pageSize: evidence.page_size ?? null,
     pageCount: evidence.page_count ?? null,
     filename: evidence.filename ?? null,
     contentType: evidence.content_type ?? null,
-    artifactStorage: evidence.artifact_storage ?? "pending"
+    artifactStorage: evidence.artifact_storage ?? "pending",
+    governanceStatus: governanceState.status,
+    governanceEvidenceComplete: governanceState.evidenceComplete,
+    governanceReasonCode: governanceState.reasonCode
   };
 }
 

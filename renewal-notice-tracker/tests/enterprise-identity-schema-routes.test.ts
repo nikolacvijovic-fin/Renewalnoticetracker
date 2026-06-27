@@ -235,6 +235,7 @@ describe("enterprise identity schema and route contracts", () => {
     expect(module.ownerSurfaces.modules).toEqual(
       expect.arrayContaining([
         "lib/product/enterprise-identity.ts",
+        "lib/product/enterprise-identity-runtime.ts",
         "lib/product/enterprise-identity-schema.ts",
         "lib/product/enterprise-identity-routes.ts"
       ])
@@ -296,9 +297,12 @@ describe("enterprise identity schema and route contracts", () => {
 
     expect(schemaRoutesDoc).toContain("not currently shipped");
     expect(schemaRoutesDoc).toContain("must not log raw IdP assertions");
+    expect(schemaRoutesDoc).toContain("enterprise-identity-runtime.ts");
     expect(implementationPlan).toContain("ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md");
+    expect(implementationPlan).toContain("Current Safe Runtime Bridge");
     expect(rbacBoundary).toContain("ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md");
     expect(moduleRegistry).toContain("lib/product/enterprise-identity-schema.ts");
+    expect(moduleRegistry).toContain("lib/product/enterprise-identity-runtime.ts");
     expect(moduleRegistry).toContain("lib/product/enterprise-identity-routes.ts");
     expect(moduleRegistry).toContain("tests/enterprise-identity-schema-routes.test.ts");
   });

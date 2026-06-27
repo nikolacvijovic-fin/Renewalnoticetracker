@@ -145,9 +145,11 @@ describe("enterprise identity and RBAC boundary", () => {
     const moduleRegistryDoc = readRepoFile("docs", "PLATFORM_MODULE_REGISTRY.md");
 
     expect(rbacDoc).toContain("Canonical code sources: `lib/product/enterprise-rbac.ts` and `lib/product/enterprise-identity.ts`");
+    expect(rbacDoc).toContain("lib/product/enterprise-identity-runtime.ts");
     expect(rbacDoc).toContain("SSO, SCIM, permission groups, retention controls, and delegated enterprise administration are deferred");
     expect(architectureDoc).toContain("ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md");
     expect(moduleRegistryDoc).toContain("ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md");
+    expect(moduleRegistryDoc).toContain("tests/enterprise-identity-runtime.test.ts");
 
     for (const role of FUTURE_ENTERPRISE_ROLES) {
       expect(rbacDoc, role).toContain(`\`${role}\``);

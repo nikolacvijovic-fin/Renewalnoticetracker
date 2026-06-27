@@ -193,6 +193,7 @@ describe("data governance and retention boundary", () => {
     expect(module.status).toBe("deferred");
     expect(module.allowedInCurrentShippedKernel).toBe(false);
     expect(module.ownerSurfaces.modules).toContain("lib/product/data-governance.ts");
+    expect(module.ownerSurfaces.modules).toContain("lib/product/data-governance-runtime.ts");
     expect(module.ownerSurfaces.docs).toEqual(
       expect.arrayContaining([
         "docs/DATA_GOVERNANCE_RETENTION_BOUNDARY.md",
@@ -200,6 +201,7 @@ describe("data governance and retention boundary", () => {
       ])
     );
     expect(module.requiredTestsOrReleaseGates).toContain("tests/data-governance-boundary.test.ts");
+    expect(module.requiredTestsOrReleaseGates).toContain("tests/data-governance-runtime.test.ts");
     expect(module.deferredCapabilitySlugs).toEqual(
       expect.arrayContaining(["enterprise_data_governance_retention"])
     );
@@ -231,9 +233,11 @@ describe("data governance and retention boundary", () => {
     const architectureDoc = readRepoFile("docs", "ARCHITECTURE_BOUNDARIES.md");
 
     expect(boundaryDoc).toContain("Canonical code source");
+    expect(boundaryDoc).toContain("data-governance-runtime.ts");
     expect(boundaryDoc).toContain("Workspace deletion exists today");
     expect(boundaryDoc).toContain("Legal hold is future-only");
     expect(implementationDoc).toContain("Status: future Enterprise planning only.");
+    expect(implementationDoc).toContain("Current Runtime Bridge");
     expect(platformDoc).toContain("DATA_GOVERNANCE_RETENTION_BOUNDARY.md");
     expect(architectureDoc).toContain("DATA_GOVERNANCE_RETENTION_BOUNDARY.md");
 

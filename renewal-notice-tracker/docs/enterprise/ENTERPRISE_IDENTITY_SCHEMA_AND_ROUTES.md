@@ -1,6 +1,6 @@
 # Enterprise Identity Schema And Route Contracts
 
-Canonical code sources: `lib/product/enterprise-identity-schema.ts` and `lib/product/enterprise-identity-routes.ts`.
+Canonical code sources: `lib/product/enterprise-identity-runtime.ts`, `lib/product/enterprise-identity-schema.ts`, and `lib/product/enterprise-identity-routes.ts`.
 
 This is a future Enterprise contract. SSO, SCIM, group-role mappings, enterprise admin recovery, and customer-facing identity settings are not currently shipped. The contracts below are registry scaffolding only so future implementation work cannot invent schema, route, audit, or validation behavior ad hoc.
 
@@ -48,6 +48,7 @@ Route contract rules:
 - Every route is `allowedRuntimeToday: false`.
 - Every route is Enterprise-gated and tied to a future RBAC capability.
 - Every route declares lifecycle state references, rate-limit expectations, idempotency expectations, audit event, monitoring event, forbidden fields, and release gates.
+- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise/admin gating, SCIM state normalization, group-role mapping safety, deprovisioned/locked access semantics, and safe audit metadata shaping.
 - SCIM create/update/delete routes must preserve provisioning and deprovisioning semantics: `pending`, `active`, `locked`, `soft_deprovisioned`, and `hard_deprovisioned`.
 - Admin recovery is future-only break-glass behavior and must not become hidden founder rescue.
 
@@ -73,6 +74,7 @@ Validation rules:
 - SSO tests must not persist assertions or token payloads.
 - SCIM create/update/delete validation must normalize to safe identifiers, lifecycle states, role IDs, reason codes, and hashed external IDs; full SCIM payloads are forbidden.
 - Group-role mapping validation must use hashed group IDs or stable provider IDs, not raw claims.
+- Runtime normalization must reject owner, internal, and future enterprise role escalation through provider group mappings.
 - Admin recovery validation must store safe evidence IDs and reason codes, not support notes, IdP payloads, provider assertions, or secrets.
 
 ## Privacy And Audit Rules
