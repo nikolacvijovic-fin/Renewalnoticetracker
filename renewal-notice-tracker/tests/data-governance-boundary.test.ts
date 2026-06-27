@@ -12,6 +12,7 @@ import {
   GOVERNED_DATA_CLASS_IDS,
   LEGAL_HOLD_AND_DELETION_CONTRACTS
 } from "@/lib/product/data-governance";
+import { PRODUCT_EVENT_TAXONOMY } from "@/lib/product/event-taxonomy";
 import { PLATFORM_MODULES } from "@/lib/product/platform-modules";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -110,7 +111,10 @@ describe("data governance and retention boundary", () => {
         "provider_payload",
         "token",
         "secret",
-        "backup_contents"
+        "backup_contents",
+        "uploaded_document_contents",
+        "email_body",
+        "debug_trace"
       ])
     );
 
@@ -185,6 +189,26 @@ describe("data governance and retention boundary", () => {
         (contract) => contract.eventName === "privacy.workspace_deletion_requested"
       )?.status
     ).toBe("shipped");
+    expect(
+      DATA_GOVERNANCE_AUDIT_EVENT_CONTRACTS.find(
+        (contract) => contract.eventName === "privacy.workspace_deletion_failed"
+      )?.status
+    ).toBe("future");
+  });
+
+  it("keeps governance audit contracts aligned with the product event taxonomy", () => {
+    for (const contract of DATA_GOVERNANCE_AUDIT_EVENT_CONTRACTS) {
+      const event = PRODUCT_EVENT_TAXONOMY[contract.eventName as keyof typeof PRODUCT_EVENT_TAXONOMY];
+      expect(event, contract.eventName).toBeDefined();
+      expect(event.type, contract.eventName).toBe("audit");
+      expect(event.emittedToday, contract.eventName).toBe(contract.status === "shipped");
+
+      for (const forbidden of contract.forbiddenMetadata) {
+        expect(event.safeMetadataFields, `${contract.eventName} should not allow ${forbidden}`).not.toContain(
+          forbidden
+        );
+      }
+    }
   });
 
   it("keeps platform module and deferred capability registries aligned with governance ownership", () => {
@@ -234,10 +258,13 @@ describe("data governance and retention boundary", () => {
 
     expect(boundaryDoc).toContain("Canonical code source");
     expect(boundaryDoc).toContain("data-governance-runtime.ts");
+    expect(boundaryDoc).toContain("runtime retention-policy MVP seam");
+    expect(boundaryDoc).toContain("policy existence does not trigger automatic deletion");
     expect(boundaryDoc).toContain("Workspace deletion exists today");
     expect(boundaryDoc).toContain("Legal hold is future-only");
-    expect(implementationDoc).toContain("Status: future Enterprise planning only.");
+    expect(implementationDoc).toContain("Status: Enterprise runtime bridge plus future Enterprise planning.");
     expect(implementationDoc).toContain("Current Runtime Bridge");
+    expect(implementationDoc).toContain("cannot enable automatic deletion by itself");
     expect(platformDoc).toContain("DATA_GOVERNANCE_RETENTION_BOUNDARY.md");
     expect(architectureDoc).toContain("DATA_GOVERNANCE_RETENTION_BOUNDARY.md");
 

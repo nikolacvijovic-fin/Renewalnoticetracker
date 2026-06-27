@@ -4,7 +4,7 @@ Canonical code sources: `lib/product/enterprise-rbac.ts` and `lib/product/enterp
 
 Future schema and route contracts are defined in `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, and [enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
 
-The current runtime bridge for future implementation lives in `lib/product/enterprise-identity-runtime.ts`. It centralizes Enterprise-plan/admin gating, SCIM lifecycle normalization, deprovisioned-user access blocking, group-role mapping safety, and safe audit metadata shaping without exposing live SSO or SCIM routes.
+The current runtime bridge for future implementation lives in `lib/product/enterprise-identity-runtime.ts`. It centralizes Enterprise-plan admin/owner gating, SCIM lifecycle normalization, deprovisioned/locked-user access blocking, group-role mapping safety, and safe audit metadata shaping without exposing live SSO or SCIM routes.
 
 NoticeControl currently ships a focused role model for renewal-control operations. Enterprise SSO, SCIM, granular permission groups, retention controls, and delegated administration are intentionally deferred behind the `enterprise_identity_rbac_retention` platform module in [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md).
 
@@ -16,10 +16,10 @@ The future implementation lifecycle, audit-event contract, schema/route contract
 
 | Role | Status | Runtime surface | What it can do today | What it must not do |
 | --- | --- | --- | --- | --- |
-| `admin` | shipped | customer app | Upload/import, P0 review, owner assignment, reminders, decisions, exports, financial/procurement intelligence, billing/settings | Owner-only workspace deletion, internal rescue, future enterprise settings |
+| `admin` | shipped | customer app | Upload/import, P0 review, owner assignment, reminders, decisions, exports, financial/procurement intelligence, billing/settings | Owner-only workspace deletion, internal rescue, live SSO/SCIM until the Enterprise gate ships |
 | `operator` | shipped | customer app | Intake, review, owner assignment, reminders, decisions, operational exports, procurement/risk access | Billing/settings authority, financial intelligence, workspace deletion, internal rescue |
 | `reviewer` | shipped | customer app | P0 review, owner assignment, extraction/reminder preview, basic/rich review exports, risk access | Business decisions, billing/settings, financial/procurement dashboards, workspace deletion |
-| `owner` | shipped | customer app | Acknowledge, decide, close/reopen, basic export, owner-scoped risk access, billing/settings, deletion request | Review/trust edits, owner assignment, rich sensitive exports, internal rescue |
+| `owner` | shipped | customer app | Acknowledge, decide, close/reopen, basic export, owner-scoped risk access, billing/settings, deletion request | Review/trust edits, owner assignment, rich sensitive exports, internal rescue, live SSO/SCIM until the Enterprise gate ships |
 | `internal_support` | shipped | internal only | Bounded audited internal operations and rescue paths | Customer runtime actions and future enterprise administration |
 | `internal_admin` | shipped | internal only | Bounded audited internal operations and destructive control-plane execution where separately authorized | Customer runtime actions and future enterprise administration |
 | `member` | legacy alias | none | Normalizes to `operator` for legacy data compatibility | Appearing as a new runtime role |
@@ -82,7 +82,8 @@ Every sensitive action must be represented in the central RBAC registry before i
 
 - New shipped-sensitive actions must be added to `lib/product/enterprise-rbac.ts` with owner surfaces and test/release-gate evidence.
 - New runtime authorization should continue to use the existing shipped action matrix, intelligence access helpers, billing entitlement helpers, internal route auth, or export preset policy as appropriate.
-- Future Enterprise identity route/service work must use `lib/product/enterprise-identity-runtime.ts` for Enterprise/admin gating, provisioning state normalization, group-role mapping safety, and audit metadata sanitization before touching session, membership, or audit paths.
+- Future Enterprise identity route/service work must use `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, provisioning state normalization, group-role mapping safety, and audit metadata sanitization before touching session, membership, or audit paths.
+- Provider-driven role/group mapping must not grant `owner`, `admin`, internal roles, or future enterprise roles. Privileged recovery and owner/admin assignment require explicit in-app authority and audit evidence.
 - Future enterprise roles must remain inert until a dedicated Enterprise release gate covers SSO/SCIM lifecycle, auditability, support operations, customer communication, and privacy/data-retention behavior.
 - Billing, security, compliance, integration, report, and delegated-support roles must not silently inherit `admin` authority.
 - Internal roles must never become customer roles; internal actions still require internal secrets and stronger destructive auth where applicable.
@@ -93,7 +94,7 @@ Before SSO, SCIM, or granular permission groups can ship, the enterprise module 
 
 - A concrete entitlement and packaging policy, likely Enterprise-only.
 - A lifecycle model for login, invite, provisioning, deprovisioning, lockout/recovery, domain verification, metadata/certificate rotation, and fallback admin recovery.
-- Runtime bridge coverage for Enterprise/admin gating, provisioned/deprovisioned member access state, SCIM create/update/delete normalization, group-role mapping anti-escalation, and safe identity audit inputs.
+- Runtime bridge coverage for Enterprise admin/owner gating, provisioned/deprovisioned/locked member access state, SCIM create/update/delete normalization, group-role mapping anti-escalation, and safe identity audit inputs.
 - Future schema and route contracts for SSO configuration, verified domains, SCIM users, group-role mappings, identity events, validation, idempotency, and safe audit/monitoring metadata.
 - Provider-specific auth and provisioning lifecycle tests.
 - Tenant-isolation, role-escalation, and deprovisioning tests.

@@ -4,6 +4,7 @@ import {
   buildSupportAccessDiagnostic,
   evaluateRetentionPolicyChangeAccess,
   normalizeGovernanceLifecycleState,
+  prepareRetentionPolicyChange,
   sanitizeGovernanceMetadata
 } from "@/lib/product/data-governance-runtime";
 
@@ -63,6 +64,114 @@ describe("data governance runtime controls", () => {
         enterpriseGovernanceEnabled: true
       })
     ).toMatchObject({ allowed: true, reason: "allowed", role: "owner" });
+  });
+
+  it("prepares organization-scoped retention policy changes without enabling automatic deletion", () => {
+    const result = prepareRetentionPolicyChange({
+      organizationId: "org-1",
+      policyOrganizationId: "org-1",
+      actorUserId: "admin-1",
+      role: "admin",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseGovernanceEnabled: true,
+      policyId: "policy-1",
+      objectClass: "contract_notes",
+      retentionWindowDays: 365,
+      behavior: "delete_after_window_requires_review",
+      status: "active",
+      reasonCode: "customer_policy_review"
+    });
+
+    expect(result).toMatchObject({
+      allowed: true,
+      policy: {
+        policyId: "policy-1",
+        organizationId: "org-1",
+        objectClass: "contract_notes",
+        retentionWindowDays: 365,
+        behavior: "delete_after_window_requires_review",
+        status: "active",
+        deletionRequiresExplicitReview: true,
+        automaticDeletionAllowed: false,
+        reasonCode: "customer_policy_review"
+      },
+      audit: {
+        organizationId: "org-1",
+        actorUserId: "admin-1",
+        action: "governance.retention_policy_changed",
+        entityType: "governance",
+        entityId: "policy-1",
+        details: {
+          organization_id: "org-1",
+          actor_user_id: "admin-1",
+          policy_id: "policy-1",
+          object_class: "contract_notes",
+          retention_window: "365_days",
+          status: "active",
+          reason_code: "customer_policy_review"
+        }
+      }
+    });
+  });
+
+  it("rejects retention policy changes that cross org scope or exceed the supported MVP envelope", () => {
+    const base = {
+      organizationId: "org-1",
+      policyOrganizationId: "org-1",
+      actorUserId: "admin-1",
+      role: "admin",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseGovernanceEnabled: true,
+      policyId: "policy-1",
+      objectClass: "contract_metadata",
+      retentionWindowDays: 365,
+      behavior: "minimize_after_window",
+      status: "active"
+    } as const;
+
+    expect(
+      prepareRetentionPolicyChange({
+        ...base,
+        policyOrganizationId: "org-2"
+      })
+    ).toMatchObject({ allowed: false, reason: "organization_scope_mismatch" });
+
+    expect(
+      prepareRetentionPolicyChange({
+        ...base,
+        objectClass: "not_governed"
+      })
+    ).toMatchObject({ allowed: false, reason: "unsupported_object_class" });
+
+    expect(
+      prepareRetentionPolicyChange({
+        ...base,
+        retentionWindowDays: 0
+      })
+    ).toMatchObject({ allowed: false, reason: "invalid_retention_window" });
+
+    expect(
+      prepareRetentionPolicyChange({
+        ...base,
+        retentionWindowDays: 3651
+      })
+    ).toMatchObject({ allowed: false, reason: "invalid_retention_window" });
+
+    expect(
+      prepareRetentionPolicyChange({
+        ...base,
+        behavior: "delete_automatically"
+      })
+    ).toMatchObject({ allowed: false, reason: "unsupported_retention_behavior" });
+
+    expect(
+      prepareRetentionPolicyChange({
+        ...base,
+        status: "silently_enforced"
+      })
+    ).toMatchObject({ allowed: false, reason: "unsupported_policy_status" });
   });
 
   it("keeps queued, processing, completed, failed, cancelled, and expired states distinct", () => {
@@ -191,12 +300,13 @@ describe("data governance runtime controls", () => {
       metadata: {
         status: "failed",
         failure_code: "ERR_NOTE_LOOKUP_FAILED",
+        count: 3,
         full_note_text: "SENSITIVE_NOTE_MARKER",
         raw_contract_text: "SENSITIVE_CONTRACT_MARKER",
         ocr_output: "SENSITIVE_OCR_MARKER",
         storage_path: "org-1/private/path.pdf",
         token: "SENSITIVE_TOKEN_MARKER",
-        safe_count: 3
+        arbitrary_safe_sounding_field: "should be stripped"
       }
     });
 
@@ -210,7 +320,7 @@ describe("data governance runtime controls", () => {
       metadata: {
         status: "failed",
         failure_code: "ERR_NOTE_LOOKUP_FAILED",
-        safe_count: 3
+        count: 3
       }
     });
 
@@ -220,7 +330,8 @@ describe("data governance runtime controls", () => {
       "SENSITIVE_CONTRACT_MARKER",
       "SENSITIVE_OCR_MARKER",
       "org-1/private/path.pdf",
-      "SENSITIVE_TOKEN_MARKER"
+      "SENSITIVE_TOKEN_MARKER",
+      "should be stripped"
     ]) {
       expect(rendered).not.toContain(forbidden);
     }
@@ -265,16 +376,48 @@ describe("data governance runtime controls", () => {
     expect(JSON.stringify(auditInput)).not.toContain("SENSITIVE_DEBUG_MARKER");
   });
 
-  it("sanitizes governance metadata even when sensitive content appears as values", () => {
+  it("recursively sanitizes governance metadata keys and sensitive values at any depth", () => {
     expect(
       sanitizeGovernanceMetadata({
         failure_code: "ERR_EXPORT_FAILED",
         reason: "raw contract payload leaked in provider response",
-        safe_status: "failed"
+        safe_status: "failed",
+        nested: {
+          status: "failed",
+          token: "SENSITIVE_TOKEN_MARKER",
+          details: {
+            failure_category: "storage",
+            provider_payload: "SENSITIVE_PROVIDER_MARKER",
+            message: "debug trace contained uploaded document contents"
+          }
+        },
+        attempts: [
+          {
+            count: 1,
+            full_note_text: "SENSITIVE_NOTE_MARKER",
+            reason_code: "safe_reason"
+          },
+          "email body contained SENSITIVE_EMAIL_MARKER",
+          "safe scalar"
+        ],
+        backup_contents: "SENSITIVE_BACKUP_MARKER"
       })
     ).toEqual({
       failure_code: "ERR_EXPORT_FAILED",
-      safe_status: "failed"
+      safe_status: "failed",
+      nested: {
+        status: "failed",
+        details: {
+          failure_category: "storage"
+        }
+      },
+      attempts: [
+        {
+          count: 1,
+          reason_code: "safe_reason"
+        },
+        "safe scalar"
+      ]
     });
   });
 });

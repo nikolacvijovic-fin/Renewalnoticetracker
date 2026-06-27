@@ -28,6 +28,7 @@ Expected behavior:
 - Provisioned users begin in `pending`.
 - Users become `active` only after organization, domain, role, and entitlement checks pass.
 - Deprovisioned users are blocked from login.
+- Locked users are blocked even if a stale organization membership still exists.
 - Raw SCIM payloads are not exposed in customer audit logs or operational logs.
 
 ## Deprovisioning
@@ -61,6 +62,8 @@ Audit logs must never include raw IdP assertions, SAML responses, OIDC tokens, p
 ## Role And Group Mapping
 
 Future role/group mapping will use the enterprise RBAC registry, not page-local role logic.
+
+Provider group mapping must not grant `owner`, `admin`, internal roles, or future enterprise roles directly. Those privileges require explicit in-app authority, break-glass policy where applicable, and audit evidence.
 
 Planned roles include:
 - `security_admin`

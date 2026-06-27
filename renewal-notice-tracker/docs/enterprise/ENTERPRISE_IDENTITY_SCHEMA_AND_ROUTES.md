@@ -31,16 +31,16 @@ The route registry defines future API shape without creating live runtime routes
 
 | Route | Status | Auth boundary | Required capability | Audit event |
 | --- | --- | --- | --- | --- |
-| `GET /api/enterprise/identity/sso/configuration` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.sso_configured` |
-| `POST /api/enterprise/identity/sso/configuration` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.sso_configured` |
-| `POST /api/enterprise/identity/sso/metadata` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.idp_metadata_changed` |
-| `POST /api/enterprise/identity/sso/domain-verification` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.domain_verification_started` |
-| `POST /api/enterprise/identity/sso/test` | deferred | future enterprise admin session | `future_sso_settings` | `enterprise.idp_metadata_changed` |
+| `GET /api/enterprise/identity/sso/configuration` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.sso_configured` |
+| `POST /api/enterprise/identity/sso/configuration` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.sso_configured` |
+| `POST /api/enterprise/identity/sso/metadata` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.idp_metadata_changed` |
+| `POST /api/enterprise/identity/sso/domain-verification` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.domain_verification_started` |
+| `POST /api/enterprise/identity/sso/test` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.idp_metadata_changed` |
 | `POST /api/enterprise/identity/scim/v2/Users` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
 | `PATCH /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
 | `DELETE /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_deprovisioned` |
-| `GET /api/enterprise/identity/group-role-mappings` | deferred | future enterprise admin session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
-| `POST /api/enterprise/identity/group-role-mappings` | deferred | future enterprise admin session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
+| `GET /api/enterprise/identity/group-role-mappings` | deferred | future Enterprise admin/owner session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
+| `POST /api/enterprise/identity/group-role-mappings` | deferred | future Enterprise admin/owner session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
 | `POST /api/enterprise/identity/admin-recovery` | deferred | future enterprise admin break-glass | `future_admin_delegation` | `enterprise.admin_recovery_used` |
 
 Route contract rules:
@@ -48,7 +48,7 @@ Route contract rules:
 - Every route is `allowedRuntimeToday: false`.
 - Every route is Enterprise-gated and tied to a future RBAC capability.
 - Every route declares lifecycle state references, rate-limit expectations, idempotency expectations, audit event, monitoring event, forbidden fields, and release gates.
-- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise/admin gating, SCIM state normalization, group-role mapping safety, deprovisioned/locked access semantics, and safe audit metadata shaping.
+- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SCIM state normalization, group-role mapping safety, deprovisioned/locked access semantics, and safe audit metadata shaping.
 - SCIM create/update/delete routes must preserve provisioning and deprovisioning semantics: `pending`, `active`, `locked`, `soft_deprovisioned`, and `hard_deprovisioned`.
 - Admin recovery is future-only break-glass behavior and must not become hidden founder rescue.
 
@@ -74,7 +74,7 @@ Validation rules:
 - SSO tests must not persist assertions or token payloads.
 - SCIM create/update/delete validation must normalize to safe identifiers, lifecycle states, role IDs, reason codes, and hashed external IDs; full SCIM payloads are forbidden.
 - Group-role mapping validation must use hashed group IDs or stable provider IDs, not raw claims.
-- Runtime normalization must reject owner, internal, and future enterprise role escalation through provider group mappings.
+- Runtime normalization must reject owner, admin, internal, and future enterprise role escalation through provider group mappings.
 - Admin recovery validation must store safe evidence IDs and reason codes, not support notes, IdP payloads, provider assertions, or secrets.
 
 ## Privacy And Audit Rules

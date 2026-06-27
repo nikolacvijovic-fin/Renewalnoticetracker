@@ -6,6 +6,7 @@ NoticeControl does not currently ship customer-facing retention settings, legal 
 
 The current product does include narrow operational governance controls:
 
+- a runtime retention-policy MVP seam that validates Enterprise/admin-scoped policy changes and safe audit evidence without deleting data automatically
 - owner-requested workspace deletion with internal destructive execution controls
 - failed/completed deletion state evidence
 - background export artifact expiry metadata
@@ -37,7 +38,7 @@ Each class must declare sensitivity, default retention posture, deletion behavio
 
 ## Current Behavior
 
-Workspace deletion exists today as an owner-requested workflow with internal destructive execution. It must fail closed, record failed state evidence when possible, and never mark a deletion request completed after partial destructive failure.
+Workspace deletion exists today as an owner-requested workflow with internal destructive execution. It must fail closed, record failed state evidence when possible, and never mark a deletion request completed after partial destructive failure. The shipped runtime currently emits `privacy.workspace_deletion_requested` as audit evidence and `workspace_deletion_route_failed` as monitoring evidence; explicit `privacy.workspace_deletion_executed` and `privacy.workspace_deletion_failed` audit events remain future contracts until emitting code exists.
 
 Background export artifacts exist today as bounded artifacts with expiry metadata. Storage paths must not appear in customer UI, audit details, logs, monitoring, or support diagnostics.
 
@@ -45,17 +46,18 @@ Backup readiness and restore drill evidence exists today as internal operational
 
 The runtime governance bridge in `lib/product/data-governance-runtime.ts` currently enforces safe state shaping for deletion/export/support-access operations:
 
-- Retention policy changes require admin or owner authority, Enterprise plan, active/trialing subscription state, and explicit governance enablement. No customer-facing retention settings are shipped yet.
+- Retention policy changes require admin or owner authority, Enterprise plan, active/trialing subscription state, active-organization scope, bounded retention windows, supported governed object classes, and explicit governance enablement. No customer-facing retention settings are shipped yet.
+- Retention policy records can be prepared as runtime MVP evidence, but policy existence does not trigger automatic deletion. Any delete-after-window behavior is represented as `delete_after_window_requires_review`.
 - Export and deletion lifecycle states are normalized as `requested`, `queued`, `processing`, `completed`, `failed`, `cancelled`, or `expired` so completed states cannot silently look like failed or queued states.
 - Expired export artifacts are never considered downloadable, even if stale evidence still contains a download flag.
 - Support diagnostics require a purpose code and governed object class before any safe diagnostic metadata can be produced.
-- Governance audit inputs are built from allow-listed metadata only.
+- Governance audit inputs are built from allow-listed metadata only. Support diagnostics additionally apply explicit metadata allowlists instead of passing arbitrary sanitized fields through by default.
 
 ## Deferred Enterprise Behavior
 
 Future Enterprise governance may add:
 
-- configurable contract document retention
+- customer-facing configurable contract document retention
 - OCR/extracted text minimization
 - audit log retention policies
 - notification/reminder log retention policies
@@ -101,6 +103,7 @@ Before live retention/legal hold/data governance controls ship:
 
 - `lib/product/data-governance.ts` status changes must be intentional and tested.
 - `enterprise_identity_rbac_retention` in the platform module registry must remain aligned.
+- Runtime retention-policy MVP records must remain non-destructive unless a separate deletion job, legal-hold check, customer communication model, and audit release gate are implemented.
 - Data classes must have implemented deletion, export, audit, support-access, and legal-hold behavior.
 - Customer-facing claims must match implemented behavior.
 - Backup/restore and workspace deletion runbooks must be current.

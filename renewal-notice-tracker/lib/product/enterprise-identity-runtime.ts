@@ -15,7 +15,7 @@ import {
 
 export type EnterpriseIdentityAccessReason =
   | "allowed"
-  | "admin_required"
+  | "admin_or_owner_required"
   | "enterprise_plan_required"
   | "active_subscription_required"
   | "feature_disabled";
@@ -35,7 +35,7 @@ export type EnterpriseIdentityAccessResult =
       reason: "allowed";
       organizationId: string;
       actorUserId: string;
-      role: "admin";
+      role: "admin" | "owner";
     }
   | {
       allowed: false;
@@ -57,9 +57,24 @@ export type EnterpriseSsoConfigurationModel = {
   domainVerificationStatus?: string | null;
 };
 
+export type EnterpriseSsoRuntimeStatus =
+  | "future"
+  | "configured"
+  | "active"
+  | "disabled"
+  | "error";
+
+export type EnterpriseScimDirectoryStatus =
+  | "future"
+  | "not_configured"
+  | "configured_disabled"
+  | "active"
+  | "degraded"
+  | "suspended";
+
 export type EnterpriseScimDirectoryConnectionModel = {
   organizationId: string;
-  state: "not_configured" | "configured_disabled" | "suspended";
+  state: EnterpriseScimDirectoryStatus;
   directoryProvider: "scim_2_0";
   bearerTokenFingerprint?: string | null;
   lastRotatedAt?: string | null;
@@ -85,6 +100,38 @@ export type EnterpriseGroupRoleMappingPolicy = {
   reasonCode: "allowed" | "unsupported_role" | "owner_mapping_forbidden" | "future_role_forbidden";
 };
 
+export type EnterpriseProvisionedMemberAccessInput = {
+  organizationId: string;
+  userId: string;
+  membershipRole: string | null | undefined;
+  provisioningState?: EnterpriseProvisioningState | null;
+  lockoutReason?: string | null;
+  breakGlassRecoveryActive?: boolean;
+};
+
+export type EnterpriseProvisionedMemberAccessResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      userId: string;
+      role: CustomerRole;
+      breakGlassRecoveryActive: boolean;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "missing_membership_role"
+        | "provisioning_pending"
+        | "user_deprovisioned"
+        | "user_locked"
+        | "unknown_provisioning_state";
+      organizationId: string;
+      userId: string;
+      safeMessage: string;
+      lockoutReason?: string | null;
+    };
+
 export type EnterpriseScimMutationInput = {
   organizationId: string;
   operation: "create" | "update" | "delete" | "lock" | "recover";
@@ -105,9 +152,11 @@ export type EnterpriseIdentityAuditInput = {
 };
 
 const ACTIVE_ENTERPRISE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
-const CUSTOMER_ROLES_ALLOWED_FROM_GROUP_MAPPING = CUSTOMER_ROLES.filter(
-  (role) => role !== "owner"
+const CUSTOMER_ROLES_ALLOWED_FROM_GROUP_MAPPING = CUSTOMER_ROLES.filter((role) =>
+  ["operator", "reviewer"].includes(role)
 );
+const SENSITIVE_IDENTITY_VALUE_PATTERN =
+  /saml|assertion|oidc|id[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|authorization[_\s-]?code|bearer|scim[_\s-]?payload|provider[_\s-]?(payload|request|response)|client[_\s-]?secret|private[_\s-]?key|certificate|password|secret|token|raw[_\s-]?group|group[_\s-]?payload|sensitive_/i;
 
 function stableHash(value: string) {
   return createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
@@ -118,13 +167,13 @@ export function evaluateEnterpriseIdentityAdminAccess(
 ): EnterpriseIdentityAccessResult {
   const role = normalizeCustomerRole(input.role);
 
-  if (role !== "admin") {
+  if (role !== "admin" && role !== "owner") {
     return {
       allowed: false,
-      reason: "admin_required",
+      reason: "admin_or_owner_required",
       organizationId: input.organizationId,
       actorUserId: input.actorUserId,
-      safeMessage: "Enterprise identity settings require an organization admin."
+      safeMessage: "Enterprise identity settings require an organization admin or owner."
     };
   }
 
@@ -171,6 +220,86 @@ export function canEnterpriseProvisionedUserAuthenticate(state: EnterpriseProvis
   return state === "active";
 }
 
+export function evaluateEnterpriseProvisionedMemberAccess(
+  input: EnterpriseProvisionedMemberAccessInput
+): EnterpriseProvisionedMemberAccessResult {
+  const role = normalizeCustomerRole(input.membershipRole);
+
+  if (!role) {
+    return {
+      allowed: false,
+      reason: "missing_membership_role",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "A current organization membership is required."
+    };
+  }
+
+  if (!input.provisioningState) {
+    return {
+      allowed: true,
+      reason: "allowed",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      role,
+      breakGlassRecoveryActive: Boolean(input.breakGlassRecoveryActive)
+    };
+  }
+
+  if (input.provisioningState === "active") {
+    return {
+      allowed: true,
+      reason: "allowed",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      role,
+      breakGlassRecoveryActive: Boolean(input.breakGlassRecoveryActive)
+    };
+  }
+
+  if (input.provisioningState === "pending") {
+    return {
+      allowed: false,
+      reason: "provisioning_pending",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "Enterprise identity provisioning is still pending."
+    };
+  }
+
+  if (input.provisioningState === "locked") {
+    return {
+      allowed: false,
+      reason: "user_locked",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "Enterprise identity access is locked.",
+      lockoutReason: input.lockoutReason ?? null
+    };
+  }
+
+  if (
+    input.provisioningState === "soft_deprovisioned" ||
+    input.provisioningState === "hard_deprovisioned"
+  ) {
+    return {
+      allowed: false,
+      reason: "user_deprovisioned",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "Enterprise identity access has been deprovisioned."
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: "unknown_provisioning_state",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    safeMessage: "Enterprise identity state is not recognized."
+  };
+}
+
 export function normalizeEnterpriseGroupRoleMapping(input: {
   organizationId: string;
   provider: EnterpriseGroupRoleMappingPolicy["provider"];
@@ -201,6 +330,18 @@ export function normalizeEnterpriseGroupRoleMapping(input: {
       normalizedRole,
       allowed: false,
       reasonCode: "owner_mapping_forbidden"
+    };
+  }
+
+  if (normalizedRole === "admin") {
+    return {
+      organizationId: input.organizationId,
+      provider: input.provider,
+      groupIdHash,
+      requestedRole: input.requestedRole,
+      normalizedRole,
+      allowed: false,
+      reasonCode: "future_role_forbidden"
     };
   }
 
@@ -257,14 +398,8 @@ export function sanitizeEnterpriseIdentityAuditMetadata(
 ) {
   const contract = ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS[eventName];
   const forbiddenKeys = new Set<string>(ENTERPRISE_IDENTITY_FORBIDDEN_AUDIT_METADATA_KEYS);
-  const safeEntries = Object.entries(metadata).filter(([key]) => {
-    return (
-      contract.allowedSafeMetadataKeys.includes(key) &&
-      !forbiddenKeys.has(key)
-    );
-  });
-
-  return Object.fromEntries(safeEntries);
+  const allowedKeys = new Set<string>(contract.allowedSafeMetadataKeys);
+  return sanitizeIdentityRecord(metadata, allowedKeys, forbiddenKeys);
 }
 
 export function buildEnterpriseIdentityAuditLogInput(input: EnterpriseIdentityAuditInput) {
@@ -276,4 +411,41 @@ export function buildEnterpriseIdentityAuditLogInput(input: EnterpriseIdentityAu
     entityId: input.entityId ?? null,
     details: sanitizeEnterpriseIdentityAuditMetadata(input.eventName, input.metadata)
   };
+}
+
+function sanitizeIdentityRecord(
+  metadata: Record<string, unknown>,
+  allowedKeys: Set<string>,
+  forbiddenKeys: Set<string>
+) {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (!allowedKeys.has(key)) continue;
+    if (forbiddenKeys.has(key)) continue;
+    const safeValue = sanitizeIdentityValue(value, allowedKeys, forbiddenKeys);
+    if (safeValue === undefined) continue;
+    sanitized[key] = safeValue;
+  }
+  return sanitized;
+}
+
+function sanitizeIdentityValue(
+  value: unknown,
+  allowedKeys: Set<string>,
+  forbiddenKeys: Set<string>
+): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string") {
+    return SENSITIVE_IDENTITY_VALUE_PATTERN.test(value) ? undefined : value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeIdentityValue(item, allowedKeys, forbiddenKeys))
+      .filter((item) => item !== undefined);
+  }
+  if (typeof value === "object") {
+    return sanitizeIdentityRecord(value as Record<string, unknown>, allowedKeys, forbiddenKeys);
+  }
+  return undefined;
 }

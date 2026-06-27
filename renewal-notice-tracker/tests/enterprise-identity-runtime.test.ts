@@ -3,6 +3,7 @@ import {
   buildEnterpriseIdentityAuditLogInput,
   canEnterpriseProvisionedUserAuthenticate,
   evaluateEnterpriseIdentityAdminAccess,
+  evaluateEnterpriseProvisionedMemberAccess,
   normalizeEnterpriseGroupRoleMapping,
   normalizeEnterpriseScimMutation,
   sanitizeEnterpriseIdentityAuditMetadata
@@ -10,7 +11,7 @@ import {
 import { ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS } from "@/lib/product/enterprise-identity";
 
 describe("enterprise identity runtime bridge", () => {
-  it("requires organization admin, Enterprise plan, active subscription, and explicit feature enablement", () => {
+  it("requires organization admin or owner, Enterprise plan, active subscription, and explicit feature enablement", () => {
     expect(
       evaluateEnterpriseIdentityAdminAccess({
         organizationId: "org-1",
@@ -20,7 +21,7 @@ describe("enterprise identity runtime bridge", () => {
         subscriptionStatus: "active",
         enterpriseIdentityEnabled: true
       })
-    ).toMatchObject({ allowed: false, reason: "admin_required" });
+    ).toMatchObject({ allowed: false, reason: "admin_or_owner_required" });
 
     expect(
       evaluateEnterpriseIdentityAdminAccess({
@@ -59,12 +60,12 @@ describe("enterprise identity runtime bridge", () => {
       evaluateEnterpriseIdentityAdminAccess({
         organizationId: "org-1",
         actorUserId: "user-1",
-        role: "admin",
+        role: "owner",
         planTier: "enterprise",
         subscriptionStatus: "active",
         enterpriseIdentityEnabled: true
       })
-    ).toMatchObject({ allowed: true, reason: "allowed", role: "admin" });
+    ).toMatchObject({ allowed: true, reason: "allowed", role: "owner" });
   });
 
   it("makes deprovisioning and lockout authentication behavior explicit", () => {
@@ -73,6 +74,58 @@ describe("enterprise identity runtime bridge", () => {
     expect(canEnterpriseProvisionedUserAuthenticate("soft_deprovisioned")).toBe(false);
     expect(canEnterpriseProvisionedUserAuthenticate("hard_deprovisioned")).toBe(false);
     expect(canEnterpriseProvisionedUserAuthenticate("locked")).toBe(false);
+  });
+
+  it("denies provisioned member access for pending, deprovisioned, and locked states even when stale membership exists", () => {
+    expect(
+      evaluateEnterpriseProvisionedMemberAccess({
+        organizationId: "org-1",
+        userId: "user-1",
+        membershipRole: "operator",
+        provisioningState: "active"
+      })
+    ).toMatchObject({ allowed: true, reason: "allowed", role: "operator" });
+
+    expect(
+      evaluateEnterpriseProvisionedMemberAccess({
+        organizationId: "org-1",
+        userId: "user-1",
+        membershipRole: "operator",
+        provisioningState: "pending"
+      })
+    ).toMatchObject({ allowed: false, reason: "provisioning_pending" });
+
+    expect(
+      evaluateEnterpriseProvisionedMemberAccess({
+        organizationId: "org-1",
+        userId: "user-1",
+        membershipRole: "admin",
+        provisioningState: "soft_deprovisioned"
+      })
+    ).toMatchObject({ allowed: false, reason: "user_deprovisioned" });
+
+    expect(
+      evaluateEnterpriseProvisionedMemberAccess({
+        organizationId: "org-1",
+        userId: "user-1",
+        membershipRole: "owner",
+        provisioningState: "locked",
+        lockoutReason: "security_review"
+      })
+    ).toMatchObject({
+      allowed: false,
+      reason: "user_locked",
+      lockoutReason: "security_review"
+    });
+
+    expect(
+      evaluateEnterpriseProvisionedMemberAccess({
+        organizationId: "org-1",
+        userId: "user-1",
+        membershipRole: null,
+        provisioningState: "active"
+      })
+    ).toMatchObject({ allowed: false, reason: "missing_membership_role" });
   });
 
   it("normalizes SCIM create, update, deprovision, lockout, and recovery into tenant-scoped safe state", () => {
@@ -133,6 +186,15 @@ describe("enterprise identity runtime bridge", () => {
       normalizeEnterpriseGroupRoleMapping({
         organizationId: "org-1",
         provider: "saml_2_0",
+        groupId: "Admins",
+        requestedRole: "admin"
+      })
+    ).toMatchObject({ allowed: false, normalizedRole: "admin", reasonCode: "future_role_forbidden" });
+
+    expect(
+      normalizeEnterpriseGroupRoleMapping({
+        organizationId: "org-1",
+        provider: "saml_2_0",
         groupId: "Owners",
         requestedRole: "owner"
       })
@@ -171,7 +233,19 @@ describe("enterprise identity runtime bridge", () => {
       access_token: "ACCESS_TOKEN_MARKER",
       client_secret: "CLIENT_SECRET_MARKER",
       scim_payload: "SCIM_PAYLOAD_MARKER",
-      provider_payload: "PROVIDER_PAYLOAD_MARKER"
+      provider_payload: "PROVIDER_PAYLOAD_MARKER",
+      initiated_by: {
+        target_user_id: "user-1",
+        token: "NESTED_TOKEN_MARKER",
+        nested: {
+          provider_payload: "NESTED_PROVIDER_PAYLOAD_MARKER",
+          reason_code: "safe_nested_reason"
+        }
+      },
+      recovery_method: [
+        "approved_admin_recovery",
+        "raw SAML assertion SENSITIVE_ASSERTION_MARKER"
+      ]
     });
 
     expect(metadata).toEqual({
@@ -180,7 +254,14 @@ describe("enterprise identity runtime bridge", () => {
       target_user_id: "user-1",
       scim_user_id: "scim-user-1",
       role: "operator",
-      reason_code: "scim_normalized"
+      reason_code: "scim_normalized",
+      initiated_by: {
+        target_user_id: "user-1",
+        nested: {
+          reason_code: "safe_nested_reason"
+        }
+      },
+      recovery_method: ["approved_admin_recovery"]
     });
 
     const auditInput = buildEnterpriseIdentityAuditLogInput({
@@ -207,7 +288,10 @@ describe("enterprise identity runtime bridge", () => {
       "ACCESS_TOKEN_MARKER",
       "CLIENT_SECRET_MARKER",
       "SCIM_PAYLOAD_MARKER",
-      "PROVIDER_PAYLOAD_MARKER"
+      "PROVIDER_PAYLOAD_MARKER",
+      "NESTED_TOKEN_MARKER",
+      "NESTED_PROVIDER_PAYLOAD_MARKER",
+      "SENSITIVE_ASSERTION_MARKER"
     ]) {
       expect(rendered).not.toContain(forbidden);
     }

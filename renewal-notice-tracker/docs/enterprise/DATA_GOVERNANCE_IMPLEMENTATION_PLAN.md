@@ -1,6 +1,6 @@
 # Data Governance Implementation Plan
 
-Status: future Enterprise planning only. No live customer-facing retention settings, legal hold, data residency, broad customer data export, or support-access review portal is shipped by this document.
+Status: Enterprise runtime bridge plus future Enterprise planning. No live customer-facing retention settings, legal hold, data residency, broad customer data export, or support-access review portal is shipped by this document.
 
 Canonical boundary: [../DATA_GOVERNANCE_RETENTION_BOUNDARY.md](../DATA_GOVERNANCE_RETENTION_BOUNDARY.md), [../../lib/product/data-governance.ts](../../lib/product/data-governance.ts), and [../../lib/product/data-governance-runtime.ts](../../lib/product/data-governance-runtime.ts).
 
@@ -9,24 +9,29 @@ Canonical boundary: [../DATA_GOVERNANCE_RETENTION_BOUNDARY.md](../DATA_GOVERNANC
 1. Registry and policy model: define capabilities, data classes, retention posture, deletion behavior, exportability, legal hold applicability, audit, privacy risk, and forbidden metadata.
 2. Internal review: threat-model deletion, backup, audit retention, support access, data export, and tenant isolation.
 3. Operational evidence: prove workspace deletion, export artifact expiry, backup readiness, restore drills, and support diagnostics are reliable and safe.
-4. Enterprise beta: enable a single narrow governance control for selected organizations after support and legal review.
+4. Enterprise beta: enable a single narrow governance control for selected organizations after support and legal review. The current runtime MVP is retention-policy preparation and audit-safe evidence only; it does not automatically delete customer data.
 5. General Enterprise release: ship only after customer-facing docs, DPA/security answers, support runbooks, and release gates match runtime behavior.
 
 ## Retention Policy Model
 
-Future retention policies must define:
+The runtime MVP can validate and prepare organization-scoped retention policy records for Enterprise-gated admins/owners. MVP policy records define:
 
 - organization scope
 - object class
 - retention window
 - deletion/minimization behavior
+- status
+- safe reason code
+
+Future retention policies must additionally define:
+
 - legal-hold override behavior
 - backup behavior
 - audit behavior
 - customer communication requirements
 - support-access visibility
 
-Policies must not rely on page-local settings or hidden founder interpretation.
+Policies must not rely on page-local settings or hidden founder interpretation. A policy record alone must never silently delete customer data. Delete-after-window behavior remains `delete_after_window_requires_review` until deletion jobs, legal-hold blocking, customer communication, and audit release gates are implemented.
 
 ## Legal Hold Lifecycle
 
@@ -101,10 +106,12 @@ Support diagnostics remain operational metadata, not a customer data browsing su
 The bridge currently provides:
 
 - Admin/owner plus Enterprise-gate checks for future retention policy changes.
+- Organization-scoped retention-policy preparation with bounded retention windows, governed object classes, supported policy statuses, and safe audit evidence.
+- A hard runtime invariant that retention policy preparation cannot enable automatic deletion by itself.
 - Lifecycle normalization for workspace deletion, contract export, and support-access records.
 - Explicit `requested`, `queued`, `processing`, `completed`, `failed`, `cancelled`, and `expired` state semantics.
 - Downloadability checks that keep expired export artifacts unavailable.
-- Purpose-code requirements for support diagnostics.
+- Purpose-code requirements and explicit metadata allowlists for support diagnostics.
 - Safe governance audit metadata shaping.
 
 Future live governance routes must use this bridge before writing retention/deletion/export/support-access records.

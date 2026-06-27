@@ -62,10 +62,10 @@ These contracts are not live runtime behavior. They exist so future implementati
 `lib/product/enterprise-identity-runtime.ts` is the current implementation seam. It does not add live SSO login, live SCIM endpoints, customer-visible identity settings, or provider calls. It exists so future route/service code cannot improvise identity truth.
 
 The bridge currently provides:
-- Enterprise identity admin access evaluation requiring org admin role, Enterprise plan, active/trialing subscription status, and explicit feature enablement.
+- Enterprise identity access evaluation requiring org admin or owner role, Enterprise plan, active/trialing subscription status, and explicit feature enablement.
 - Provisioning-state login behavior where only `active` may authenticate; `pending`, `soft_deprovisioned`, `hard_deprovisioned`, and `locked` are fail-closed.
 - SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
-- Group-role mapping normalization that can map only current customer runtime roles except `owner`; future enterprise roles and internal roles remain inert and cannot be granted through provider groups.
+- Group-role mapping normalization that can map only non-privileged current customer runtime roles; `owner`, `admin`, future enterprise roles, and internal roles remain inert and cannot be granted through provider groups.
 - Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only.
 
 The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. Those steps require the future Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
@@ -78,7 +78,7 @@ Future login flow:
 3. Validate SAML/OIDC response using issuer, audience, signature, time bounds, and replay protection.
 4. Resolve user identity to a verified organization membership or SCIM-managed pending user.
 5. Apply enterprise role/group mapping through the central RBAC boundary.
-6. Create a session only after current organization, role, billing, and lockout checks pass.
+6. Create a session only after current organization, role, billing, provisioning, deprovisioning, and lockout checks pass.
 
 Current runtime remains unchanged and must treat enterprise SSO as `not_configured`.
 
@@ -96,7 +96,7 @@ Future SCIM provisioning behavior:
 1. Receive verified SCIM request.
 2. Validate organization, domain, user identity, and external ID.
 3. Create or update a user lifecycle record in `pending`.
-4. Apply role/group mapping only through the enterprise RBAC registry.
+4. Apply role/group mapping only through the enterprise RBAC registry; group mapping must not grant `owner`, `admin`, internal, or future enterprise roles.
 5. Move to `active` after all gates pass.
 6. Audit using stable IDs, state transitions, role IDs, and reason codes only.
 

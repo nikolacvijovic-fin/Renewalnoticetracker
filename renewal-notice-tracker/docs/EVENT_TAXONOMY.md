@@ -115,7 +115,17 @@ These events are registry contracts only. They must not be counted as live evide
 - `intelligence.risk_score_recalculated`
 - `intelligence.export_requested`
 - `intelligence.settings_changed`
+- `privacy.workspace_deletion_scheduled`
+- `privacy.workspace_deletion_executed`
 - `privacy.workspace_deletion_failed`
+- `governance.retention_policy_changed`
+- `governance.legal_hold_created`
+- `governance.legal_hold_released`
+- `exports.artifact_expired`
+- `exports.artifact_deleted`
+- `governance.customer_data_export_requested`
+- `governance.customer_data_export_completed`
+- `governance.support_access_reviewed`
 - `support.escalation_opened`
 - `support.enterprise_security_review_requested`
 

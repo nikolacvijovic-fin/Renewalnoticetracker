@@ -120,7 +120,10 @@ const sensitiveMetadataForbidden = [
   "provider_payload",
   "token",
   "secret",
-  "backup_contents"
+  "backup_contents",
+  "uploaded_document_contents",
+  "email_body",
+  "debug_trace"
 ] as const;
 
 export const DATA_GOVERNANCE_CAPABILITIES: Record<
@@ -515,7 +518,15 @@ export const DATA_GOVERNANCE_AUDIT_EVENT_CONTRACTS = [
   {
     eventName: "governance.retention_policy_changed",
     status: "future",
-    safeMetadata: ["organization_id", "actor_user_id", "policy_id", "object_class", "retention_window"],
+    safeMetadata: [
+      "organization_id",
+      "actor_user_id",
+      "policy_id",
+      "object_class",
+      "retention_window",
+      "status",
+      "reason_code"
+    ],
     forbiddenMetadata: sensitiveMetadataForbidden
   },
   {
@@ -544,13 +555,13 @@ export const DATA_GOVERNANCE_AUDIT_EVENT_CONTRACTS = [
   },
   {
     eventName: "privacy.workspace_deletion_executed",
-    status: "shipped",
+    status: "future",
     safeMetadata: ["organization_id", "deletion_request_id", "completed_at", "deleted_counts"],
     forbiddenMetadata: sensitiveMetadataForbidden
   },
   {
     eventName: "privacy.workspace_deletion_failed",
-    status: "shipped",
+    status: "future",
     safeMetadata: ["organization_id", "deletion_request_id", "failed_stage", "failure_code", "failure_category"],
     forbiddenMetadata: sensitiveMetadataForbidden
   },

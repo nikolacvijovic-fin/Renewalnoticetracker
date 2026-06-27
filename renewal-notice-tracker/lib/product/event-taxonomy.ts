@@ -984,6 +984,24 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: ["organization_id", "actor_user_id", "deletion_request_id", "status", "created_at"],
     owningProductModule: "admin_support_operations"
   }),
+  "privacy.workspace_deletion_scheduled": taxonomyEvent({
+    name: "privacy.workspace_deletion_scheduled",
+    type: "audit",
+    emittedToday: false,
+    source: "future explicit workspace deletion scheduling audit; current runtime has no scheduled deletion window",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "deletion_request_id", "scheduled_for"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "privacy.workspace_deletion_executed": taxonomyEvent({
+    name: "privacy.workspace_deletion_executed",
+    type: "audit",
+    emittedToday: false,
+    source: "future explicit workspace deletion completion audit; current runtime records completed request state",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "deletion_request_id", "completed_at", "deleted_counts"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
   "privacy.workspace_deletion_failed": taxonomyEvent({
     name: "privacy.workspace_deletion_failed",
     type: "audit",
@@ -991,7 +1009,87 @@ export const PRODUCT_EVENT_TAXONOMY = {
     source: "future explicit workspace deletion failure audit; current runtime records failed request state",
     privacySensitivity: "restricted",
     safeMetadataFields: ["organization_id", "deletion_request_id", "failure_code", "failure_category", "stage"],
-    owningProductModule: "admin_support_operations"
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "governance.retention_policy_changed": taxonomyEvent({
+    name: "governance.retention_policy_changed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/data-governance-runtime.ts audit builder; future enterprise retention policy workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: [
+      "organization_id",
+      "actor_user_id",
+      "policy_id",
+      "object_class",
+      "retention_window",
+      "status",
+      "reason_code"
+    ],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "governance.legal_hold_created": taxonomyEvent({
+    name: "governance.legal_hold_created",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise legal hold workflow",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "hold_id", "object_class", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "governance.legal_hold_released": taxonomyEvent({
+    name: "governance.legal_hold_released",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise legal hold workflow",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "hold_id", "object_class", "released_at"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "exports.artifact_expired": taxonomyEvent({
+    name: "exports.artifact_expired",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise governance artifact-expiry audit; current shipped audit is contracts.export_background_expired",
+    privacySensitivity: "high",
+    safeMetadataFields: ["organization_id", "export_request_id", "preset", "format", "expired_at"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "exports.artifact_deleted": taxonomyEvent({
+    name: "exports.artifact_deleted",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise governance artifact-deletion audit; current shipped cleanup uses background export expiry events",
+    privacySensitivity: "high",
+    safeMetadataFields: ["organization_id", "export_request_id", "preset", "format", "deleted_at"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "governance.customer_data_export_requested": taxonomyEvent({
+    name: "governance.customer_data_export_requested",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise customer data export workflow",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "export_request_id", "object_classes", "requested_at"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "governance.customer_data_export_completed": taxonomyEvent({
+    name: "governance.customer_data_export_completed",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise customer data export workflow",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "export_request_id", "object_classes", "artifact_expiry", "completed_at"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "governance.support_access_reviewed": taxonomyEvent({
+    name: "governance.support_access_reviewed",
+    type: "audit",
+    emittedToday: false,
+    source: "future enterprise support access review workflow",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "support_actor_id", "purpose_code", "object_class", "reviewed_at"],
+    owningProductModule: "enterprise_identity_rbac_retention"
   }),
   internal_rescue_action_recorded: taxonomyEvent({
     name: "internal_rescue_action_recorded",
