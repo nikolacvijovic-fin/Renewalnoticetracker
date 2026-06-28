@@ -1086,9 +1086,22 @@ export const PRODUCT_EVENT_TAXONOMY = {
     name: "governance.support_access_reviewed",
     type: "audit",
     emittedToday: false,
-    source: "future enterprise support access review workflow",
+    source: "lib/product/data-governance-runtime.ts audit builder; future enterprise support access review workflow emitter",
     privacySensitivity: "restricted",
-    safeMetadataFields: ["organization_id", "actor_user_id", "support_actor_id", "purpose_code", "object_class", "reviewed_at"],
+    safeMetadataFields: [
+      "organization_id",
+      "actor_user_id",
+      "support_actor_id",
+      "review_id",
+      "purpose_code",
+      "object_class",
+      "object_id",
+      "status",
+      "reviewed_at",
+      "reviewer_user_id",
+      "policy_evidence_id",
+      "expires_at"
+    ],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
   internal_rescue_action_recorded: taxonomyEvent({

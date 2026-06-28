@@ -4,7 +4,7 @@ Canonical code sources: `lib/product/enterprise-rbac.ts` and `lib/product/enterp
 
 Future schema and route contracts are defined in `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, and [enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
 
-The current runtime bridge for future implementation lives in `lib/product/enterprise-identity-runtime.ts`. It centralizes Enterprise-plan admin/owner gating, SCIM lifecycle normalization, deprovisioned/locked-user access blocking, group-role mapping safety, and safe audit metadata shaping without exposing live SSO or SCIM routes.
+The current runtime bridge for future implementation lives in `lib/product/enterprise-identity-runtime.ts`. It centralizes Enterprise-plan admin/owner gating, SSO configuration readiness shaping, SCIM mutation decision shaping, SCIM lifecycle normalization, deprovisioned/locked-user access blocking, group-role mapping safety, break-glass admin preservation, and safe audit metadata shaping without exposing live SSO or SCIM routes.
 
 NoticeControl currently ships a focused role model for renewal-control operations. Enterprise SSO, SCIM, granular permission groups, retention controls, and delegated administration are intentionally deferred behind the `enterprise_identity_rbac_retention` platform module in [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md).
 
@@ -94,7 +94,7 @@ Before SSO, SCIM, or granular permission groups can ship, the enterprise module 
 
 - A concrete entitlement and packaging policy, likely Enterprise-only.
 - A lifecycle model for login, invite, provisioning, deprovisioning, lockout/recovery, domain verification, metadata/certificate rotation, and fallback admin recovery.
-- Runtime bridge coverage for Enterprise admin/owner gating, provisioned/deprovisioned/locked member access state, SCIM create/update/delete normalization, group-role mapping anti-escalation, and safe identity audit inputs.
+- Runtime bridge coverage for Enterprise admin/owner gating, SSO configuration readiness, provisioned/deprovisioned/locked member access state, SCIM create/update/delete normalization, tenant-scoped SCIM mutation decisions, group-role mapping anti-escalation, break-glass admin preservation, and safe identity audit inputs.
 - Future schema and route contracts for SSO configuration, verified domains, SCIM users, group-role mappings, identity events, validation, idempotency, and safe audit/monitoring metadata.
 - Provider-specific auth and provisioning lifecycle tests.
 - Tenant-isolation, role-escalation, and deprovisioning tests.

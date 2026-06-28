@@ -4,6 +4,7 @@ import {
   buildSupportAccessDiagnostic,
   evaluateRetentionPolicyChangeAccess,
   normalizeGovernanceLifecycleState,
+  prepareSupportAccessReview,
   prepareRetentionPolicyChange,
   sanitizeGovernanceMetadata
 } from "@/lib/product/data-governance-runtime";
@@ -335,6 +336,185 @@ describe("data governance runtime controls", () => {
     ]) {
       expect(rendered).not.toContain(forbidden);
     }
+  });
+
+  it("prepares support-access review evidence with internal role, purpose, object-class, and tenant scope", () => {
+    expect(
+      prepareSupportAccessReview({
+        reviewId: "review-1",
+        organizationId: "org-1",
+        evidenceOrganizationId: "org-1",
+        supportActorUserId: "support-1",
+        supportRole: "operator",
+        purposeCode: "customer_support_request",
+        objectClass: "contract_metadata",
+        status: "requested",
+        expiresAt: "2099-01-01T00:00:00.000Z"
+      })
+    ).toMatchObject({ allowed: false, reason: "internal_support_or_admin_required" });
+
+    expect(
+      prepareSupportAccessReview({
+        reviewId: "review-1",
+        organizationId: "org-1",
+        evidenceOrganizationId: "org-1",
+        supportActorUserId: "support-1",
+        supportRole: "internal_support",
+        objectClass: "contract_metadata",
+        status: "requested",
+        expiresAt: "2099-01-01T00:00:00.000Z"
+      })
+    ).toMatchObject({ allowed: false, reason: "purpose_code_required" });
+
+    expect(
+      prepareSupportAccessReview({
+        reviewId: "review-1",
+        organizationId: "org-1",
+        evidenceOrganizationId: "org-1",
+        supportActorUserId: "support-1",
+        supportRole: "internal_support",
+        purposeCode: "customer_support_request",
+        objectClass: "not_governed",
+        status: "requested",
+        expiresAt: "2099-01-01T00:00:00.000Z"
+      })
+    ).toMatchObject({ allowed: false, reason: "unsupported_object_class" });
+
+    expect(
+      prepareSupportAccessReview({
+        reviewId: "review-1",
+        organizationId: "org-1",
+        evidenceOrganizationId: "org-2",
+        supportActorUserId: "support-1",
+        supportRole: "internal_support",
+        purposeCode: "customer_support_request",
+        objectClass: "contract_metadata",
+        status: "requested",
+        expiresAt: "2099-01-01T00:00:00.000Z"
+      })
+    ).toMatchObject({ allowed: false, reason: "organization_scope_mismatch" });
+  });
+
+  it("keeps support-access review evidence expiring, non-impersonating, and audit-safe", () => {
+    const review = prepareSupportAccessReview(
+      {
+        reviewId: "review-1",
+        organizationId: "org-1",
+        evidenceOrganizationId: "org-1",
+        supportActorUserId: "support-1",
+        supportRole: "internal_admin",
+        purposeCode: "security_review",
+        objectClass: "contract_notes",
+        objectId: "note-1",
+        status: "approved",
+        requestedAt: "2026-06-01T00:00:00.000Z",
+        reviewedAt: "2026-06-02T00:00:00.000Z",
+        expiresAt: "2026-06-30T00:00:00.000Z",
+        reviewerUserId: "reviewer-1",
+        policyEvidenceId: "policy-evidence-1",
+        metadata: {
+          status: "approved",
+          failure_code: "SAFE_CODE",
+          raw_contract_text: "SENSITIVE_CONTRACT_MARKER",
+          full_note_text: "SENSITIVE_NOTE_MARKER",
+          ocr_output: "SENSITIVE_OCR_MARKER",
+          provider_payload: "SENSITIVE_PROVIDER_MARKER",
+          storage_path: "org-1/private/file.pdf",
+          token: "SENSITIVE_TOKEN_MARKER",
+          arbitrary_field: "should be stripped",
+          nested: {
+            status: "nested safe but not allowlisted at support review layer",
+            debug_trace: "SENSITIVE_DEBUG_MARKER"
+          }
+        }
+      },
+      new Date("2026-06-15T00:00:00.000Z")
+    );
+
+    expect(review).toMatchObject({
+      allowed: true,
+      evidence: {
+        reviewId: "review-1",
+        organizationId: "org-1",
+        supportActorUserId: "support-1",
+        supportRole: "internal_admin",
+        purposeCode: "security_review",
+        objectClass: "contract_notes",
+        objectId: "note-1",
+        status: "approved",
+        active: true,
+        reviewerUserId: "reviewer-1",
+        policyEvidenceId: "policy-evidence-1",
+        customerVisibleEvidenceBoundary: "safe_metadata_only",
+        impersonationAllowed: false,
+        metadata: {
+          review_id: "review-1",
+          organization_id: "org-1",
+          support_actor_id: "support-1",
+          purpose_code: "security_review",
+          object_class: "contract_notes",
+          object_id: "note-1",
+          status: "approved",
+          failure_code: "SAFE_CODE",
+          reviewed_at: "2026-06-02T00:00:00.000Z",
+          reviewer_user_id: "reviewer-1",
+          policy_evidence_id: "policy-evidence-1",
+          expires_at: "2026-06-30T00:00:00.000Z"
+        }
+      },
+      audit: {
+        organizationId: "org-1",
+        actorUserId: "support-1",
+        action: "governance.support_access_reviewed",
+        entityType: "support_access",
+        entityId: "review-1"
+      }
+    });
+
+    const rendered = JSON.stringify(review);
+    for (const forbidden of [
+      "SENSITIVE_CONTRACT_MARKER",
+      "SENSITIVE_NOTE_MARKER",
+      "SENSITIVE_OCR_MARKER",
+      "SENSITIVE_PROVIDER_MARKER",
+      "org-1/private/file.pdf",
+      "SENSITIVE_TOKEN_MARKER",
+      "should be stripped",
+      "SENSITIVE_DEBUG_MARKER"
+    ]) {
+      expect(rendered).not.toContain(forbidden);
+    }
+  });
+
+  it("does not consider expired support-access review evidence active", () => {
+    expect(
+      prepareSupportAccessReview(
+        {
+          reviewId: "review-1",
+          organizationId: "org-1",
+          evidenceOrganizationId: "org-1",
+          supportActorUserId: "support-1",
+          supportRole: "internal_support",
+          purposeCode: "incident_response",
+          objectClass: "internal_support_log",
+          status: "approved",
+          expiresAt: "2026-06-01T00:00:00.000Z"
+        },
+        new Date("2026-06-02T00:00:00.000Z")
+      )
+    ).toMatchObject({
+      allowed: true,
+      evidence: {
+        status: "expired",
+        active: false
+      },
+      audit: {
+        details: {
+          status: "expired",
+          expires_at: "2026-06-01T00:00:00.000Z"
+        }
+      }
+    });
   });
 
   it("builds governance audit inputs from allow-listed metadata only", () => {

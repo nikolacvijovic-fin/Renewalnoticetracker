@@ -29,6 +29,7 @@ Expected behavior:
 - Users become `active` only after organization, domain, role, and entitlement checks pass.
 - Deprovisioned users are blocked from login.
 - Locked users are blocked even if a stale organization membership still exists.
+- Locking or deprovisioning an admin/owner must preserve another accountable admin/owner and a documented break-glass recovery path.
 - Raw SCIM payloads are not exposed in customer audit logs or operational logs.
 
 ## Deprovisioning

@@ -24,6 +24,8 @@ The shipped customer onboarding checklist is a first-value product surface, not 
 
 Shipped support surfaces are intentionally narrow: the customer onboarding checklist, internal ops diagnostics, billing exception visibility, and assisted troubleshooting using codes and counts. Future support/success tooling needs an Enterprise support gate before becoming runtime product.
 
+The current governance runtime has a narrow support-access review evidence helper for internal support/admin use. It can prepare purpose-limited, expiring, tenant-scoped, audit-safe review evidence, but it is not a customer-facing support-access portal and does not allow impersonation or raw-data browsing.
+
 ## Safe Diagnostic Bundle
 
 Allowed diagnostic fields include:
@@ -107,7 +109,20 @@ Incident communication must never expose another tenant, raw provider payloads, 
 
 ## Support Access Review
 
-Support access review remains future/deferred until Enterprise-grade purpose limitation, audit evidence, customer communication, retention, and data-governance linkage are implemented.
+Support access review remains future/deferred as a customer-facing Enterprise capability until customer communication, retention, and review surfaces are implemented.
+
+The current runtime foundation may record or prepare safe support-access evidence with:
+
+- support actor ID
+- internal support/admin role boundary
+- organization ID
+- purpose code
+- governed object class
+- optional object ID
+- status such as `requested`, `approved`, `denied`, `reviewed`, or `expired`
+- reviewer or policy evidence ID
+- expiration timestamp
+- safe metadata only
 
 No current support surface may imply:
 
@@ -116,6 +131,8 @@ No current support surface may imply:
 - customer health scores
 - hidden founder rescue
 - support-edited workflow truth outside audited product actions
+
+Expired support-access evidence must not be treated as active.
 
 ## Promotion Rules
 

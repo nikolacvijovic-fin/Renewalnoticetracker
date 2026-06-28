@@ -112,6 +112,7 @@ The bridge currently provides:
 - Explicit `requested`, `queued`, `processing`, `completed`, `failed`, `cancelled`, and `expired` state semantics.
 - Downloadability checks that keep expired export artifacts unavailable.
 - Purpose-code requirements and explicit metadata allowlists for support diagnostics.
+- Support-access review evidence preparation for internal support/admin roles with purpose, governed object class, tenant scope, status, expiration, reviewer/policy evidence, and safe metadata only.
 - Safe governance audit metadata shaping.
 
 Future live governance routes must use this bridge before writing retention/deletion/export/support-access records.

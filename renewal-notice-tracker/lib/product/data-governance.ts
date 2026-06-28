@@ -592,7 +592,20 @@ export const DATA_GOVERNANCE_AUDIT_EVENT_CONTRACTS = [
   {
     eventName: "governance.support_access_reviewed",
     status: "future",
-    safeMetadata: ["organization_id", "actor_user_id", "support_actor_id", "purpose_code", "object_class", "reviewed_at"],
+    safeMetadata: [
+      "organization_id",
+      "actor_user_id",
+      "support_actor_id",
+      "review_id",
+      "purpose_code",
+      "object_class",
+      "object_id",
+      "status",
+      "reviewed_at",
+      "reviewer_user_id",
+      "policy_evidence_id",
+      "expires_at"
+    ],
     forbiddenMetadata: sensitiveMetadataForbidden
   }
 ] as const satisfies readonly GovernanceAuditEventContract[];

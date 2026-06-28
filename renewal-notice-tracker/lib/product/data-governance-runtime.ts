@@ -4,7 +4,11 @@ import {
   GOVERNED_DATA_CLASS_IDS,
   type GovernedDataClassId
 } from "@/lib/product/data-governance";
-import { normalizeCustomerRole } from "@/lib/product/shipping-profile";
+import {
+  INTERNAL_ROLES,
+  normalizeCustomerRole,
+  type InternalRole
+} from "@/lib/product/shipping-profile";
 
 export const GOVERNANCE_REQUEST_STATUSES = [
   "requested",
@@ -28,6 +32,15 @@ export const GOVERNANCE_RETENTION_POLICY_BEHAVIORS = [
 ] as const;
 export type GovernanceRetentionPolicyBehavior =
   (typeof GOVERNANCE_RETENTION_POLICY_BEHAVIORS)[number];
+export const GOVERNANCE_SUPPORT_ACCESS_REVIEW_STATUSES = [
+  "requested",
+  "approved",
+  "denied",
+  "reviewed",
+  "expired"
+] as const;
+export type GovernanceSupportAccessReviewStatus =
+  (typeof GOVERNANCE_SUPPORT_ACCESS_REVIEW_STATUSES)[number];
 export type GovernanceSupportPurposeCode =
   | "customer_support_request"
   | "security_review"
@@ -153,6 +166,66 @@ export type GovernanceSupportDiagnosticInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type GovernanceSupportAccessReviewInput = {
+  reviewId: string;
+  organizationId: string;
+  evidenceOrganizationId: string;
+  supportActorUserId: string;
+  supportRole: string | null | undefined;
+  purposeCode?: GovernanceSupportPurposeCode | null;
+  objectClass: GovernedDataClassId | string;
+  objectId?: string | null;
+  status: GovernanceSupportAccessReviewStatus | string;
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+  expiresAt: string;
+  reviewerUserId?: string | null;
+  policyEvidenceId?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type GovernanceSupportAccessReviewEvidence = {
+  reviewId: string;
+  organizationId: string;
+  supportActorUserId: string;
+  supportRole: InternalRole;
+  purposeCode: GovernanceSupportPurposeCode;
+  objectClass: GovernedDataClassId;
+  objectId: string | null;
+  status: GovernanceSupportAccessReviewStatus;
+  active: boolean;
+  requestedAt: string | null;
+  reviewedAt: string | null;
+  expiresAt: string;
+  reviewerUserId: string | null;
+  policyEvidenceId: string | null;
+  customerVisibleEvidenceBoundary: "safe_metadata_only";
+  impersonationAllowed: false;
+  metadata: Record<string, unknown>;
+};
+
+export type GovernanceSupportAccessReviewResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      evidence: GovernanceSupportAccessReviewEvidence;
+      audit: ReturnType<typeof buildGovernanceAuditLogInput>;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "internal_support_or_admin_required"
+        | "purpose_code_required"
+        | "unsupported_object_class"
+        | "organization_scope_mismatch"
+        | "unsupported_status"
+        | "expiration_required";
+      organizationId: string;
+      supportActorUserId: string;
+      safeMessage: string;
+    };
+
 export type GovernanceAuditInput = {
   organizationId: string;
   actorUserId?: string | null;
@@ -169,9 +242,13 @@ const GOVERNANCE_RETENTION_POLICY_STATUS_SET = new Set<string>(
 const GOVERNANCE_RETENTION_POLICY_BEHAVIOR_SET = new Set<string>(
   GOVERNANCE_RETENTION_POLICY_BEHAVIORS
 );
+const GOVERNANCE_SUPPORT_ACCESS_REVIEW_STATUS_SET = new Set<string>(
+  GOVERNANCE_SUPPORT_ACCESS_REVIEW_STATUSES
+);
 const ACTIVE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 const GOVERNED_DATA_CLASS_SET = new Set<string>(GOVERNED_DATA_CLASS_IDS);
 const FORBIDDEN_METADATA_KEYS = new Set<string>(DATA_GOVERNANCE_FORBIDDEN_METADATA);
+const INTERNAL_ROLE_SET = new Set<string>(INTERNAL_ROLES);
 const MIN_RETENTION_WINDOW_DAYS = 1;
 const MAX_RETENTION_WINDOW_DAYS = 3650;
 const SUPPORT_DIAGNOSTIC_METADATA_ALLOWLIST = new Set([
@@ -199,7 +276,11 @@ const SUPPORT_DIAGNOSTIC_METADATA_ALLOWLIST = new Set([
   "format",
   "row_count",
   "artifact_size_bytes",
-  "purpose_code"
+  "purpose_code",
+  "review_id",
+  "reviewer_user_id",
+  "policy_evidence_id",
+  "expires_at"
 ]);
 const SUPPORT_PURPOSE_CODES = new Set<GovernanceSupportPurposeCode>([
   "customer_support_request",
@@ -513,6 +594,126 @@ export function normalizeGovernanceLifecycleState(
     downloadable: false,
     evidenceComplete: true,
     reasonCode: status
+  };
+}
+
+export function prepareSupportAccessReview(
+  input: GovernanceSupportAccessReviewInput,
+  now = new Date()
+): GovernanceSupportAccessReviewResult {
+  if (!input.supportRole || !INTERNAL_ROLE_SET.has(input.supportRole)) {
+    return {
+      allowed: false,
+      reason: "internal_support_or_admin_required",
+      organizationId: input.organizationId,
+      supportActorUserId: input.supportActorUserId,
+      safeMessage: "Support access review requires an internal support or admin role."
+    };
+  }
+
+  if (!input.purposeCode || !SUPPORT_PURPOSE_CODES.has(input.purposeCode)) {
+    return {
+      allowed: false,
+      reason: "purpose_code_required",
+      organizationId: input.organizationId,
+      supportActorUserId: input.supportActorUserId,
+      safeMessage: "Support access review requires a purpose code."
+    };
+  }
+
+  if (!GOVERNED_DATA_CLASS_SET.has(input.objectClass)) {
+    return {
+      allowed: false,
+      reason: "unsupported_object_class",
+      organizationId: input.organizationId,
+      supportActorUserId: input.supportActorUserId,
+      safeMessage: "Support access review requires a governed data class."
+    };
+  }
+
+  if (input.evidenceOrganizationId !== input.organizationId) {
+    return {
+      allowed: false,
+      reason: "organization_scope_mismatch",
+      organizationId: input.organizationId,
+      supportActorUserId: input.supportActorUserId,
+      safeMessage: "Support access review evidence must be scoped to the active organization."
+    };
+  }
+
+  if (!GOVERNANCE_SUPPORT_ACCESS_REVIEW_STATUS_SET.has(input.status)) {
+    return {
+      allowed: false,
+      reason: "unsupported_status",
+      organizationId: input.organizationId,
+      supportActorUserId: input.supportActorUserId,
+      safeMessage: "Support access review status is not supported."
+    };
+  }
+
+  if (!input.expiresAt || Number.isNaN(new Date(input.expiresAt).getTime())) {
+    return {
+      allowed: false,
+      reason: "expiration_required",
+      organizationId: input.organizationId,
+      supportActorUserId: input.supportActorUserId,
+      safeMessage: "Support access review evidence requires an expiration timestamp."
+    };
+  }
+
+  const expired = new Date(input.expiresAt).getTime() <= now.getTime();
+  const status = expired ? "expired" : (input.status as GovernanceSupportAccessReviewStatus);
+  const metadata = sanitizeGovernanceRecord(
+    {
+      ...input.metadata,
+      review_id: input.reviewId,
+      organization_id: input.organizationId,
+      support_actor_id: input.supportActorUserId,
+      purpose_code: input.purposeCode,
+      object_class: input.objectClass,
+      object_id: input.objectId ?? undefined,
+      status,
+      reviewed_at: input.reviewedAt ?? undefined,
+      reviewer_user_id: input.reviewerUserId ?? undefined,
+      policy_evidence_id: input.policyEvidenceId ?? undefined,
+      expires_at: input.expiresAt
+    },
+    SUPPORT_DIAGNOSTIC_METADATA_ALLOWLIST
+  );
+
+  const evidence: GovernanceSupportAccessReviewEvidence = {
+    reviewId: input.reviewId,
+    organizationId: input.organizationId,
+    supportActorUserId: input.supportActorUserId,
+    supportRole: input.supportRole as InternalRole,
+    purposeCode: input.purposeCode,
+    objectClass: input.objectClass as GovernedDataClassId,
+    objectId: input.objectId ?? null,
+    status,
+    active: !expired && (status === "requested" || status === "approved"),
+    requestedAt: input.requestedAt ?? null,
+    reviewedAt: input.reviewedAt ?? null,
+    expiresAt: input.expiresAt,
+    reviewerUserId: input.reviewerUserId ?? null,
+    policyEvidenceId: input.policyEvidenceId ?? null,
+    customerVisibleEvidenceBoundary: "safe_metadata_only",
+    impersonationAllowed: false,
+    metadata
+  };
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    evidence,
+    audit: buildGovernanceAuditLogInput({
+      organizationId: input.organizationId,
+      actorUserId: input.supportActorUserId,
+      eventName: "governance.support_access_reviewed",
+      entityType: "support_access",
+      entityId: input.reviewId,
+      metadata
+    })
   };
 }
 

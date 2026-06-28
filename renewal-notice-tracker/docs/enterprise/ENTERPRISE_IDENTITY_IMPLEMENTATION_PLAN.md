@@ -63,8 +63,10 @@ These contracts are not live runtime behavior. They exist so future implementati
 
 The bridge currently provides:
 - Enterprise identity access evaluation requiring org admin or owner role, Enterprise plan, active/trialing subscription status, and explicit feature enablement.
+- SSO configuration readiness shaping for `draft`, `configured`, `active`, `disabled`, `error`, and `future` states. This can identify future-login readiness but cannot affect current login behavior.
 - Provisioning-state login behavior where only `active` may authenticate; `pending`, `soft_deprovisioned`, `hard_deprovisioned`, and `locked` are fail-closed.
 - SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
+- SCIM mutation decisions that require Enterprise entitlement, explicit feature enablement, directory organization scope, and break-glass preservation for privileged users.
 - Group-role mapping normalization that can map only non-privileged current customer runtime roles; `owner`, `admin`, future enterprise roles, and internal roles remain inert and cannot be granted through provider groups.
 - Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only.
 
@@ -110,6 +112,7 @@ Future deprovisioning behavior:
 3. Existing sessions must be revoked or invalidated through a dedicated future session control path.
 4. `hard_deprovisioned` may occur only after retention, deletion, audit, and customer policy gates pass.
 5. Owner assignment, reminder accountability, and historical audit records must retain safe references without exposing raw identity provider payloads.
+6. Deprovisioning or locking an admin/owner must preserve at least one accountable admin/owner and a documented break-glass recovery path.
 
 ## Lockout And Recovery Lifecycle
 
@@ -118,6 +121,7 @@ Future lockout/recovery behavior:
 2. Recovery requires enterprise admin authority, audit evidence, and a stable reason code.
 3. Fallback admin recovery must be limited to verified break-glass administrators.
 4. Recovery must not expose raw IdP assertions, certificates, tokens, SCIM payloads, or provider debug data.
+5. Runtime SCIM mutation decisions must reject privileged lock/deprovision operations that would leave no admin/owner or no documented break-glass path.
 
 ## Domain Verification
 

@@ -208,8 +208,20 @@ export const SUPPORT_SUCCESS_CAPABILITIES: Record<
     status: "future",
     allowedRuntimeSurfaceToday: "none",
     requiredRoleOrAuthBoundary: "future_enterprise_support_gate",
-    allowedMetadata: ["organization_id", "support_actor_id", "purpose_code", "object_class", "reviewed_at"],
-    auditExpectation: "Support access review must link to data-governance support-access evidence.",
+    allowedMetadata: [
+      "organization_id",
+      "support_actor_id",
+      "review_id",
+      "purpose_code",
+      "object_class",
+      "object_id",
+      "status",
+      "reviewed_at",
+      "reviewer_user_id",
+      "policy_evidence_id",
+      "expires_at"
+    ],
+    auditExpectation: "Support access review must link to data-governance support-access evidence with purpose, expiration, and safe metadata only.",
     monitoringExpectation: "Unreviewed support access should emit safe operational events.",
     customerCommunicationExpectation: "Enterprise customers should receive review evidence when this future capability ships."
   }),

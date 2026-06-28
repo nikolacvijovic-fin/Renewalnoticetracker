@@ -48,8 +48,9 @@ Route contract rules:
 - Every route is `allowedRuntimeToday: false`.
 - Every route is Enterprise-gated and tied to a future RBAC capability.
 - Every route declares lifecycle state references, rate-limit expectations, idempotency expectations, audit event, monitoring event, forbidden fields, and release gates.
-- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SCIM state normalization, group-role mapping safety, deprovisioned/locked access semantics, and safe audit metadata shaping.
+- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SSO readiness shaping, tenant-scoped SCIM mutation decisions, SCIM state normalization, group-role mapping safety, break-glass preservation, deprovisioned/locked access semantics, and safe audit metadata shaping.
 - SCIM create/update/delete routes must preserve provisioning and deprovisioning semantics: `pending`, `active`, `locked`, `soft_deprovisioned`, and `hard_deprovisioned`.
+- SCIM mutation decisions must reject cross-organization directory mutations and privileged lock/deprovision operations that would leave no accountable admin/owner or no documented break-glass path.
 - Admin recovery is future-only break-glass behavior and must not become hidden founder rescue.
 
 ## Validation Contracts

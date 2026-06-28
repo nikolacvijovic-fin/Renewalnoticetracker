@@ -14,6 +14,7 @@ The current product does include narrow operational governance controls:
 - backup readiness and restore drill evidence through internal routes
 - audit/log/monitoring redaction rules for sensitive data
 - internal support diagnostics that should stay code-first and free of raw customer content
+- support-access review evidence shaping for internal support/admin actors, with purpose codes, governed object classes, expiration, and safe metadata only
 
 Everything broader is future Enterprise governance scope until promoted through the platform module registry and this boundary.
 
@@ -51,6 +52,7 @@ The runtime governance bridge in `lib/product/data-governance-runtime.ts` curren
 - Export and deletion lifecycle states are normalized as `requested`, `queued`, `processing`, `completed`, `failed`, `cancelled`, or `expired` so completed states cannot silently look like failed or queued states.
 - Expired export artifacts are never considered downloadable, even if stale evidence still contains a download flag.
 - Support diagnostics require a purpose code and governed object class before any safe diagnostic metadata can be produced.
+- Support-access review evidence requires an internal support/admin role, purpose code, governed object class, active organization scope, supported status, and expiration timestamp. Expired evidence is not considered active.
 - Governance audit inputs are built from allow-listed metadata only. Support diagnostics additionally apply explicit metadata allowlists instead of passing arbitrary sanitized fields through by default.
 
 ## Deferred Enterprise Behavior
@@ -66,7 +68,7 @@ Future Enterprise governance may add:
 - legal hold activation and release
 - data residency
 - customer data export packages
-- support access review evidence
+- customer-facing support access review evidence
 
 These are not current runtime features and must not appear in customer settings, pricing, navigation, or sales copy as shipped behavior.
 

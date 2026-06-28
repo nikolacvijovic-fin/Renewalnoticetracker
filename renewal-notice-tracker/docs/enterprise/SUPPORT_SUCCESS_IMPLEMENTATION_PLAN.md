@@ -15,7 +15,7 @@ Canonical boundaries:
 
 1. Registry and boundary: define onboarding milestones, support capabilities, health signals, diagnostic fields, forbidden raw data, event taxonomy evidence, and release proof.
 2. Internal design review: threat-model support data access, purpose limitation, tenant scoping, escalation ownership, and customer communication.
-3. Operational pilot: use existing internal ops diagnostics only, with no impersonation and no raw customer content.
+3. Operational pilot: use existing internal ops diagnostics and the governance runtime support-access evidence helper only, with no impersonation and no raw customer content.
 4. Enterprise support gate: add support-access review, escalation workflow, incident communication, and customer communication evidence.
 5. Controlled runtime enablement: expose only the exact support tooling proven by tests, runbooks, monitoring, and customer docs.
 
@@ -101,16 +101,22 @@ It must not include raw customer content, another tenant's data, secrets, provid
 
 ## Support Access Review
 
-Future support access review must link to data governance support-access evidence and include:
+The current runtime foundation can prepare safe support-access review evidence for internal support/admin use. It is not a customer-facing support portal.
+
+Support access review evidence includes:
 
 - support actor
 - organization ID
 - purpose code
 - object class
+- optional object ID
+- status: `requested`, `approved`, `denied`, `reviewed`, or `expired`
 - reviewed timestamp
 - reviewer or policy evidence
+- expiration timestamp
+- safe metadata only
 
-Support access review remains future-only until Enterprise governance, retention, audit, and customer communication controls are ready.
+Support access review remains future-only as a customer-facing Enterprise capability until Enterprise governance, retention, audit, and customer communication controls are ready. Expired evidence must not be treated as active, and no support path may impersonate users or mutate workflow truth outside audited product actions.
 
 ## Release Gate
 

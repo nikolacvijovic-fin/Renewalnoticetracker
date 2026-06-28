@@ -3,9 +3,12 @@ import {
   buildEnterpriseIdentityAuditLogInput,
   canEnterpriseProvisionedUserAuthenticate,
   evaluateEnterpriseIdentityAdminAccess,
+  evaluateEnterpriseBreakGlassPreservation,
   evaluateEnterpriseProvisionedMemberAccess,
+  evaluateEnterpriseSsoConfigurationReadiness,
   normalizeEnterpriseGroupRoleMapping,
   normalizeEnterpriseScimMutation,
+  prepareEnterpriseScimMutationDecision,
   sanitizeEnterpriseIdentityAuditMetadata
 } from "@/lib/product/enterprise-identity-runtime";
 import { ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS } from "@/lib/product/enterprise-identity";
@@ -74,6 +77,64 @@ describe("enterprise identity runtime bridge", () => {
     expect(canEnterpriseProvisionedUserAuthenticate("soft_deprovisioned")).toBe(false);
     expect(canEnterpriseProvisionedUserAuthenticate("hard_deprovisioned")).toBe(false);
     expect(canEnterpriseProvisionedUserAuthenticate("locked")).toBe(false);
+  });
+
+  it("normalizes SSO configuration readiness without enabling current login behavior", () => {
+    expect(
+      evaluateEnterpriseSsoConfigurationReadiness({
+        organizationId: "org-1",
+        configurationOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        provider: "saml_2_0",
+        status: "active",
+        metadataFingerprint: "metadata-fingerprint",
+        certificateFingerprint: "certificate-fingerprint",
+        certificateExpiresAt: "2099-01-01T00:00:00.000Z",
+        domainVerified: true
+      })
+    ).toMatchObject({
+      allowed: true,
+      readyForFutureLogin: true,
+      canAffectCurrentLogin: false,
+      missingRequirements: []
+    });
+
+    expect(
+      evaluateEnterpriseSsoConfigurationReadiness({
+        organizationId: "org-1",
+        configurationOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        provider: "oidc",
+        status: "draft",
+        domainVerified: false
+      })
+    ).toMatchObject({
+      allowed: true,
+      status: "draft",
+      readyForFutureLogin: false,
+      canAffectCurrentLogin: false,
+      missingRequirements: expect.arrayContaining([
+        "metadata_fingerprint_required",
+        "certificate_fingerprint_required",
+        "domain_verification_required"
+      ])
+    });
+
+    expect(
+      evaluateEnterpriseSsoConfigurationReadiness({
+        organizationId: "org-1",
+        configurationOrganizationId: "org-2",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        provider: "saml_2_0",
+        status: "configured"
+      })
+    ).toMatchObject({ allowed: false, reason: "organization_scope_mismatch" });
   });
 
   it("denies provisioned member access for pending, deprovisioned, and locked states even when stale membership exists", () => {
@@ -170,6 +231,140 @@ describe("enterprise identity runtime bridge", () => {
         externalId: "ProviderExternalUser123"
       }).provisioningState
     ).toBe("active");
+  });
+
+  it("prepares SCIM mutation decisions with Enterprise gating, tenant scope, and safe audit evidence", () => {
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "growth",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "ProviderExternalUser123",
+          email: "person@example.com",
+          targetUserId: "user-1",
+          requestedRole: "operator"
+        }
+      })
+    ).toMatchObject({ allowed: false, reason: "enterprise_plan_required" });
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-2",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        mutation: {
+          organizationId: "org-2",
+          operation: "create",
+          externalId: "ProviderExternalUser123",
+          targetUserId: "user-1",
+          requestedRole: "operator"
+        }
+      })
+    ).toMatchObject({ allowed: false, reason: "organization_scope_mismatch" });
+
+    const decision = prepareEnterpriseScimMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      targetCurrentRole: "operator",
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true,
+      mutation: {
+        organizationId: "org-1",
+        operation: "update",
+        externalId: "ProviderExternalUser123",
+        email: "person@example.com",
+        targetUserId: "user-1",
+        requestedRole: "reviewer"
+      }
+    });
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      mapping: {
+        organizationId: "org-1",
+        targetUserId: "user-1",
+        provisioningState: "active",
+        role: "reviewer"
+      },
+      audit: {
+        organizationId: "org-1",
+        action: "enterprise.scim_user_provisioned",
+        details: {
+          provider: "scim_2_0",
+          target_user_id: "user-1",
+          role: "reviewer",
+          reason_code: "scim_normalized",
+          initiated_by: "scim_directory"
+        }
+      }
+    });
+
+    expect(JSON.stringify(decision)).not.toContain("ProviderExternalUser123");
+    expect(JSON.stringify(decision)).not.toContain("person@example.com");
+  });
+
+  it("blocks privileged deprovisioning unless break-glass admin preservation remains intact", () => {
+    expect(
+      evaluateEnterpriseBreakGlassPreservation({
+        organizationId: "org-1",
+        targetUserId: "admin-1",
+        targetRole: "admin",
+        operation: "delete",
+        activeAdminOrOwnerCount: 1,
+        breakGlassRecoveryActive: true
+      })
+    ).toMatchObject({ allowed: false, reason: "last_admin_or_owner_required" });
+
+    expect(
+      evaluateEnterpriseBreakGlassPreservation({
+        organizationId: "org-1",
+        targetUserId: "admin-1",
+        targetRole: "admin",
+        operation: "lock",
+        activeAdminOrOwnerCount: 2,
+        breakGlassRecoveryActive: false
+      })
+    ).toMatchObject({ allowed: false, reason: "break_glass_recovery_required" });
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        targetCurrentRole: "owner",
+        activeAdminOrOwnerCount: 2,
+        breakGlassRecoveryActive: true,
+        mutation: {
+          organizationId: "org-1",
+          operation: "lock",
+          externalId: "OwnerExternalId",
+          targetUserId: "owner-1",
+          requestedRole: "operator"
+        }
+      })
+    ).toMatchObject({
+      allowed: true,
+      mapping: {
+        organizationId: "org-1",
+        targetUserId: "owner-1",
+        provisioningState: "locked"
+      },
+      audit: {
+        action: "enterprise.user_lockout"
+      }
+    });
   });
 
   it("prevents group-role mappings from escalating to owner, internal, or future enterprise roles", () => {
