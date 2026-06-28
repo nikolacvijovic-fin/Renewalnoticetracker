@@ -48,7 +48,7 @@ Route contract rules:
 - Every route is `allowedRuntimeToday: false`.
 - Every route is Enterprise-gated and tied to a future RBAC capability.
 - Every route declares lifecycle state references, rate-limit expectations, idempotency expectations, audit event, monitoring event, forbidden fields, and release gates.
-- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SSO readiness shaping, tenant-scoped SCIM mutation decisions, SCIM state normalization, group-role mapping safety, break-glass preservation, deprovisioned/locked access semantics, and safe audit metadata shaping.
+- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SSO readiness shaping, verified-result SSO callback decisions, SCIM bearer-token authentication contracts, tenant-scoped SCIM endpoint response shaping, SCIM mutation decisions, SCIM state normalization, group-role mapping safety, break-glass preservation, deprovisioned/locked access semantics, and safe audit metadata shaping.
 - SCIM create/update/delete routes must preserve provisioning and deprovisioning semantics: `pending`, `active`, `locked`, `soft_deprovisioned`, and `hard_deprovisioned`.
 - SCIM mutation decisions must reject cross-organization directory mutations and privileged lock/deprovision operations that would leave no accountable admin/owner or no documented break-glass path.
 - Lock/recovery decisions must use `enterprise.identity_member_locked` and `enterprise.identity_member_unlocked` rather than overloading provisioning events.
@@ -77,7 +77,7 @@ Validation rules:
 - SSO tests must not persist assertions or token payloads.
 - SCIM create/update/delete validation must normalize to safe identifiers, lifecycle states, role IDs, reason codes, and hashed external IDs; full SCIM payloads are forbidden.
 - Group-role mapping validation must use hashed group IDs or stable provider IDs, not raw claims.
-- Runtime normalization must reject owner, admin, internal, and future enterprise role escalation through provider group mappings.
+- Runtime normalization must reject owner, internal, and future enterprise role escalation through provider group mappings. Admin mapping is denied by default and requires an explicit future Enterprise policy flag.
 - Admin recovery validation must store safe evidence IDs and reason codes, not support notes, IdP payloads, provider assertions, or secrets.
 
 ## Privacy And Audit Rules

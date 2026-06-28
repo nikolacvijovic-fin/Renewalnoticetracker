@@ -6,16 +6,19 @@ import {
   buildEnterpriseIdentityAuditLogInput,
   buildEnterpriseSsoConfigurationAuditLogInput,
   canEnterpriseProvisionedUserAuthenticate,
+  authenticateEnterpriseScimBearerToken,
   evaluateBreakGlassAdminPolicy,
   evaluateEnterpriseIdentityAccess,
   evaluateEnterpriseIdentityAdminAccess,
   evaluateEnterpriseBreakGlassPreservation,
   evaluateEnterpriseMemberAccess,
   evaluateEnterpriseProvisionedMemberAccess,
+  evaluateEnterpriseSsoLoginCallback,
   evaluateEnterpriseSsoConfigurationReadiness,
   normalizeEnterpriseGroupRoleMapping,
   normalizeEnterpriseScimMutation,
   prepareEnterpriseIdentityConfigChange,
+  prepareEnterpriseScimEndpointResponse,
   prepareScimProvisioningDecision,
   prepareEnterpriseScimMutationDecision,
   resolveSafeGroupRoleMapping,
@@ -223,6 +226,30 @@ describe("enterprise identity runtime bridge", () => {
     expect(
       normalizeEnterpriseScimMutation({
         organizationId: "org-1",
+        operation: "create",
+        externalId: "ProviderExternalUser123",
+        requestedRole: "admin"
+      })
+    ).toMatchObject({
+      role: null,
+      reasonCode: "admin_mapping_policy_required"
+    });
+    expect(
+      normalizeEnterpriseScimMutation({
+        organizationId: "org-1",
+        operation: "create",
+        externalId: "ProviderExternalUser123",
+        requestedRole: "admin",
+        roleMappingPolicy: { allowAdminGroupMapping: true }
+      })
+    ).toMatchObject({
+      role: "admin",
+      reasonCode: "scim_normalized"
+    });
+
+    expect(
+      normalizeEnterpriseScimMutation({
+        organizationId: "org-1",
         operation: "delete",
         externalId: "ProviderExternalUser123",
         requestedRole: "operator"
@@ -324,6 +351,93 @@ describe("enterprise identity runtime bridge", () => {
 
     expect(JSON.stringify(decision)).not.toContain("ProviderExternalUser123");
     expect(JSON.stringify(decision)).not.toContain("person@example.com");
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        targetCurrentRole: "operator",
+        activeAdminOrOwnerCount: 2,
+        breakGlassRecoveryActive: true,
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "ProviderExternalUser123",
+          targetUserId: "user-2",
+          requestedRole: "owner"
+        }
+      })
+    ).toMatchObject({ allowed: false, reason: "owner_mapping_forbidden" });
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        targetCurrentRole: "operator",
+        activeAdminOrOwnerCount: 2,
+        breakGlassRecoveryActive: true,
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "ProviderExternalUser123",
+          targetUserId: "user-2",
+          requestedRole: "admin"
+        }
+      })
+    ).toMatchObject({ allowed: false, reason: "admin_mapping_policy_required" });
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        targetCurrentRole: "operator",
+        activeAdminOrOwnerCount: 2,
+        breakGlassRecoveryActive: true,
+        roleMappingPolicy: { allowAdminGroupMapping: true },
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "ProviderExternalUser123",
+          targetUserId: "user-2",
+          requestedRole: "admin"
+        }
+      })
+    ).toMatchObject({
+      allowed: true,
+      mapping: {
+        role: "admin",
+        reasonCode: "scim_normalized"
+      }
+    });
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        targetCurrentRole: "operator",
+        activeAdminOrOwnerCount: 2,
+        breakGlassRecoveryActive: true,
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "ProviderExternalUser123",
+          targetUserId: "user-2",
+          requestedRole: "security_admin"
+        }
+      })
+    ).toMatchObject({ allowed: false, reason: "future_role_forbidden" });
   });
 
   it("blocks privileged deprovisioning unless break-glass admin preservation remains intact", () => {
@@ -799,6 +913,180 @@ describe("enterprise identity runtime bridge", () => {
     expect(JSON.stringify(provision)).not.toContain("person@example.com");
     expect(JSON.stringify(provision)).not.toContain("SCIM_BEARER_TOKEN_SHOULD_NOT_SURVIVE");
     expect(JSON.stringify(provision)).not.toContain("RAW_GROUP_PAYLOAD_SHOULD_NOT_SURVIVE");
+  });
+
+  it("prepares future SCIM endpoint responses without logging raw bearer tokens or bypassing role policy", () => {
+    const expectedFingerprint =
+      "dfe503eb11052e879c4473695b319e59476e1c53bacb2b81d55f6f78257ec2b1";
+    const scimAuth = authenticateEnterpriseScimBearerToken({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      directoryStatus: "active",
+      presentedBearerToken: "future-scim-token",
+      expectedBearerTokenFingerprint: expectedFingerprint
+    });
+
+    expect(scimAuth).toMatchObject({
+      authenticated: true,
+      reason: "allowed",
+      tokenFingerprint: expectedFingerprint
+    });
+    expect(JSON.stringify(scimAuth)).not.toContain("future-scim-token");
+
+    expect(
+      authenticateEnterpriseScimBearerToken({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        directoryStatus: "active",
+        presentedBearerToken: "wrong-token",
+        expectedBearerTokenFingerprint: expectedFingerprint
+      })
+    ).toMatchObject({ authenticated: false, reason: "invalid_bearer_token" });
+
+    const denied = prepareEnterpriseScimEndpointResponse({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      scimAuth,
+      operation: "provision",
+      externalId: "external-user-1",
+      email: "person@example.com",
+      targetUserId: "user-1",
+      requestedRole: "owner"
+    });
+
+    expect(denied).toMatchObject({
+      ok: false,
+      status: 403,
+      code: "scim_forbidden",
+      reason: "owner_mapping_forbidden"
+    });
+    expect(JSON.stringify(denied)).not.toContain("person@example.com");
+
+    const allowed = prepareEnterpriseScimEndpointResponse({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      scimAuth,
+      operation: "provision",
+      externalId: "external-user-1",
+      email: "person@example.com",
+      targetUserId: "user-1",
+      requestedRole: "admin",
+      roleMappingPolicy: { allowAdminGroupMapping: true }
+    });
+
+    expect(allowed).toMatchObject({
+      ok: true,
+      status: 201,
+      code: "scim_provisioning_prepared",
+      body: {
+        targetUserId: "user-1",
+        memberStatus: "active",
+        role: "admin"
+      },
+      audit: {
+        action: "identity.scim_user_provisioned"
+      }
+    });
+    expect(JSON.stringify(allowed)).not.toContain("person@example.com");
+    expect(JSON.stringify(allowed)).not.toContain("external-user-1");
+  });
+
+  it("evaluates future SSO callbacks from verified results without enabling current login", () => {
+    const callback = evaluateEnterpriseSsoLoginCallback({
+      organizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      expectedDomain: "example.com",
+      providerConfiguration: {
+        organizationId: "org-1",
+        configurationId: "sso-config-1",
+        providerType: "saml",
+        status: "active",
+        entityId: "https://idp.example.com",
+        ssoUrl: "https://idp.example.com/sso",
+        metadataFingerprint: "metadata-fingerprint",
+        certificateFingerprint: "certificate-fingerprint",
+        domain: "example.com"
+      },
+      verification: {
+        verified: true,
+        providerType: "saml",
+        organizationId: "org-1",
+        configurationOrganizationId: "org-1",
+        domain: "example.com",
+        externalId: "external-user-1",
+        email: "person@example.com",
+        targetUserId: "user-1",
+        reasonCode: "assertion_verified",
+        rawProviderPayload: "RAW_SAML_ASSERTION_SHOULD_NOT_SURVIVE",
+        safeMetadata: {
+          provider_payload: "PROVIDER_PAYLOAD_SHOULD_NOT_SURVIVE",
+          reason_code: "safe_callback_reason"
+        }
+      },
+      membershipRole: "operator",
+      memberStatus: "active"
+    });
+
+    expect(callback).toMatchObject({
+      allowed: true,
+      canAffectCurrentLogin: false,
+      targetUserId: "user-1",
+      audit: {
+        action: "identity.sso_config_changed",
+        details: {
+          provider: "saml",
+          target_user_id: "user-1",
+          new_state: "verified_callback_prepared",
+          reason_code: "safe_callback_reason"
+        }
+      }
+    });
+    expect(JSON.stringify(callback)).not.toContain("person@example.com");
+    expect(JSON.stringify(callback)).not.toContain("external-user-1");
+    expect(JSON.stringify(callback)).not.toContain("RAW_SAML_ASSERTION_SHOULD_NOT_SURVIVE");
+    expect(JSON.stringify(callback)).not.toContain("PROVIDER_PAYLOAD_SHOULD_NOT_SURVIVE");
+
+    expect(
+      evaluateEnterpriseSsoLoginCallback({
+        organizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        expectedDomain: "example.com",
+        providerConfiguration: {
+          organizationId: "org-1",
+          configurationId: "sso-config-1",
+          providerType: "oidc",
+          status: "active",
+          issuer: "https://idp.example.com",
+          clientIdHash: "client-id-hash",
+          jwksFingerprint: "jwks-fingerprint",
+          domain: "example.com"
+        },
+        verification: {
+          verified: true,
+          providerType: "oidc",
+          organizationId: "org-1",
+          configurationOrganizationId: "org-1",
+          domain: "example.com",
+          targetUserId: "user-locked"
+        },
+        membershipRole: "owner",
+        memberStatus: "locked"
+      })
+    ).toMatchObject({
+      allowed: false,
+      reason: "member_locked",
+      canAffectCurrentLogin: false
+    });
   });
 
   it("preserves break-glass admin safety before privileged SCIM changes", () => {

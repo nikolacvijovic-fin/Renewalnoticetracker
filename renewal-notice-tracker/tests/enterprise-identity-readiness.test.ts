@@ -20,6 +20,7 @@ import {
   ENTERPRISE_SENSITIVE_ACTION_RULES,
   FUTURE_ENTERPRISE_ROLES
 } from "@/lib/product/enterprise-rbac";
+import { PRODUCT_EVENT_TAXONOMY } from "@/lib/product/event-taxonomy";
 import { SHIPPED_FIRST_SCOPE } from "@/lib/product/shipping-profile";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -135,6 +136,36 @@ describe("enterprise identity implementation readiness", () => {
     expect(
       isEnterpriseIdentityAuditMetadataKeyAllowed("enterprise.scim_user_provisioned", "scim_payload")
     ).toBe(false);
+  });
+
+  it("keeps identity audit contracts aligned with event taxonomy and documentation", () => {
+    const eventTaxonomyDoc = readRepoFile("docs", "EVENT_TAXONOMY.md");
+
+    for (const [eventName, contract] of Object.entries(ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS)) {
+      const event = PRODUCT_EVENT_TAXONOMY[eventName as keyof typeof PRODUCT_EVENT_TAXONOMY];
+      expect(event, eventName).toBeDefined();
+      expect(event.name, eventName).toBe(eventName);
+      expect(event.type, eventName).toBe("audit");
+      expect(event.emittedToday, eventName).toBe(false);
+      expect(event.privacySensitivity, eventName).toBe("restricted");
+      expect(event.owningProductModule, eventName).toBe("enterprise_identity_rbac_retention");
+      expect(eventTaxonomyDoc, eventName).toContain(`\`${eventName}\``);
+
+      for (const forbiddenKey of ENTERPRISE_IDENTITY_FORBIDDEN_AUDIT_METADATA_KEYS) {
+        expect(event.safeMetadataFields, `${eventName} should not allow ${forbiddenKey}`).not.toContain(
+          forbiddenKey
+        );
+      }
+
+      const allowedTaxonomyFields = new Set([
+        "organization_id",
+        "actor_user_id",
+        ...contract.allowedSafeMetadataKeys
+      ]);
+      for (const field of event.safeMetadataFields) {
+        expect(allowedTaxonomyFields.has(field), `${eventName} taxonomy field ${field}`).toBe(true);
+      }
+    }
   });
 
   it("keeps SSO and SCIM Enterprise-only, deferred, and unavailable to current plans", () => {

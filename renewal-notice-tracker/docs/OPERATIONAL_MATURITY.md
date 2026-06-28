@@ -62,6 +62,52 @@ Use each signal for the right job:
 
 Never log secrets, auth tokens, cookies, payment provider payload secrets, raw contract text, full notes, OCR document text, raw extraction payloads, raw evidence snippets, or uploaded document contents.
 
+Operational logs are not customer audit truth and must not be used to prove that a customer-visible workflow action happened. They are support/debugging signals. Customer/security truth still belongs in audit records, and product/business behavior still belongs in analytics events with non-sensitive metadata.
+
+The structured operational log envelope is owned by `lib/observability/operational-logging.ts` and includes:
+- `timestamp`
+- `level`
+- `operation`
+- `subsystem`
+- `organizationId`
+- `actorId`
+- `contractId`
+- `jobId`
+- `requestId`
+- `status`
+- `durationMs`
+- `retryCount`
+- `errorCategory`
+- `safeMetadata`
+
+Operational log `signalType` is always `operational_log`. Support diagnostic summaries use `signalType: support_diagnostic`. Neither shape should contain `auditEvent`, `analyticsEvent`, raw audit JSON, or customer/provider payloads.
+
+Stable operational failure categories are:
+- `validation_failed`
+- `permission_denied`
+- `entitlement_denied`
+- `tenant_scope_mismatch`
+- `upstream_provider_failed`
+- `timeout`
+- `retry_scheduled`
+- `retry_exhausted`
+- `background_job_failed`
+- `partial_success`
+- `cancelled`
+- `unknown`
+
+Use these categories across reminders, exports, OCR, billing, enterprise identity/SSO/SCIM, contract review jobs, intelligence jobs, and internal operations. Prefer stable `failure_code` and `errorCategory` values over raw exception messages.
+
+Support-safe diagnostics are available for:
+- failed exports
+- failed reminders
+- failed OCR jobs
+- failed SCIM provisioning
+- failed SSO readiness/callback handling
+- billing entitlement mismatches
+
+Diagnostics may include safe IDs, status, retry counts, timestamps, failure codes, and bounded metadata. They must not include contract body text, OCR raw text, SAML assertions, OIDC tokens, SCIM bearer tokens, SCIM raw payloads, payment secrets, provider responses, private keys/certificates, passwords, secrets, or tokens.
+
 ## Monitoring Readiness Map
 
 Monitoring currently emits through `lib/observability/monitoring.ts` into the `structured_log` sink. Callers should only use `emitOperationalEvent`; future alerting providers should be added behind the sink resolver so route and business code do not change. See `docs/OPERATIONAL_EVENT_INVENTORY.md` for the event inventory and P0/P1/P2/P3 severity policy, and `docs/OPERATIONAL_RUNBOOKS.md` for operator response steps.

@@ -420,6 +420,7 @@ export type EnterpriseBreakGlassPreservationResult =
 export type EnterpriseScimMutationDecisionInput = EnterpriseIdentityFeatureGateInput & {
   directoryOrganizationId: string;
   mutation: EnterpriseScimMutationInput;
+  roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
   targetCurrentRole?: string | null;
   activeAdminOrOwnerCount?: number | null;
   breakGlassRecoveryActive?: boolean;
@@ -432,7 +433,11 @@ export type EnterpriseScimMutationDecisionDeniedReason =
   | "organization_scope_mismatch"
   | "last_admin_or_owner_required"
   | "break_glass_recovery_required"
-  | "invalid_admin_count";
+  | "invalid_admin_count"
+  | "unsupported_role"
+  | "owner_mapping_forbidden"
+  | "admin_mapping_policy_required"
+  | "future_role_forbidden";
 
 export type EnterpriseScimMutationDecisionResult =
   | {
@@ -456,6 +461,193 @@ export type EnterpriseIdentityAuditInput = {
   entityId?: string | null;
   metadata?: Record<string, unknown>;
 };
+
+export type EnterpriseSsoProviderVerificationInput = {
+  organizationId: string;
+  providerType: EnterpriseIdentityProviderType;
+  metadataFingerprint?: string | null;
+  certificateFingerprint?: string | null;
+};
+
+export type EnterpriseSamlProviderConfiguration = {
+  organizationId: string;
+  configurationId: string;
+  providerType: "saml";
+  status: EnterpriseIdentityProviderStatus;
+  entityId: string;
+  ssoUrl: string;
+  metadataFingerprint: string;
+  certificateFingerprint: string;
+  domain: string;
+};
+
+export type EnterpriseOidcProviderConfiguration = {
+  organizationId: string;
+  configurationId: string;
+  providerType: "oidc";
+  status: EnterpriseIdentityProviderStatus;
+  issuer: string;
+  clientIdHash: string;
+  jwksFingerprint: string;
+  domain: string;
+};
+
+export type EnterpriseSsoProviderConfiguration =
+  | EnterpriseSamlProviderConfiguration
+  | EnterpriseOidcProviderConfiguration;
+
+export type EnterpriseSsoProviderVerificationResult = {
+  verified: boolean;
+  reasonCode: string;
+  safeMetadata: Record<string, string | null>;
+};
+
+export type EnterpriseSsoProviderVerifier = (
+  input: EnterpriseSsoProviderVerificationInput
+) => Promise<EnterpriseSsoProviderVerificationResult>;
+
+export type EnterpriseScimHttpProvisioningHandler = (
+  input: ScimProvisioningDecisionInput
+) => Promise<ScimProvisioningDecisionResult>;
+
+export type EnterpriseScimBearerTokenAuthenticationInput = {
+  organizationId: string;
+  directoryOrganizationId: string;
+  presentedBearerToken?: string | null;
+  expectedBearerTokenFingerprint?: string | null;
+  directoryStatus: EnterpriseScimDirectoryStatus;
+};
+
+export type EnterpriseScimBearerTokenAuthenticationResult =
+  | {
+      authenticated: true;
+      reason: "allowed";
+      organizationId: string;
+      tokenFingerprint: string;
+    }
+  | {
+      authenticated: false;
+      reason:
+        | "missing_bearer_token"
+        | "directory_scope_mismatch"
+        | "directory_not_active"
+        | "token_fingerprint_missing"
+        | "invalid_bearer_token";
+      organizationId: string;
+      safeMessage: string;
+    };
+
+export type EnterpriseScimEndpointRequest = EnterpriseIdentityFeatureGateInput & {
+  directoryOrganizationId: string;
+  scimAuth: EnterpriseScimBearerTokenAuthenticationResult;
+  operation: EnterpriseScimOperation;
+  externalId?: string | null;
+  email?: string | null;
+  targetUserId?: string | null;
+  requestedRole?: string | null;
+  roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
+  currentRole?: string | null;
+  breakGlassPolicy?: EnterpriseBreakGlassPolicy;
+};
+
+export type EnterpriseScimEndpointResponse =
+  | {
+      ok: true;
+      status: 200 | 201;
+      code: "scim_provisioning_prepared";
+      organizationId: string;
+      body: {
+        targetUserId: string | null;
+        externalIdHash: string;
+        emailHash: string | null;
+        memberStatus: EnterpriseIdentityMemberStatus;
+        role: CustomerRole | null;
+      };
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    }
+  | {
+      ok: false;
+      status: 400 | 401 | 403 | 404 | 409;
+      code:
+        | "invalid_scim_request"
+        | "scim_auth_required"
+        | "scim_forbidden"
+        | "scim_not_found"
+        | "scim_conflict";
+      organizationId: string;
+      reason: string;
+      safeMessage: string;
+      audit?: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    };
+
+export type EnterpriseSsoLoginVerificationResult = {
+  verified: boolean;
+  providerType: EnterpriseIdentityProviderType;
+  organizationId: string;
+  configurationOrganizationId: string;
+  domain: string;
+  externalId?: string | null;
+  email?: string | null;
+  targetUserId?: string | null;
+  reasonCode?: string | null;
+  safeMetadata?: Record<string, unknown>;
+  rawProviderPayload?: unknown;
+};
+
+export type EnterpriseSsoLoginCallbackInput = EnterpriseIdentityFeatureGateInput & {
+  verification: EnterpriseSsoLoginVerificationResult;
+  expectedDomain: string;
+  providerConfiguration: EnterpriseSsoProviderConfiguration;
+  membershipRole: string | null | undefined;
+  memberStatus?: EnterpriseIdentityMemberStatus | null;
+};
+
+export type EnterpriseSsoLoginCallbackResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      targetUserId: string | null;
+      externalIdHash: string;
+      emailHash: string | null;
+      canAffectCurrentLogin: false;
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "enterprise_plan_required"
+        | "active_subscription_required"
+        | "feature_disabled"
+        | "provider_verification_failed"
+        | "organization_scope_mismatch"
+        | "domain_scope_mismatch"
+        | "provider_configuration_inactive"
+        | EnterpriseMemberAccessResult["reason"];
+      organizationId: string;
+      canAffectCurrentLogin: false;
+      safeMessage: string;
+      audit?: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    };
+
+export type EnterpriseIdentitySessionRevocationAdapter = (input: {
+  organizationId: string;
+  userId: string;
+  reasonCode: "member_locked" | "member_deprovisioned" | "member_deactivated";
+}) => Promise<{ revoked: boolean; reasonCode: string }>;
+
+export type EnterpriseIdentityPersistenceAdapter = {
+  loadMemberStatus(input: {
+    organizationId: string;
+    userId: string;
+  }): Promise<EnterpriseIdentityMemberStatus | null>;
+  saveExternalIdentityMapping(input: EnterpriseExternalUserMappingModel): Promise<void>;
+};
+
+// Future provider-backed SSO/SCIM work must implement these interfaces with real
+// verification, persistence, and session revocation. The current product only
+// exposes runtime policy/readiness helpers; it does not ship live SSO login or
+// SCIM HTTP provisioning endpoints.
 
 export type EnterpriseSsoConfigurationAuditInput = {
   organizationId: string;
@@ -730,6 +922,63 @@ export function evaluateEnterpriseMemberAccess(
   };
 }
 
+export function authenticateEnterpriseScimBearerToken(
+  input: EnterpriseScimBearerTokenAuthenticationInput
+): EnterpriseScimBearerTokenAuthenticationResult {
+  if (input.directoryOrganizationId !== input.organizationId) {
+    return {
+      authenticated: false,
+      reason: "directory_scope_mismatch",
+      organizationId: input.organizationId,
+      safeMessage: "SCIM directory must be scoped to the active organization."
+    };
+  }
+
+  if (input.directoryStatus !== "active") {
+    return {
+      authenticated: false,
+      reason: "directory_not_active",
+      organizationId: input.organizationId,
+      safeMessage: "SCIM directory is not active."
+    };
+  }
+
+  if (!input.presentedBearerToken) {
+    return {
+      authenticated: false,
+      reason: "missing_bearer_token",
+      organizationId: input.organizationId,
+      safeMessage: "SCIM bearer token is required."
+    };
+  }
+
+  if (!input.expectedBearerTokenFingerprint) {
+    return {
+      authenticated: false,
+      reason: "token_fingerprint_missing",
+      organizationId: input.organizationId,
+      safeMessage: "SCIM token fingerprint is not configured."
+    };
+  }
+
+  const tokenFingerprint = stableHash(input.presentedBearerToken);
+  if (tokenFingerprint !== input.expectedBearerTokenFingerprint) {
+    return {
+      authenticated: false,
+      reason: "invalid_bearer_token",
+      organizationId: input.organizationId,
+      safeMessage: "SCIM bearer token is invalid."
+    };
+  }
+
+  return {
+    authenticated: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    tokenFingerprint
+  };
+}
+
 export function evaluateEnterpriseSsoConfigurationReadiness(
   input: EnterpriseSsoConfigurationReadinessInput
 ): EnterpriseSsoConfigurationReadinessResult {
@@ -976,14 +1225,17 @@ export function resolveSafeGroupRoleMapping(
 }
 
 export function normalizeEnterpriseScimMutation(
-  input: EnterpriseScimMutationInput
+  input: EnterpriseScimMutationInput & {
+    roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
+  }
 ): EnterpriseExternalUserMappingModel {
   const requestedMapping = input.requestedRole
-    ? normalizeEnterpriseGroupRoleMapping({
+    ? resolveSafeGroupRoleMapping({
         organizationId: input.organizationId,
-        provider: "scim_2_0",
+        providerType: "scim",
         groupId: `direct-role:${input.requestedRole}`,
-        requestedRole: input.requestedRole
+        requestedRole: input.requestedRole,
+        policy: input.roleMappingPolicy
       })
     : null;
 
@@ -1265,6 +1517,189 @@ export function prepareScimProvisioningDecision(
   };
 }
 
+export function prepareEnterpriseScimEndpointResponse(
+  input: EnterpriseScimEndpointRequest
+): EnterpriseScimEndpointResponse {
+  if (!input.scimAuth.authenticated) {
+    return {
+      ok: false,
+      status: input.scimAuth.reason === "missing_bearer_token" ? 401 : 403,
+      code: "scim_auth_required",
+      organizationId: input.organizationId,
+      reason: input.scimAuth.reason,
+      safeMessage: input.scimAuth.safeMessage
+    };
+  }
+
+  const decision = prepareScimProvisioningDecision({
+    organizationId: input.organizationId,
+    directoryOrganizationId: input.directoryOrganizationId,
+    planTier: input.planTier,
+    subscriptionStatus: input.subscriptionStatus,
+    enterpriseIdentityEnabled: input.enterpriseIdentityEnabled,
+    operation: input.operation,
+    externalId: input.externalId,
+    email: input.email,
+    targetUserId: input.targetUserId,
+    requestedRole: input.requestedRole,
+    roleMappingPolicy: input.roleMappingPolicy,
+    currentRole: input.currentRole,
+    breakGlassPolicy: input.breakGlassPolicy
+  });
+
+  if (!decision.allowed) {
+    const status =
+      decision.reason === "organization_scope_mismatch"
+        ? 404
+        : decision.reason === "owner_mapping_forbidden" ||
+            decision.reason === "admin_mapping_policy_required" ||
+            decision.reason === "future_role_forbidden" ||
+            decision.reason === "unsupported_role"
+          ? 403
+          : decision.reason === "last_admin_or_owner_required" ||
+              decision.reason === "non_scim_break_glass_required" ||
+              decision.reason === "invalid_admin_count"
+            ? 409
+            : 403;
+    return {
+      ok: false,
+      status,
+      code:
+        status === 404
+          ? "scim_not_found"
+          : status === 409
+            ? "scim_conflict"
+            : "scim_forbidden",
+      organizationId: input.organizationId,
+      reason: decision.reason,
+      safeMessage: decision.safeMessage,
+      audit: decision.audit
+    };
+  }
+
+  return {
+    ok: true,
+    status: input.operation === "provision" ? 201 : 200,
+    code: "scim_provisioning_prepared",
+    organizationId: input.organizationId,
+    body: {
+      targetUserId: decision.targetUserId,
+      externalIdHash: decision.externalIdHash,
+      emailHash: decision.emailHash,
+      memberStatus: decision.memberStatus,
+      role: decision.role
+    },
+    audit: decision.audit
+  };
+}
+
+export function evaluateEnterpriseSsoLoginCallback(
+  input: EnterpriseSsoLoginCallbackInput
+): EnterpriseSsoLoginCallbackResult {
+  const featureGate = evaluateEnterpriseIdentityFeatureGate(input);
+  if (!featureGate.allowed) {
+    return {
+      ...featureGate,
+      canAffectCurrentLogin: false
+    };
+  }
+
+  const { verification, providerConfiguration } = input;
+  if (!verification.verified) {
+    return {
+      allowed: false,
+      reason: "provider_verification_failed",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO provider verification failed."
+    };
+  }
+
+  if (
+    verification.organizationId !== input.organizationId ||
+    verification.configurationOrganizationId !== input.organizationId ||
+    providerConfiguration.organizationId !== input.organizationId
+  ) {
+    return {
+      allowed: false,
+      reason: "organization_scope_mismatch",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO callback must be scoped to the active organization."
+    };
+  }
+
+  if (
+    verification.domain.toLowerCase() !== input.expectedDomain.toLowerCase() ||
+    providerConfiguration.domain.toLowerCase() !== input.expectedDomain.toLowerCase()
+  ) {
+    return {
+      allowed: false,
+      reason: "domain_scope_mismatch",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO callback domain is not allowed for this organization."
+    };
+  }
+
+  if (
+    providerConfiguration.providerType !== verification.providerType ||
+    providerConfiguration.status !== "active"
+  ) {
+    return {
+      allowed: false,
+      reason: "provider_configuration_inactive",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO provider configuration is not active."
+    };
+  }
+
+  const memberAccess = evaluateEnterpriseMemberAccess({
+    organizationId: input.organizationId,
+    userId: verification.targetUserId ?? "unknown",
+    membershipRole: input.membershipRole,
+    memberStatus: input.memberStatus
+  });
+  if (!memberAccess.allowed) {
+    return {
+      allowed: false,
+      reason: memberAccess.reason,
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: memberAccess.safeMessage
+    };
+  }
+
+  const externalIdHash = stableHash(
+    verification.externalId ?? verification.email ?? verification.targetUserId ?? "unknown"
+  );
+  const emailHash = verification.email ? stableHash(verification.email) : null;
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    targetUserId: verification.targetUserId ?? null,
+    externalIdHash,
+    emailHash,
+    canAffectCurrentLogin: false,
+    audit: buildEnterpriseIdentityAuditInput({
+      organizationId: input.organizationId,
+      actorUserId: verification.targetUserId ?? null,
+      eventName: "identity.sso_config_changed",
+      entityId: providerConfiguration.configurationId,
+      metadata: {
+        provider: verification.providerType,
+        target_user_id: verification.targetUserId ?? undefined,
+        new_state: "verified_callback_prepared",
+        reason_code: verification.reasonCode ?? "sso_callback_verified",
+        ...verification.safeMetadata
+      }
+    })
+  };
+}
+
 export function prepareEnterpriseScimMutationDecision(
   input: EnterpriseScimMutationDecisionInput
 ): EnterpriseScimMutationDecisionResult {
@@ -1297,9 +1732,33 @@ export function prepareEnterpriseScimMutationDecision(
     };
   }
 
+  const requestedMapping = input.mutation.requestedRole
+    ? resolveSafeGroupRoleMapping({
+        organizationId: input.organizationId,
+        providerType: "scim",
+        groupId: `direct-role:${input.mutation.requestedRole}`,
+        requestedRole: input.mutation.requestedRole,
+        policy: input.roleMappingPolicy
+      })
+    : null;
+
+  if (requestedMapping && !requestedMapping.allowed) {
+    const deniedReason = requestedMapping.reasonCode as Exclude<
+      SafeGroupRoleMappingResult["reasonCode"],
+      "allowed"
+    >;
+    return {
+      allowed: false,
+      reason: deniedReason,
+      organizationId: input.organizationId,
+      safeMessage: "SCIM role mapping is not allowed by the enterprise identity policy."
+    };
+  }
+
   const mapping = normalizeEnterpriseScimMutation({
     ...input.mutation,
-    organizationId: input.organizationId
+    organizationId: input.organizationId,
+    roleMappingPolicy: input.roleMappingPolicy
   });
   const eventName =
     mapping.provisioningState === "soft_deprovisioned" ||

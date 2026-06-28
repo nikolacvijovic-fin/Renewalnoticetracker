@@ -1110,11 +1110,92 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "previous_state", "new_state", "metadata_fingerprint", "certificate_fingerprint", "certificate_expires_at", "reason_code"],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
+  "enterprise.sso_configured": taxonomyEvent({
+    name: "enterprise.sso_configured",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future SSO configuration workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "new_state", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.sso_enabled": taxonomyEvent({
+    name: "enterprise.sso_enabled",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future SSO enablement workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "previous_state", "new_state", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.sso_disabled": taxonomyEvent({
+    name: "enterprise.sso_disabled",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future SSO disablement workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "previous_state", "new_state", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.idp_metadata_changed": taxonomyEvent({
+    name: "enterprise.idp_metadata_changed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future IdP metadata rotation workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "metadata_fingerprint", "certificate_fingerprint", "certificate_expires_at", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.domain_verification_started": taxonomyEvent({
+    name: "enterprise.domain_verification_started",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future domain verification workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "provider", "domain", "domain_verification_status", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.domain_verification_completed": taxonomyEvent({
+    name: "enterprise.domain_verification_completed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future domain verification workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "provider", "domain", "domain_verification_status", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.domain_verification_failed": taxonomyEvent({
+    name: "enterprise.domain_verification_failed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future domain verification workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "provider", "domain", "domain_verification_status", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.scim_user_provisioned": taxonomyEvent({
+    name: "enterprise.scim_user_provisioned",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future SCIM provision workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "provider", "previous_state", "new_state", "role", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
   "enterprise.scim_user_updated": taxonomyEvent({
     name: "enterprise.scim_user_updated",
     type: "audit",
     emittedToday: false,
     source: "lib/product/enterprise-identity-runtime.ts audit builder; future SCIM update workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "provider", "previous_state", "new_state", "role", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.scim_user_deprovisioned": taxonomyEvent({
+    name: "enterprise.scim_user_deprovisioned",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future SCIM deprovision workflow emitter",
     privacySensitivity: "restricted",
     safeMetadataFields: ["organization_id", "target_user_id", "provider", "previous_state", "new_state", "role", "reason_code", "initiated_by"],
     owningProductModule: "enterprise_identity_rbac_retention"
@@ -1137,6 +1218,24 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "previous_state", "new_state", "recovery_method", "reason_code"],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
+  "enterprise.role_group_mapping_changed": taxonomyEvent({
+    name: "enterprise.role_group_mapping_changed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future group role mapping workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "mapping_id", "provider", "group_id_hash", "role", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.admin_recovery_used": taxonomyEvent({
+    name: "enterprise.admin_recovery_used",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future admin recovery workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "recovery_method", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
   "enterprise.break_glass_admin_preserved": taxonomyEvent({
     name: "enterprise.break_glass_admin_preserved",
     type: "audit",
@@ -1153,6 +1252,24 @@ export const PRODUCT_EVENT_TAXONOMY = {
     source: "lib/product/enterprise-identity-runtime.ts audit builder; future privileged identity mutation workflow emitter",
     privacySensitivity: "restricted",
     safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "outcome", "active_admin_owner_count", "blocked_reason", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.user_lockout": taxonomyEvent({
+    name: "enterprise.user_lockout",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future user lockout workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "previous_state", "new_state", "lockout_reason", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.user_recovery": taxonomyEvent({
+    name: "enterprise.user_recovery",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity.ts audit contract; future user recovery workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "previous_state", "new_state", "recovery_method", "reason_code"],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
   "governance.retention_policy_changed": taxonomyEvent({

@@ -1,7 +1,7 @@
 const SENSITIVE_KEY_PATTERN =
-  /secret|token|password|authorization|cookie|api[_-]?key|raw|payload|document|extracted|evidence|note|body|clause/i;
+  /secret|token|password|authorization|cookie|api[_-]?key|raw|payload|document|extracted|evidence|note|body|clause|assertion|saml|oidc|scim|certificate|private[_-]?key|payment/i;
 const SENSITIVE_VALUE_PATTERN =
-  /confidential|should never be logged|raw\s+(?:contract|ocr|note|document)|ocr output|contract text|note text|renewal clause|provider payload|storage path|supabase\/storage|bearer\s+[a-z0-9._-]+|sk_[a-z0-9]/i;
+  /confidential|should never be logged|raw\s+(?:contract|ocr|note|document)|ocr output|contract text|note text|renewal clause|provider payload|storage path|supabase\/storage|bearer\s+[a-z0-9._-]+|saml\s+assertion|oidc\s+(?:id|access|refresh)?\s*token|scim\s+bearer|payment\s+secret|provider\s+response|private\s+key|certificate|sk_[a-z0-9]/i;
 
 export type ServerLogLevel = "info" | "warn" | "error";
 

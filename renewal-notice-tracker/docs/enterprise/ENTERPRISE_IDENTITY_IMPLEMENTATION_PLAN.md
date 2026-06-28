@@ -64,13 +64,14 @@ These contracts are not live runtime behavior. They exist so future implementati
 The bridge currently provides:
 - Enterprise identity access evaluation requiring org admin or owner role, Enterprise plan, active/trialing subscription status, and explicit feature enablement.
 - SSO configuration readiness shaping for `draft`, `configured`, `active`, `disabled`, `error`, and `future` states. This can identify future-login readiness but cannot affect current login behavior.
+- Prepared SAML/OIDC provider configuration contracts and SSO callback decision shaping that consumes verified provider results only; raw assertions, tokens, certificates, and provider payloads are not accepted as audit evidence.
 - Provisioning-state login behavior where only `active` may authenticate; `pending`, `soft_deprovisioned`, `hard_deprovisioned`, and `locked` are fail-closed.
 - SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
-- SCIM mutation decisions that require Enterprise entitlement, explicit feature enablement, directory organization scope, and break-glass preservation for privileged users.
-- Group-role mapping normalization that can map only non-privileged current customer runtime roles; `owner`, `admin`, future enterprise roles, and internal roles remain inert and cannot be granted through provider groups.
+- SCIM bearer-token authentication contracts, route-adjacent endpoint response shaping, and SCIM mutation decisions that require Enterprise entitlement, explicit feature enablement, directory organization scope, and break-glass preservation for privileged users.
+- Group-role mapping normalization that rejects `owner`, internal roles, and future enterprise roles. `admin` is denied by default and may be mapped only when an explicit future Enterprise policy flag permits it.
 - Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only, including precise future contracts for provider configuration, SSO configuration changes, SCIM provision/update/deprovision, member lock/unlock, group mapping, and break-glass preservation/blocking.
 
-The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. Those steps require the future Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
+The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. The prepared contract layer exists so future provider-backed SSO/SCIM work has safe inputs and deterministic outputs, but live SSO login, live SCIM HTTP endpoints, persistence-backed identity records, and session revocation remain future-only until the Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md) are implemented.
 
 ## Login Lifecycle
 
@@ -95,10 +96,10 @@ Future invite behavior:
 ## Provisioning Lifecycle
 
 Future SCIM provisioning behavior:
-1. Receive verified SCIM request.
-2. Validate organization, domain, user identity, and external ID.
+1. Authenticate the SCIM bearer token by comparing safe token fingerprints; raw bearer tokens must never be logged or stored in audit metadata.
+2. Validate organization, directory, domain, user identity, and external ID scope.
 3. Create or update a user lifecycle record in `pending`.
-4. Apply role/group mapping only through the enterprise RBAC registry; group mapping must not grant `owner`, `admin`, internal, or future enterprise roles.
+4. Apply role/group mapping only through the enterprise RBAC registry; group mapping must never grant `owner`, internal, or future enterprise roles, and `admin` requires an explicit policy flag.
 5. Move to `active` after all gates pass.
 6. Audit using stable IDs, state transitions, role IDs, and reason codes only.
 7. Updates use `enterprise.scim_user_updated`; lock/recovery use `enterprise.identity_member_locked` and `enterprise.identity_member_unlocked`; deprovisioning uses `enterprise.scim_user_deprovisioned`.

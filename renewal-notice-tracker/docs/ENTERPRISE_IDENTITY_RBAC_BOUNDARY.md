@@ -4,7 +4,7 @@ Canonical code sources: `lib/product/enterprise-rbac.ts` and `lib/product/enterp
 
 Future schema and route contracts are defined in `lib/product/enterprise-identity-schema.ts`, `lib/product/enterprise-identity-routes.ts`, and [enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](enterprise/ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
 
-The current runtime bridge for future implementation lives in `lib/product/enterprise-identity-runtime.ts`. It centralizes Enterprise-plan admin/owner gating, SSO configuration readiness shaping, SCIM mutation decision shaping, SCIM lifecycle normalization, deprovisioned/locked-user access blocking, group-role mapping safety, break-glass admin preservation, and safe audit metadata shaping without exposing live SSO or SCIM routes.
+The current runtime bridge for future implementation lives in `lib/product/enterprise-identity-runtime.ts`. It centralizes Enterprise-plan admin/owner gating, SSO configuration readiness shaping, prepared SAML/OIDC configuration contracts, SSO callback decision shaping from verified provider results, SCIM bearer-token authentication contracts, SCIM endpoint response shaping, SCIM mutation decision shaping, SCIM lifecycle normalization, deprovisioned/locked-user access blocking, group-role mapping safety, break-glass admin preservation, and safe audit metadata shaping without exposing live SSO or SCIM routes.
 
 NoticeControl currently ships a focused role model for renewal-control operations. Enterprise SSO, SCIM, granular permission groups, retention controls, and delegated administration are intentionally deferred behind the `enterprise_identity_rbac_retention` platform module in [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md).
 
@@ -83,7 +83,7 @@ Every sensitive action must be represented in the central RBAC registry before i
 - New shipped-sensitive actions must be added to `lib/product/enterprise-rbac.ts` with owner surfaces and test/release-gate evidence.
 - New runtime authorization should continue to use the existing shipped action matrix, intelligence access helpers, billing entitlement helpers, internal route auth, or export preset policy as appropriate.
 - Future Enterprise identity route/service work must use `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, provisioning state normalization, group-role mapping safety, and audit metadata sanitization before touching session, membership, or audit paths.
-- Provider-driven role/group mapping must not grant `owner`, `admin`, internal roles, or future enterprise roles. Privileged recovery and owner/admin assignment require explicit in-app authority and audit evidence.
+- Provider-driven role/group mapping must never grant `owner`, internal roles, or future enterprise roles. `admin` group mapping is denied by default and can be enabled only by an explicit future Enterprise policy flag with audit evidence. Privileged recovery and owner assignment require explicit in-app authority and audit evidence.
 - Future enterprise roles must remain inert until a dedicated Enterprise release gate covers SSO/SCIM lifecycle, auditability, support operations, customer communication, and privacy/data-retention behavior.
 - Billing, security, compliance, integration, report, and delegated-support roles must not silently inherit `admin` authority.
 - Internal roles must never become customer roles; internal actions still require internal secrets and stronger destructive auth where applicable.
@@ -95,6 +95,7 @@ Before SSO, SCIM, or granular permission groups can ship, the enterprise module 
 - A concrete entitlement and packaging policy, likely Enterprise-only.
 - A lifecycle model for login, invite, provisioning, deprovisioning, lockout/recovery, domain verification, metadata/certificate rotation, and fallback admin recovery.
 - Runtime bridge coverage for Enterprise admin/owner gating, SSO configuration readiness, provisioned/deprovisioned/locked member access state, SCIM create/update/delete normalization, tenant-scoped SCIM mutation decisions, group-role mapping anti-escalation, break-glass admin preservation/blocking, and precise safe identity audit inputs.
+- Prepared route-adjacent contracts for SSO callback verification results, SCIM bearer-token authentication, SCIM provisioning response/error shapes, persistence adapters, and session revocation adapters.
 - Future schema and route contracts for SSO configuration, verified domains, SCIM users, group-role mappings, identity events, validation, idempotency, and safe audit/monitoring metadata.
 - Provider-specific auth and provisioning lifecycle tests.
 - Tenant-isolation, role-escalation, and deprovisioning tests.

@@ -129,11 +129,24 @@ These events are registry contracts only. They must not be counted as live evide
 - `identity.break_glass_policy_checked`
 - `enterprise.identity_provider_configured`
 - `enterprise.sso_config_changed`
+- `enterprise.sso_configured`
+- `enterprise.sso_enabled`
+- `enterprise.sso_disabled`
+- `enterprise.idp_metadata_changed`
+- `enterprise.domain_verification_started`
+- `enterprise.domain_verification_completed`
+- `enterprise.domain_verification_failed`
+- `enterprise.scim_user_provisioned`
 - `enterprise.scim_user_updated`
+- `enterprise.scim_user_deprovisioned`
 - `enterprise.identity_member_locked`
 - `enterprise.identity_member_unlocked`
+- `enterprise.role_group_mapping_changed`
+- `enterprise.admin_recovery_used`
 - `enterprise.break_glass_admin_preserved`
 - `enterprise.break_glass_admin_blocked`
+- `enterprise.user_lockout`
+- `enterprise.user_recovery`
 - `governance.retention_policy_changed`
 - `governance.legal_hold_created`
 - `governance.legal_hold_released`
@@ -144,6 +157,8 @@ These events are registry contracts only. They must not be counted as live evide
 - `governance.support_access_reviewed`
 - `support.escalation_opened`
 - `support.enterprise_security_review_requested`
+
+The `identity.*` event family is the newer canonical runtime policy/audit contract for future provider-backed identity workflows. The older `enterprise.*` identity event family remains documented as future/deferred compatibility contract language until real SSO/SCIM emitters exist and one family can be intentionally promoted or retired.
 
 ## Onboarding Evidence
 
