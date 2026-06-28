@@ -65,13 +65,36 @@ export type EnterpriseSsoRuntimeStatus =
   | "disabled"
   | "error";
 
+export const ENTERPRISE_IDENTITY_PROVIDER_TYPES = ["saml", "oidc"] as const;
+export type EnterpriseIdentityProviderType = (typeof ENTERPRISE_IDENTITY_PROVIDER_TYPES)[number];
+export const ENTERPRISE_IDENTITY_PROVIDER_STATUSES = [
+  "draft",
+  "configured",
+  "active",
+  "disabled",
+  "error"
+] as const;
+export type EnterpriseIdentityProviderStatus =
+  (typeof ENTERPRISE_IDENTITY_PROVIDER_STATUSES)[number];
+export const ENTERPRISE_SCIM_DIRECTORY_STATUSES = [
+  "not_configured",
+  "configured",
+  "active",
+  "disabled",
+  "error"
+] as const;
 export type EnterpriseScimDirectoryStatus =
-  | "future"
-  | "not_configured"
-  | "configured_disabled"
-  | "active"
-  | "degraded"
-  | "suspended";
+  (typeof ENTERPRISE_SCIM_DIRECTORY_STATUSES)[number];
+export const ENTERPRISE_IDENTITY_MEMBER_STATUSES = [
+  "active",
+  "locked",
+  "deactivated",
+  "deprovisioned"
+] as const;
+export type EnterpriseIdentityMemberStatus =
+  (typeof ENTERPRISE_IDENTITY_MEMBER_STATUSES)[number];
+export const ENTERPRISE_SCIM_OPERATIONS = ["provision", "update", "deprovision"] as const;
+export type EnterpriseScimOperation = (typeof ENTERPRISE_SCIM_OPERATIONS)[number];
 
 export type EnterpriseScimDirectoryConnectionModel = {
   organizationId: string;
@@ -100,6 +123,169 @@ export type EnterpriseGroupRoleMappingPolicy = {
   allowed: boolean;
   reasonCode: "allowed" | "unsupported_role" | "owner_mapping_forbidden" | "future_role_forbidden";
 };
+
+export type EnterpriseIdentityRoleMappingPolicy = {
+  allowAdminGroupMapping?: boolean;
+};
+
+export type EnterpriseBreakGlassPolicy = {
+  activeAdminOrOwnerCount: number;
+  nonScimAdminOrOwnerCount: number;
+  breakGlassAdminUserId?: string | null;
+};
+
+export type EnterpriseIdentityConfigChangeInput = EnterpriseIdentityAccessInput & {
+  configurationOrganizationId: string;
+  providerType: EnterpriseIdentityProviderType;
+  previousStatus?: EnterpriseIdentityProviderStatus | null;
+  nextStatus: EnterpriseIdentityProviderStatus;
+  configurationId: string;
+  reasonCode?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+export type EnterpriseIdentityConfigChangeResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      providerType: EnterpriseIdentityProviderType;
+      previousStatus: EnterpriseIdentityProviderStatus | null;
+      nextStatus: EnterpriseIdentityProviderStatus;
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    }
+  | {
+      allowed: false;
+      reason: Exclude<EnterpriseIdentityAccessReason, "allowed"> | "organization_scope_mismatch";
+      organizationId: string;
+      safeMessage: string;
+    };
+
+export type EnterpriseMemberAccessInput = {
+  organizationId: string;
+  userId: string;
+  membershipRole: string | null | undefined;
+  memberStatus?: EnterpriseIdentityMemberStatus | null;
+  lockoutReason?: string | null;
+};
+
+export type EnterpriseMemberAccessResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      userId: string;
+      role: CustomerRole;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "missing_membership_role"
+        | "member_locked"
+        | "member_deactivated"
+        | "member_deprovisioned"
+        | "unknown_member_status";
+      organizationId: string;
+      userId: string;
+      safeMessage: string;
+      lockoutReason?: string | null;
+    };
+
+export type SafeGroupRoleMappingInput = {
+  organizationId: string;
+  providerType: EnterpriseIdentityProviderType | "scim";
+  groupId: string;
+  requestedRole: string;
+  policy?: EnterpriseIdentityRoleMappingPolicy;
+};
+
+export type SafeGroupRoleMappingResult = {
+  organizationId: string;
+  providerType: SafeGroupRoleMappingInput["providerType"];
+  groupIdHash: string;
+  requestedRole: string;
+  normalizedRole: CustomerRole | null;
+  allowed: boolean;
+  reasonCode:
+    | "allowed"
+    | "unsupported_role"
+    | "owner_mapping_forbidden"
+    | "admin_mapping_policy_required"
+    | "future_role_forbidden";
+};
+
+export type BreakGlassAdminPolicyInput = {
+  organizationId: string;
+  targetUserId: string;
+  targetRole: string | null | undefined;
+  operation: EnterpriseScimOperation | "lock";
+  policy: EnterpriseBreakGlassPolicy;
+};
+
+export type BreakGlassAdminPolicyResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      targetUserId: string;
+      preservedBy: "not_privileged" | "non_scim_admin_or_owner" | "break_glass_admin";
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "invalid_admin_count"
+        | "last_admin_or_owner_required"
+        | "non_scim_break_glass_required";
+      organizationId: string;
+      targetUserId: string;
+      safeMessage: string;
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    };
+
+export type ScimProvisioningDecisionInput = EnterpriseIdentityFeatureGateInput & {
+  directoryOrganizationId: string;
+  operation: EnterpriseScimOperation;
+  externalId?: string | null;
+  email?: string | null;
+  targetUserId?: string | null;
+  requestedRole?: string | null;
+  roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
+  currentRole?: string | null;
+  breakGlassPolicy?: EnterpriseBreakGlassPolicy;
+  rawProviderPayload?: unknown;
+};
+
+export type ScimProvisioningDecisionResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      targetUserId: string | null;
+      externalIdHash: string;
+      emailHash: string | null;
+      memberStatus: EnterpriseIdentityMemberStatus;
+      role: CustomerRole | null;
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "enterprise_plan_required"
+        | "active_subscription_required"
+        | "feature_disabled"
+        | "organization_scope_mismatch"
+        | "last_admin_or_owner_required"
+        | "non_scim_break_glass_required"
+        | "invalid_admin_count"
+        | "unsupported_role"
+        | "owner_mapping_forbidden"
+        | "admin_mapping_policy_required"
+        | "future_role_forbidden";
+      organizationId: string;
+      safeMessage: string;
+      audit?: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    };
 
 export type EnterpriseProvisionedMemberAccessInput = {
   organizationId: string;
@@ -271,6 +457,37 @@ export type EnterpriseIdentityAuditInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type EnterpriseSsoConfigurationAuditInput = {
+  organizationId: string;
+  actorUserId: string;
+  configurationId: string;
+  provider: EnterpriseIdentityProvider;
+  previousStatus?: EnterpriseSsoRuntimeStatus | null;
+  newStatus: EnterpriseSsoRuntimeStatus;
+  reasonCode?: string | null;
+  metadataFingerprint?: string | null;
+  certificateFingerprint?: string | null;
+  certificateExpiresAt?: string | null;
+};
+
+export type EnterpriseGroupRoleMappingAuditInput = {
+  organizationId: string;
+  actorUserId: string;
+  mappingId: string;
+  mapping: EnterpriseGroupRoleMappingPolicy;
+  reasonCode?: string | null;
+};
+
+export type EnterpriseBreakGlassAuditInput = {
+  organizationId: string;
+  actorUserId?: string | null;
+  targetUserId: string;
+  preserved: boolean;
+  activeAdminOrOwnerCount: number;
+  blockedReason?: string | null;
+  reasonCode?: string | null;
+};
+
 const ACTIVE_ENTERPRISE_SUBSCRIPTION_STATUSES = new Set(["active", "trialing"]);
 const ENTERPRISE_IDENTITY_SUPPORTED_PROVIDER_SET = new Set<EnterpriseIdentityProvider>([
   "saml_2_0",
@@ -284,11 +501,17 @@ const ENTERPRISE_SSO_RUNTIME_STATUS_SET = new Set<EnterpriseSsoRuntimeStatus>([
   "disabled",
   "error"
 ]);
+const ENTERPRISE_IDENTITY_PROVIDER_STATUS_SET = new Set<EnterpriseIdentityProviderStatus>(
+  ENTERPRISE_IDENTITY_PROVIDER_STATUSES
+);
+const ENTERPRISE_IDENTITY_MEMBER_STATUS_SET = new Set<EnterpriseIdentityMemberStatus>(
+  ENTERPRISE_IDENTITY_MEMBER_STATUSES
+);
 const CUSTOMER_ROLES_ALLOWED_FROM_GROUP_MAPPING = CUSTOMER_ROLES.filter((role) =>
   ["operator", "reviewer"].includes(role)
 );
 const SENSITIVE_IDENTITY_VALUE_PATTERN =
-  /saml|assertion|oidc|id[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|authorization[_\s-]?code|bearer|scim[_\s-]?payload|provider[_\s-]?(payload|request|response)|client[_\s-]?secret|private[_\s-]?key|certificate|password|secret|token|raw[_\s-]?group|group[_\s-]?payload|sensitive_/i;
+  /saml|assertion|oidc|id[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|authorization[_\s-]?code|bearer|scim[_\s-]?payload|provider[_\s-]?(payload|request|response)|client[_\s-]?secret|private[_\s-]?key|certificate|password|secret|token|raw[_\s-]?group|group[_\s-]?payload|raw[_\s-]?profile|profile[_\s-]?payload|sensitive_/i;
 
 function stableHash(value: string) {
   return createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
@@ -348,6 +571,10 @@ export function evaluateEnterpriseIdentityAdminAccess(
   };
 }
 
+export function evaluateEnterpriseIdentityAccess(input: EnterpriseIdentityAccessInput) {
+  return evaluateEnterpriseIdentityAdminAccess(input);
+}
+
 export function evaluateEnterpriseIdentityFeatureGate(
   input: EnterpriseIdentityFeatureGateInput
 ): EnterpriseIdentityFeatureGateResult {
@@ -382,6 +609,124 @@ export function evaluateEnterpriseIdentityFeatureGate(
     allowed: true,
     reason: "allowed",
     organizationId: input.organizationId
+  };
+}
+
+export function prepareEnterpriseIdentityConfigChange(
+  input: EnterpriseIdentityConfigChangeInput
+): EnterpriseIdentityConfigChangeResult {
+  const access = evaluateEnterpriseIdentityAccess(input);
+  if (!access.allowed) {
+    return {
+      allowed: false,
+      reason: access.reason,
+      organizationId: input.organizationId,
+      safeMessage: access.safeMessage
+    };
+  }
+
+  if (input.configurationOrganizationId !== input.organizationId) {
+    return {
+      allowed: false,
+      reason: "organization_scope_mismatch",
+      organizationId: input.organizationId,
+      safeMessage: "Enterprise identity configuration must be scoped to the active organization."
+    };
+  }
+
+  const nextStatus = ENTERPRISE_IDENTITY_PROVIDER_STATUS_SET.has(input.nextStatus)
+    ? input.nextStatus
+    : "error";
+  const previousStatus =
+    input.previousStatus && ENTERPRISE_IDENTITY_PROVIDER_STATUS_SET.has(input.previousStatus)
+      ? input.previousStatus
+      : null;
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    providerType: input.providerType,
+    previousStatus,
+    nextStatus,
+    audit: buildEnterpriseIdentityAuditInput({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      eventName: "identity.sso_config_changed",
+      entityId: input.configurationId,
+      metadata: {
+        ...input.metadata,
+        sso_configuration_id: input.configurationId,
+        provider: input.providerType,
+        previous_state: previousStatus ?? undefined,
+        new_state: nextStatus,
+        reason_code: input.reasonCode ?? undefined
+      }
+    })
+  };
+}
+
+export function evaluateEnterpriseMemberAccess(
+  input: EnterpriseMemberAccessInput
+): EnterpriseMemberAccessResult {
+  const role = normalizeCustomerRole(input.membershipRole);
+  if (!role) {
+    return {
+      allowed: false,
+      reason: "missing_membership_role",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "A current organization membership is required."
+    };
+  }
+
+  if (!input.memberStatus || input.memberStatus === "active") {
+    return {
+      allowed: true,
+      reason: "allowed",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      role
+    };
+  }
+
+  if (!ENTERPRISE_IDENTITY_MEMBER_STATUS_SET.has(input.memberStatus)) {
+    return {
+      allowed: false,
+      reason: "unknown_member_status",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "Enterprise identity member status is not recognized."
+    };
+  }
+
+  if (input.memberStatus === "locked") {
+    return {
+      allowed: false,
+      reason: "member_locked",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "Enterprise identity member is locked.",
+      lockoutReason: input.lockoutReason ?? null
+    };
+  }
+
+  if (input.memberStatus === "deactivated") {
+    return {
+      allowed: false,
+      reason: "member_deactivated",
+      organizationId: input.organizationId,
+      userId: input.userId,
+      safeMessage: "Enterprise identity member is deactivated."
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: "member_deprovisioned",
+    organizationId: input.organizationId,
+    userId: input.userId,
+    safeMessage: "Enterprise identity member has been deprovisioned."
   };
 }
 
@@ -577,6 +922,59 @@ export function normalizeEnterpriseGroupRoleMapping(input: {
   };
 }
 
+export function resolveSafeGroupRoleMapping(
+  input: SafeGroupRoleMappingInput
+): SafeGroupRoleMappingResult {
+  const normalizedRole = normalizeCustomerRole(input.requestedRole);
+  const groupIdHash = stableHash(input.groupId);
+
+  if (!normalizedRole) {
+    return {
+      organizationId: input.organizationId,
+      providerType: input.providerType,
+      groupIdHash,
+      requestedRole: input.requestedRole,
+      normalizedRole: null,
+      allowed: false,
+      reasonCode: input.requestedRole.includes("_") ? "future_role_forbidden" : "unsupported_role"
+    };
+  }
+
+  if (normalizedRole === "owner") {
+    return {
+      organizationId: input.organizationId,
+      providerType: input.providerType,
+      groupIdHash,
+      requestedRole: input.requestedRole,
+      normalizedRole,
+      allowed: false,
+      reasonCode: "owner_mapping_forbidden"
+    };
+  }
+
+  if (normalizedRole === "admin" && !input.policy?.allowAdminGroupMapping) {
+    return {
+      organizationId: input.organizationId,
+      providerType: input.providerType,
+      groupIdHash,
+      requestedRole: input.requestedRole,
+      normalizedRole,
+      allowed: false,
+      reasonCode: "admin_mapping_policy_required"
+    };
+  }
+
+  return {
+    organizationId: input.organizationId,
+    providerType: input.providerType,
+    groupIdHash,
+    requestedRole: input.requestedRole,
+    normalizedRole,
+    allowed: true,
+    reasonCode: "allowed"
+  };
+}
+
 export function normalizeEnterpriseScimMutation(
   input: EnterpriseScimMutationInput
 ): EnterpriseExternalUserMappingModel {
@@ -670,6 +1068,203 @@ export function evaluateEnterpriseBreakGlassPreservation(
   };
 }
 
+export function evaluateBreakGlassAdminPolicy(
+  input: BreakGlassAdminPolicyInput
+): BreakGlassAdminPolicyResult {
+  const role = normalizeCustomerRole(input.targetRole);
+  const removesPrivilegedAccess =
+    (input.operation === "deprovision" || input.operation === "lock") &&
+    (role === "admin" || role === "owner");
+
+  if (
+    !Number.isInteger(input.policy.activeAdminOrOwnerCount) ||
+    !Number.isInteger(input.policy.nonScimAdminOrOwnerCount) ||
+    input.policy.activeAdminOrOwnerCount < 0 ||
+    input.policy.nonScimAdminOrOwnerCount < 0
+  ) {
+    return buildBreakGlassPolicyResult(input, false, "invalid_admin_count");
+  }
+
+  if (!removesPrivilegedAccess) {
+    return buildBreakGlassPolicyResult(input, true, "allowed", "not_privileged");
+  }
+
+  if (input.policy.activeAdminOrOwnerCount <= 1) {
+    return buildBreakGlassPolicyResult(input, false, "last_admin_or_owner_required");
+  }
+
+  if (input.policy.nonScimAdminOrOwnerCount < 1 && !input.policy.breakGlassAdminUserId) {
+    return buildBreakGlassPolicyResult(input, false, "non_scim_break_glass_required");
+  }
+
+  return buildBreakGlassPolicyResult(
+    input,
+    true,
+    "allowed",
+    input.policy.nonScimAdminOrOwnerCount >= 1 ? "non_scim_admin_or_owner" : "break_glass_admin"
+  );
+}
+
+function buildBreakGlassPolicyResult(
+  input: BreakGlassAdminPolicyInput,
+  allowed: true,
+  reason: "allowed",
+  preservedBy: BreakGlassAdminPolicyResult extends infer Result
+    ? Result extends { allowed: true; preservedBy: infer PreservedBy }
+      ? PreservedBy
+      : never
+    : never
+): BreakGlassAdminPolicyResult;
+function buildBreakGlassPolicyResult(
+  input: BreakGlassAdminPolicyInput,
+  allowed: false,
+  reason: Exclude<BreakGlassAdminPolicyResult["reason"], "allowed">
+): BreakGlassAdminPolicyResult;
+function buildBreakGlassPolicyResult(
+  input: BreakGlassAdminPolicyInput,
+  allowed: boolean,
+  reason: BreakGlassAdminPolicyResult["reason"],
+  preservedBy?: "not_privileged" | "non_scim_admin_or_owner" | "break_glass_admin"
+): BreakGlassAdminPolicyResult {
+  const audit = buildEnterpriseIdentityAuditInput({
+    organizationId: input.organizationId,
+    actorUserId: null,
+    eventName: "identity.break_glass_policy_checked",
+    entityId: input.targetUserId,
+    metadata: {
+      target_user_id: input.targetUserId,
+      role: normalizeCustomerRole(input.targetRole) ?? undefined,
+      outcome: allowed ? "preserved" : "blocked",
+      active_admin_owner_count: input.policy.activeAdminOrOwnerCount,
+      blocked_reason: allowed ? undefined : reason,
+      reason_code: reason,
+      recovery_method: preservedBy
+    }
+  });
+
+  if (allowed) {
+    return {
+      allowed: true,
+      reason: "allowed",
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId,
+      preservedBy: preservedBy ?? "break_glass_admin",
+      audit
+    };
+  }
+
+  return {
+    allowed: false,
+    reason: reason as Exclude<BreakGlassAdminPolicyResult["reason"], "allowed">,
+    organizationId: input.organizationId,
+    targetUserId: input.targetUserId,
+    safeMessage:
+      reason === "invalid_admin_count"
+        ? "Enterprise identity recovery safety requires valid admin/owner counts."
+        : reason === "last_admin_or_owner_required"
+          ? "Enterprise identity changes must preserve at least one admin or owner."
+          : "Privileged SCIM changes require a non-SCIM or break-glass admin path.",
+    audit
+  };
+}
+
+export function prepareScimProvisioningDecision(
+  input: ScimProvisioningDecisionInput
+): ScimProvisioningDecisionResult {
+  const featureGate = evaluateEnterpriseIdentityFeatureGate(input);
+  if (!featureGate.allowed) return featureGate;
+
+  if (input.directoryOrganizationId !== input.organizationId) {
+    return {
+      allowed: false,
+      reason: "organization_scope_mismatch",
+      organizationId: input.organizationId,
+      safeMessage: "SCIM provisioning must be scoped to the active organization."
+    };
+  }
+
+  const mapping = input.requestedRole
+    ? resolveSafeGroupRoleMapping({
+        organizationId: input.organizationId,
+        providerType: "scim",
+        groupId: `direct-role:${input.requestedRole}`,
+        requestedRole: input.requestedRole,
+        policy: input.roleMappingPolicy
+      })
+    : null;
+
+  if (mapping && !mapping.allowed) {
+    const deniedReason = mapping.reasonCode as Exclude<
+      SafeGroupRoleMappingResult["reasonCode"],
+      "allowed"
+    >;
+    return {
+      allowed: false,
+      reason: deniedReason,
+      organizationId: input.organizationId,
+      safeMessage: "SCIM role mapping is not allowed by the enterprise identity policy."
+    };
+  }
+
+  if (input.operation === "deprovision" && input.breakGlassPolicy) {
+    const breakGlass = evaluateBreakGlassAdminPolicy({
+      organizationId: input.organizationId,
+      targetUserId: input.targetUserId ?? "unknown",
+      targetRole: input.currentRole ?? mapping?.normalizedRole ?? null,
+      operation: "deprovision",
+      policy: input.breakGlassPolicy
+    });
+    if (!breakGlass.allowed) {
+      return {
+        allowed: false,
+        reason: breakGlass.reason,
+        organizationId: input.organizationId,
+        safeMessage: breakGlass.safeMessage,
+        audit: breakGlass.audit
+      };
+    }
+  }
+
+  const memberStatus: EnterpriseIdentityMemberStatus =
+    input.operation === "deprovision" ? "deprovisioned" : "active";
+  const eventName =
+    input.operation === "provision"
+      ? "identity.scim_user_provisioned"
+      : input.operation === "update"
+        ? "identity.scim_user_updated"
+        : "identity.scim_user_deprovisioned";
+
+  const externalIdHash = stableHash(input.externalId ?? input.email ?? input.targetUserId ?? "unknown");
+  const emailHash = input.email ? stableHash(input.email) : null;
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    targetUserId: input.targetUserId ?? null,
+    externalIdHash,
+    emailHash,
+    memberStatus,
+    role: mapping?.normalizedRole ?? null,
+    audit: buildEnterpriseIdentityAuditInput({
+      organizationId: input.organizationId,
+      actorUserId: null,
+      eventName,
+      entityId: input.targetUserId ?? null,
+      metadata: {
+        provider: "scim",
+        target_user_id: input.targetUserId ?? undefined,
+        previous_state: input.currentRole ?? undefined,
+        new_state: memberStatus,
+        role: mapping?.normalizedRole ?? undefined,
+        reason_code: mapping?.reasonCode ?? "scim_decision_normalized",
+        initiated_by: "scim_directory",
+        scim_user_id: externalIdHash
+      }
+    })
+  };
+}
+
 export function prepareEnterpriseScimMutationDecision(
   input: EnterpriseScimMutationDecisionInput
 ): EnterpriseScimMutationDecisionResult {
@@ -711,10 +1306,12 @@ export function prepareEnterpriseScimMutationDecision(
     mapping.provisioningState === "hard_deprovisioned"
       ? "enterprise.scim_user_deprovisioned"
       : mapping.provisioningState === "locked"
-        ? "enterprise.user_lockout"
+        ? "enterprise.identity_member_locked"
         : input.mutation.operation === "recover"
-          ? "enterprise.user_recovery"
-          : "enterprise.scim_user_provisioned";
+          ? "enterprise.identity_member_unlocked"
+          : input.mutation.operation === "update"
+            ? "enterprise.scim_user_updated"
+            : "enterprise.scim_user_provisioned";
 
   return {
     allowed: true,
@@ -729,12 +1326,76 @@ export function prepareEnterpriseScimMutationDecision(
       metadata: {
         provider: "scim_2_0",
         target_user_id: mapping.targetUserId,
+        previous_state: input.mutation.operation,
+        new_state: mapping.provisioningState,
         role: mapping.role,
         reason_code: mapping.reasonCode,
         initiated_by: "scim_directory"
       }
     })
   };
+}
+
+export function buildEnterpriseSsoConfigurationAuditLogInput(
+  input: EnterpriseSsoConfigurationAuditInput
+) {
+  const eventName: EnterpriseIdentityAuditEventName =
+    input.previousStatus === undefined || input.previousStatus === null
+      ? "enterprise.identity_provider_configured"
+      : "enterprise.sso_config_changed";
+
+  return buildEnterpriseIdentityAuditLogInput({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    eventName,
+    entityId: input.configurationId,
+    metadata: {
+      sso_configuration_id: input.configurationId,
+      provider: input.provider,
+      previous_state: input.previousStatus ?? undefined,
+      new_state: input.newStatus,
+      reason_code: input.reasonCode ?? undefined,
+      metadata_fingerprint: input.metadataFingerprint ?? undefined,
+      certificate_fingerprint: input.certificateFingerprint ?? undefined,
+      certificate_expires_at: input.certificateExpiresAt ?? undefined
+    }
+  });
+}
+
+export function buildEnterpriseGroupRoleMappingAuditLogInput(
+  input: EnterpriseGroupRoleMappingAuditInput
+) {
+  return buildEnterpriseIdentityAuditLogInput({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId,
+    eventName: "enterprise.role_group_mapping_changed",
+    entityId: input.mappingId,
+    metadata: {
+      mapping_id: input.mappingId,
+      provider: input.mapping.provider,
+      group_id_hash: input.mapping.groupIdHash,
+      role: input.mapping.normalizedRole,
+      reason_code: input.reasonCode ?? input.mapping.reasonCode
+    }
+  });
+}
+
+export function buildEnterpriseBreakGlassAuditLogInput(input: EnterpriseBreakGlassAuditInput) {
+  return buildEnterpriseIdentityAuditLogInput({
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId ?? null,
+    eventName: input.preserved
+      ? "enterprise.break_glass_admin_preserved"
+      : "enterprise.break_glass_admin_blocked",
+    entityId: input.targetUserId,
+    metadata: {
+      target_user_id: input.targetUserId,
+      outcome: input.preserved ? "preserved" : "blocked",
+      active_admin_owner_count: input.activeAdminOrOwnerCount,
+      blocked_reason: input.blockedReason ?? undefined,
+      reason_code: input.reasonCode ?? undefined
+    }
+  });
 }
 
 export function sanitizeEnterpriseIdentityAuditMetadata(
@@ -756,6 +1417,17 @@ export function buildEnterpriseIdentityAuditLogInput(input: EnterpriseIdentityAu
     entityId: input.entityId ?? null,
     details: sanitizeEnterpriseIdentityAuditMetadata(input.eventName, input.metadata)
   };
+}
+
+export function buildEnterpriseIdentityAuditInput(input: EnterpriseIdentityAuditInput) {
+  return buildEnterpriseIdentityAuditLogInput(input);
+}
+
+export function sanitizeEnterpriseIdentityMetadata(
+  metadata: Record<string, unknown> = {},
+  eventName: EnterpriseIdentityAuditEventName = "identity.sso_config_changed"
+) {
+  return sanitizeEnterpriseIdentityAuditMetadata(eventName, metadata);
 }
 
 function sanitizeIdentityRecord(

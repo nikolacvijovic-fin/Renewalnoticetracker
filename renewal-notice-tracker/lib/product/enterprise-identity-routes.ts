@@ -208,7 +208,7 @@ export const ENTERPRISE_IDENTITY_ROUTE_CONTRACTS: Record<
     validationContractId: "scim_user_update_payload",
     rateLimitPolicy: "future SCIM token limit per organization/provider/user",
     idempotencyExpectation: "PATCH operations must be replay-safe by SCIM user id and version",
-    auditEventName: "enterprise.scim_user_provisioned",
+    auditEventName: "enterprise.scim_user_updated",
     monitoringEventName: "enterprise_identity_scim_user_updated",
     provisioningSemantics: {
       operation: "update",

@@ -55,6 +55,9 @@ Future identity audit logs should record:
 - IdP metadata changes using fingerprints, not raw certificates.
 - Domain verification started/completed/failed.
 - SCIM provisioning and deprovisioning.
+- SCIM updates through `enterprise.scim_user_updated`.
+- Member lock/unlock through `enterprise.identity_member_locked` and `enterprise.identity_member_unlocked`.
+- Break-glass preservation/blocking through `enterprise.break_glass_admin_preserved` and `enterprise.break_glass_admin_blocked`.
 - Role/group mapping changes.
 - User lockout and recovery.
 

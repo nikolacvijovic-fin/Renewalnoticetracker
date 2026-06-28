@@ -7,6 +7,17 @@ import {
 export const ENTERPRISE_IDENTITY_SUPPORTED_PROVIDERS = ["saml_2_0", "oidc"] as const;
 export type EnterpriseIdentityProvider = (typeof ENTERPRISE_IDENTITY_SUPPORTED_PROVIDERS)[number];
 
+export type EnterpriseRuntimeIdentityAuditEventName =
+  | "identity.sso_config_changed"
+  | "identity.scim_directory_configured"
+  | "identity.scim_user_provisioned"
+  | "identity.scim_user_updated"
+  | "identity.scim_user_deprovisioned"
+  | "identity.member_locked"
+  | "identity.member_unlocked"
+  | "identity.group_role_mapping_changed"
+  | "identity.break_glass_policy_checked";
+
 export const ENTERPRISE_SSO_CONFIGURATION_STATES = [
   "not_configured",
   "configured_disabled",
@@ -160,6 +171,9 @@ export type EnterpriseIdentityLifecycleModel =
   (typeof ENTERPRISE_IDENTITY_LIFECYCLE_MODELS)[number];
 
 export type EnterpriseIdentityAuditEventName =
+  | EnterpriseRuntimeIdentityAuditEventName
+  | "enterprise.identity_provider_configured"
+  | "enterprise.sso_config_changed"
   | "enterprise.sso_configured"
   | "enterprise.sso_enabled"
   | "enterprise.sso_disabled"
@@ -168,9 +182,14 @@ export type EnterpriseIdentityAuditEventName =
   | "enterprise.domain_verification_completed"
   | "enterprise.domain_verification_failed"
   | "enterprise.scim_user_provisioned"
+  | "enterprise.scim_user_updated"
   | "enterprise.scim_user_deprovisioned"
+  | "enterprise.identity_member_locked"
+  | "enterprise.identity_member_unlocked"
   | "enterprise.role_group_mapping_changed"
   | "enterprise.admin_recovery_used"
+  | "enterprise.break_glass_admin_preserved"
+  | "enterprise.break_glass_admin_blocked"
   | "enterprise.user_lockout"
   | "enterprise.user_recovery";
 
@@ -178,9 +197,12 @@ export const ENTERPRISE_IDENTITY_FORBIDDEN_AUDIT_METADATA_KEYS = [
   "raw_idp_assertion",
   "saml_response",
   "id_token",
+  "oidc_id_token",
+  "oidc_access_token",
   "access_token",
   "refresh_token",
   "authorization_code",
+  "scim_bearer_token",
   "private_key",
   "client_secret",
   "x509_certificate",
@@ -189,6 +211,10 @@ export const ENTERPRISE_IDENTITY_FORBIDDEN_AUDIT_METADATA_KEYS = [
   "provider_payload",
   "provider_request",
   "provider_response",
+  "raw_profile_payload",
+  "profile_payload",
+  "raw_group_payload",
+  "group_payload",
   "password",
   "secret",
   "token"
@@ -227,6 +253,9 @@ const BASE_SAFE_METADATA_KEYS = [
   "reason_code",
   "recovery_method",
   "lockout_reason",
+  "outcome",
+  "blocked_reason",
+  "active_admin_owner_count",
   "initiated_by"
 ] as const;
 
@@ -255,6 +284,61 @@ export const ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS: Record<
   EnterpriseIdentityAuditEventName,
   EnterpriseIdentityAuditEventContract
 > = {
+  "identity.sso_config_changed": auditContract({
+    name: "identity.sso_config_changed",
+    actor: "enterprise_admin",
+    notes: "Future canonical runtime event for SSO provider configuration changes using safe state and fingerprint metadata only."
+  }),
+  "identity.scim_directory_configured": auditContract({
+    name: "identity.scim_directory_configured",
+    actor: "enterprise_admin",
+    notes: "Future canonical runtime event for SCIM directory configuration without bearer tokens or provider payloads."
+  }),
+  "identity.scim_user_provisioned": auditContract({
+    name: "identity.scim_user_provisioned",
+    actor: "system_or_enterprise_admin",
+    notes: "Future canonical runtime event for SCIM provision decisions with safe hashed identifiers only."
+  }),
+  "identity.scim_user_updated": auditContract({
+    name: "identity.scim_user_updated",
+    actor: "system_or_enterprise_admin",
+    notes: "Future canonical runtime event for SCIM update decisions with safe state, role, and reason-code metadata."
+  }),
+  "identity.scim_user_deprovisioned": auditContract({
+    name: "identity.scim_user_deprovisioned",
+    actor: "system_or_enterprise_admin",
+    notes: "Future canonical runtime event for SCIM deprovision decisions without raw provider payloads."
+  }),
+  "identity.member_locked": auditContract({
+    name: "identity.member_locked",
+    actor: "system_or_enterprise_admin",
+    notes: "Future canonical runtime event for enterprise-managed member lockout decisions."
+  }),
+  "identity.member_unlocked": auditContract({
+    name: "identity.member_unlocked",
+    actor: "enterprise_admin",
+    notes: "Future canonical runtime event for approved enterprise member recovery or unlock decisions."
+  }),
+  "identity.group_role_mapping_changed": auditContract({
+    name: "identity.group_role_mapping_changed",
+    actor: "enterprise_admin",
+    notes: "Future canonical runtime event for group-to-role mapping changes using hashed group IDs only."
+  }),
+  "identity.break_glass_policy_checked": auditContract({
+    name: "identity.break_glass_policy_checked",
+    actor: "system_or_enterprise_admin",
+    notes: "Future canonical runtime event for break-glass admin preservation checks and blocks."
+  }),
+  "enterprise.identity_provider_configured": auditContract({
+    name: "enterprise.identity_provider_configured",
+    actor: "enterprise_admin",
+    notes: "Future precise event when a provider configuration shell is created without raw IdP metadata or secrets."
+  }),
+  "enterprise.sso_config_changed": auditContract({
+    name: "enterprise.sso_config_changed",
+    actor: "enterprise_admin",
+    notes: "Future precise event for safe SSO configuration state changes, fingerprints, and reason codes."
+  }),
   "enterprise.sso_configured": auditContract({
     name: "enterprise.sso_configured",
     actor: "enterprise_admin",
@@ -295,10 +379,25 @@ export const ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS: Record<
     actor: "system_or_enterprise_admin",
     notes: "Future event for SCIM-created or SCIM-reactivated users without full SCIM payloads."
   }),
+  "enterprise.scim_user_updated": auditContract({
+    name: "enterprise.scim_user_updated",
+    actor: "system_or_enterprise_admin",
+    notes: "Future precise event for SCIM update decisions using safe identifiers, lifecycle state, role ID, and reason code only."
+  }),
   "enterprise.scim_user_deprovisioned": auditContract({
     name: "enterprise.scim_user_deprovisioned",
     actor: "system_or_enterprise_admin",
     notes: "Future event for soft or hard deprovisioning with state and reason code only."
+  }),
+  "enterprise.identity_member_locked": auditContract({
+    name: "enterprise.identity_member_locked",
+    actor: "system_or_enterprise_admin",
+    notes: "Future precise event when an enterprise-managed member is locked without exposing provider payloads."
+  }),
+  "enterprise.identity_member_unlocked": auditContract({
+    name: "enterprise.identity_member_unlocked",
+    actor: "enterprise_admin",
+    notes: "Future precise event when an enterprise-managed member is recovered or unlocked through approved authority."
   }),
   "enterprise.role_group_mapping_changed": auditContract({
     name: "enterprise.role_group_mapping_changed",
@@ -309,6 +408,16 @@ export const ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS: Record<
     name: "enterprise.admin_recovery_used",
     actor: "enterprise_admin",
     notes: "Future break-glass recovery event with strong customer/support evidence and no secrets."
+  }),
+  "enterprise.break_glass_admin_preserved": auditContract({
+    name: "enterprise.break_glass_admin_preserved",
+    actor: "system_or_enterprise_admin",
+    notes: "Future precise event proving a privileged identity mutation preserved an accountable admin/owner path."
+  }),
+  "enterprise.break_glass_admin_blocked": auditContract({
+    name: "enterprise.break_glass_admin_blocked",
+    actor: "system_or_enterprise_admin",
+    notes: "Future precise event proving a privileged identity mutation was blocked because break-glass/admin preservation was unsafe."
   }),
   "enterprise.user_lockout": auditContract({
     name: "enterprise.user_lockout",

@@ -1011,6 +1011,150 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: ["organization_id", "deletion_request_id", "failure_code", "failure_category", "stage"],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
+  "identity.sso_config_changed": taxonomyEvent({
+    name: "identity.sso_config_changed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future provider-backed enterprise SSO configuration workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "previous_state", "new_state", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.scim_directory_configured": taxonomyEvent({
+    name: "identity.scim_directory_configured",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future SCIM directory configuration workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "provider", "new_state", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.scim_user_provisioned": taxonomyEvent({
+    name: "identity.scim_user_provisioned",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future provider-backed SCIM provision workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "scim_user_id", "provider", "new_state", "role", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.scim_user_updated": taxonomyEvent({
+    name: "identity.scim_user_updated",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future provider-backed SCIM update workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "scim_user_id", "provider", "previous_state", "new_state", "role", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.scim_user_deprovisioned": taxonomyEvent({
+    name: "identity.scim_user_deprovisioned",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future provider-backed SCIM deprovision workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "scim_user_id", "provider", "previous_state", "new_state", "role", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.member_locked": taxonomyEvent({
+    name: "identity.member_locked",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future enterprise identity lockout workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "provider", "previous_state", "new_state", "lockout_reason", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.member_unlocked": taxonomyEvent({
+    name: "identity.member_unlocked",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future enterprise identity recovery workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "previous_state", "new_state", "recovery_method", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.group_role_mapping_changed": taxonomyEvent({
+    name: "identity.group_role_mapping_changed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future group role mapping workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "mapping_id", "provider", "group_id_hash", "role", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "identity.break_glass_policy_checked": taxonomyEvent({
+    name: "identity.break_glass_policy_checked",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future privileged identity mutation workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "outcome", "active_admin_owner_count", "blocked_reason", "recovery_method", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.identity_provider_configured": taxonomyEvent({
+    name: "enterprise.identity_provider_configured",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future enterprise identity provider configuration workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "new_state", "metadata_fingerprint", "certificate_fingerprint", "certificate_expires_at", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.sso_config_changed": taxonomyEvent({
+    name: "enterprise.sso_config_changed",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future enterprise SSO configuration workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "previous_state", "new_state", "metadata_fingerprint", "certificate_fingerprint", "certificate_expires_at", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.scim_user_updated": taxonomyEvent({
+    name: "enterprise.scim_user_updated",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future SCIM update workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "provider", "previous_state", "new_state", "role", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.identity_member_locked": taxonomyEvent({
+    name: "enterprise.identity_member_locked",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future SCIM lockout workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "target_user_id", "provider", "previous_state", "new_state", "lockout_reason", "reason_code", "initiated_by"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.identity_member_unlocked": taxonomyEvent({
+    name: "enterprise.identity_member_unlocked",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future enterprise identity recovery workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "previous_state", "new_state", "recovery_method", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.break_glass_admin_preserved": taxonomyEvent({
+    name: "enterprise.break_glass_admin_preserved",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future privileged identity mutation workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "outcome", "active_admin_owner_count", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
+  "enterprise.break_glass_admin_blocked": taxonomyEvent({
+    name: "enterprise.break_glass_admin_blocked",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts audit builder; future privileged identity mutation workflow emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "outcome", "active_admin_owner_count", "blocked_reason", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
   "governance.retention_policy_changed": taxonomyEvent({
     name: "governance.retention_policy_changed",
     type: "audit",

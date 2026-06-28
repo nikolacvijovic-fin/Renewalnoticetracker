@@ -68,7 +68,7 @@ The bridge currently provides:
 - SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
 - SCIM mutation decisions that require Enterprise entitlement, explicit feature enablement, directory organization scope, and break-glass preservation for privileged users.
 - Group-role mapping normalization that can map only non-privileged current customer runtime roles; `owner`, `admin`, future enterprise roles, and internal roles remain inert and cannot be granted through provider groups.
-- Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only.
+- Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only, including precise future contracts for provider configuration, SSO configuration changes, SCIM provision/update/deprovision, member lock/unlock, group mapping, and break-glass preservation/blocking.
 
 The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. Those steps require the future Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md).
 
@@ -101,6 +101,7 @@ Future SCIM provisioning behavior:
 4. Apply role/group mapping only through the enterprise RBAC registry; group mapping must not grant `owner`, `admin`, internal, or future enterprise roles.
 5. Move to `active` after all gates pass.
 6. Audit using stable IDs, state transitions, role IDs, and reason codes only.
+7. Updates use `enterprise.scim_user_updated`; lock/recovery use `enterprise.identity_member_locked` and `enterprise.identity_member_unlocked`; deprovisioning uses `enterprise.scim_user_deprovisioned`.
 
 Raw SCIM payloads, provider requests, provider responses, tokens, and secrets must never be written to customer-visible audit logs or operator logs.
 
@@ -147,6 +148,7 @@ Fallback recovery is a future Enterprise-only break-glass path.
 Requirements before implementation:
 - Dedicated enterprise admin role or equivalent customer-approved authority.
 - Strong audit event: `enterprise.admin_recovery_used`.
+- Preservation/blocking evidence: `enterprise.break_glass_admin_preserved` and `enterprise.break_glass_admin_blocked`.
 - Safe metadata only: actor, target user, reason code, recovery method, request ID.
 - Support runbook for customer communication and post-incident review.
 - No hidden founder rescue as normal workflow.

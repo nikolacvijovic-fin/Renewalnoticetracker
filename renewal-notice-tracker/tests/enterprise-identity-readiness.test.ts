@@ -71,6 +71,17 @@ describe("enterprise identity implementation readiness", () => {
 
   it("defines the future identity audit-event contract with safe metadata rules", () => {
     const requiredEvents: EnterpriseIdentityAuditEventName[] = [
+      "identity.sso_config_changed",
+      "identity.scim_directory_configured",
+      "identity.scim_user_provisioned",
+      "identity.scim_user_updated",
+      "identity.scim_user_deprovisioned",
+      "identity.member_locked",
+      "identity.member_unlocked",
+      "identity.group_role_mapping_changed",
+      "identity.break_glass_policy_checked",
+      "enterprise.identity_provider_configured",
+      "enterprise.sso_config_changed",
       "enterprise.sso_configured",
       "enterprise.sso_enabled",
       "enterprise.sso_disabled",
@@ -79,9 +90,14 @@ describe("enterprise identity implementation readiness", () => {
       "enterprise.domain_verification_completed",
       "enterprise.domain_verification_failed",
       "enterprise.scim_user_provisioned",
+      "enterprise.scim_user_updated",
       "enterprise.scim_user_deprovisioned",
+      "enterprise.identity_member_locked",
+      "enterprise.identity_member_unlocked",
       "enterprise.role_group_mapping_changed",
       "enterprise.admin_recovery_used",
+      "enterprise.break_glass_admin_preserved",
+      "enterprise.break_glass_admin_blocked",
       "enterprise.user_lockout",
       "enterprise.user_recovery"
     ];

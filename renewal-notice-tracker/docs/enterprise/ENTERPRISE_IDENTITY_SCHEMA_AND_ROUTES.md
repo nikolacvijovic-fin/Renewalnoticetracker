@@ -37,7 +37,7 @@ The route registry defines future API shape without creating live runtime routes
 | `POST /api/enterprise/identity/sso/domain-verification` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.domain_verification_started` |
 | `POST /api/enterprise/identity/sso/test` | deferred | future Enterprise admin/owner session | `future_sso_settings` | `enterprise.idp_metadata_changed` |
 | `POST /api/enterprise/identity/scim/v2/Users` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
-| `PATCH /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_provisioned` |
+| `PATCH /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_updated` |
 | `DELETE /api/enterprise/identity/scim/v2/Users&#47;:id` | deferred | future SCIM bearer token | `future_scim_provisioning` | `enterprise.scim_user_deprovisioned` |
 | `GET /api/enterprise/identity/group-role-mappings` | deferred | future Enterprise admin/owner session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
 | `POST /api/enterprise/identity/group-role-mappings` | deferred | future Enterprise admin/owner session | `future_permission_groups` | `enterprise.role_group_mapping_changed` |
@@ -51,6 +51,8 @@ Route contract rules:
 - Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SSO readiness shaping, tenant-scoped SCIM mutation decisions, SCIM state normalization, group-role mapping safety, break-glass preservation, deprovisioned/locked access semantics, and safe audit metadata shaping.
 - SCIM create/update/delete routes must preserve provisioning and deprovisioning semantics: `pending`, `active`, `locked`, `soft_deprovisioned`, and `hard_deprovisioned`.
 - SCIM mutation decisions must reject cross-organization directory mutations and privileged lock/deprovision operations that would leave no accountable admin/owner or no documented break-glass path.
+- Lock/recovery decisions must use `enterprise.identity_member_locked` and `enterprise.identity_member_unlocked` rather than overloading provisioning events.
+- Privileged identity mutations must produce break-glass preservation or blocking evidence through `enterprise.break_glass_admin_preserved` or `enterprise.break_glass_admin_blocked`.
 - Admin recovery is future-only break-glass behavior and must not become hidden founder rescue.
 
 ## Validation Contracts

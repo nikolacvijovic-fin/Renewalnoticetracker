@@ -222,7 +222,10 @@ export const ENTERPRISE_IDENTITY_SCHEMA_TABLES: Record<
       "Default DELETE semantics are soft_deprovisioned; hard_deprovisioned requires retention/audit gates and must preserve historical accountability references.",
     auditEventLinkage: [
       "enterprise.scim_user_provisioned",
+      "enterprise.scim_user_updated",
       "enterprise.scim_user_deprovisioned",
+      "enterprise.identity_member_locked",
+      "enterprise.identity_member_unlocked",
       "enterprise.user_lockout",
       "enterprise.user_recovery"
     ],

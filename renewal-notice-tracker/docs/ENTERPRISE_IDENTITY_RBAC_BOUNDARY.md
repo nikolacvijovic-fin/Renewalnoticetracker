@@ -94,7 +94,7 @@ Before SSO, SCIM, or granular permission groups can ship, the enterprise module 
 
 - A concrete entitlement and packaging policy, likely Enterprise-only.
 - A lifecycle model for login, invite, provisioning, deprovisioning, lockout/recovery, domain verification, metadata/certificate rotation, and fallback admin recovery.
-- Runtime bridge coverage for Enterprise admin/owner gating, SSO configuration readiness, provisioned/deprovisioned/locked member access state, SCIM create/update/delete normalization, tenant-scoped SCIM mutation decisions, group-role mapping anti-escalation, break-glass admin preservation, and safe identity audit inputs.
+- Runtime bridge coverage for Enterprise admin/owner gating, SSO configuration readiness, provisioned/deprovisioned/locked member access state, SCIM create/update/delete normalization, tenant-scoped SCIM mutation decisions, group-role mapping anti-escalation, break-glass admin preservation/blocking, and precise safe identity audit inputs.
 - Future schema and route contracts for SSO configuration, verified domains, SCIM users, group-role mappings, identity events, validation, idempotency, and safe audit/monitoring metadata.
 - Provider-specific auth and provisioning lifecycle tests.
 - Tenant-isolation, role-escalation, and deprovisioning tests.
