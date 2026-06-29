@@ -1,10 +1,12 @@
 # Customer Onboarding Boundary
 
-Canonical code sources: `lib/product/customer-onboarding.ts`, `lib/product/customer-onboarding-progress.ts`, `lib/product/event-taxonomy.ts`, and the bounded onboarding evidence query in `lib/contracts/kernel-queries.ts`.
+Canonical code sources: `lib/product/customer-onboarding.ts`, `lib/product/customer-onboarding-progress.ts`, `lib/product/enterprise-onboarding-readiness.ts`, `lib/product/event-taxonomy.ts`, and the bounded onboarding evidence query in `lib/contracts/kernel-queries.ts`.
 
 NoticeControl onboarding is a first-value path for the renewal-control kernel. It is not a customer success platform, CRM, health-score product, or full implementation-management suite.
 
 The dashboard checklist is the current customer-facing onboarding surface. It renders the canonical progress view model from `lib/product/customer-onboarding-progress.ts`; page code should not invent milestone completion rules inline.
+
+Enterprise launch/support readiness is a separate model documented in [ENTERPRISE_ONBOARDING_READINESS.md](ENTERPRISE_ONBOARDING_READINESS.md). It covers launch gates such as billing, export verification, audit visibility, governance review, operational contacts, and identity readiness without turning the customer checklist into a support dashboard.
 
 ## First-Value Path
 
@@ -77,6 +79,24 @@ The dashboard checklist currently exposes progress for the first-value path only
 
 The helper returns labels, short action descriptions, links, completion state, and evidence category only. It must not return raw contract text, OCR output, full notes, provider payloads, storage paths, secrets, uploaded document contents, or support-only health signals.
 
+## Enterprise Readiness Surface
+
+`lib/product/enterprise-onboarding-readiness.ts` defines support-safe readiness categories for:
+
+- `organization_profile`
+- `billing_subscription`
+- `first_contract_imported`
+- `owner_assignment`
+- `reminder_policy`
+- `export_capability`
+- `audit_event_visibility`
+- `data_governance_review`
+- `operational_contacts`
+- `identity_readiness`
+- `sso_scim_boundary`
+
+These categories are grouped into `pilot`, `paid_launch`, and `enterprise_launch` gates. `sso_scim_boundary` remains future-only until real provider-backed SSO login and live SCIM provisioning endpoints ship; reviewing the implementation plan alone must not mark SSO/SCIM complete.
+
 ## Privacy Boundary
 
 Support follow-up may use:
@@ -114,4 +134,4 @@ The current onboarding boundary does not ship:
 
 ## Promotion Rules
 
-Any expansion beyond the current first-value path must update `lib/product/customer-onboarding.ts`, `lib/product/event-taxonomy.ts`, [EVENT_TAXONOMY.md](EVENT_TAXONOMY.md), [SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md](SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md), [enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md](enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md), and the platform module registry.
+Any expansion beyond the current first-value path must update `lib/product/customer-onboarding.ts`, `lib/product/customer-onboarding-progress.ts`, `lib/product/enterprise-onboarding-readiness.ts` when launch readiness changes, `lib/product/event-taxonomy.ts`, [EVENT_TAXONOMY.md](EVENT_TAXONOMY.md), [ENTERPRISE_ONBOARDING_READINESS.md](ENTERPRISE_ONBOARDING_READINESS.md), [SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md](SUPPORT_SUCCESS_OPERATIONS_BOUNDARY.md), [enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md](enterprise/SUPPORT_SUCCESS_IMPLEMENTATION_PLAN.md), and the platform module registry.

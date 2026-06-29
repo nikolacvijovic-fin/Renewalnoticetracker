@@ -12,6 +12,8 @@ These runbooks are for production support of the shipped renewal-control kernel.
 
 ## Export Job Failure Or Runaway Queue
 
+Runbook ID: `runbook_export_job_failure`
+
 Severity:
 - P1 for systemic queue failure, repeated `export_background_failed`, missing artifact storage config, or runaway queued/processing counts.
 - P2 for a single failed export with safe failure evidence.
@@ -34,6 +36,8 @@ Customer communication trigger:
 
 ## OCR Queue Stuck Or High Terminal Failures
 
+Runbook ID: `runbook_ocr_queue_stuck`
+
 Severity:
 - P1 for OCR queue stuck, provider outage, or repeated terminal failures.
 - P2 for a single `ocr_job_failed` or `ocr_job_terminal_failed`.
@@ -53,6 +57,8 @@ Customer communication trigger:
 - OCR processing delays block review for customer-visible imports, repeated terminal failures, or provider outage.
 
 ## Reminder Dispatch Failures
+
+Runbook ID: `runbook_reminder_dispatch_failures`
 
 Severity:
 - P1 for systemic reminder dispatch failure.
@@ -75,6 +81,8 @@ Customer communication trigger:
 
 ## Billing Webhook Failures Or Replays
 
+Runbook ID: `runbook_billing_webhook_failures`
+
 Severity:
 - P1 for `billing_webhook_failed` spike, signature verification failure after config change, or entitlement state drift.
 - P2 for a single replay or isolated provider issue.
@@ -95,6 +103,8 @@ Customer communication trigger:
 
 ## Suspected Sensitive-Data Logging Issue
 
+Runbook ID: `runbook_sensitive_data_logging_issue`
+
 Severity:
 - P0 for leaked secret, raw contract text, full note, OCR output, provider payload, storage path, or tenant-sensitive evidence in logs/alerts.
 
@@ -113,6 +123,8 @@ Customer communication trigger:
 
 ## Tenant Isolation Or Unauthorized Export Incident
 
+Runbook ID: `runbook_tenant_isolation_export_authorization`
+
 Severity:
 - P0 until disproven.
 
@@ -130,6 +142,97 @@ Customer communication trigger:
 - Any confirmed or likely unauthorized sensitive export, tenant isolation failure, or customer data exposure.
 
 ## Backup Or Restore Evidence Issue
+
+Runbook ID: `runbook_backup_restore_evidence`
+
+## SSO Readiness Or Login Failures
+
+Runbook ID: `runbook_sso_readiness_login_failures`
+
+Severity:
+- P2 for repeated future SSO readiness/callback failures.
+- P0 if failures suggest tenant/domain scope confusion or provider assertion leakage.
+
+Signals:
+- Metric: `enterprise_identity.sso.failure_total`.
+- Future operational logs: `ops.enterprise_identity.sso_callback_failed`.
+- Safe diagnostics: provider type, organization ID, request ID, failure category, reason code.
+
+Operator actions:
+- Confirm Enterprise feature gate, provider configuration status, expected domain, and member lock/deprovision state.
+- Verify future SAML/OIDC provider verification without copying assertions, tokens, certificates, or provider payloads.
+- Do not enable SSO for login until provider-backed verification, persistence, and session handling are live.
+
+## SCIM Provisioning Or Deprovisioning Failures
+
+Runbook ID: `runbook_scim_provisioning_failures`
+
+Severity:
+- P2 for repeated SCIM provision/update/deprovision failures.
+- P0 if owner/admin escalation, cross-tenant provisioning, or raw SCIM token/payload leakage is suspected.
+
+Signals:
+- Metric: `enterprise_identity.scim.failure_total`.
+- Future operational logs: `ops.enterprise_identity.scim_provisioning_failed`.
+- Safe diagnostics: provider type, hashed external identifier, status, failure category, reason code.
+
+Operator actions:
+- Confirm SCIM bearer token fingerprint, directory organization scope, role mapping policy, and break-glass admin coverage.
+- Ensure `owner`, internal, and future roles remain blocked and `admin` mapping requires explicit policy.
+- Never paste raw SCIM payloads, bearer tokens, group payloads, or provider responses into tickets.
+
+## Audit Event Persistence Failure
+
+Runbook ID: `runbook_audit_event_persistence_failure`
+
+Severity:
+- P0 for any critical audit persistence failure in customer/security truth paths.
+
+Signals:
+- Metric: `audit.persistence.failure_total`.
+- Operational logs with `errorCategory=background_job_failed` or `unknown`.
+- Route/action failures where critical audit writes throw.
+
+Operator actions:
+- Treat customer-visible workflow success as suspect until audit persistence is reconciled.
+- Preserve request ID, organization ID, actor ID, action, and safe failure code.
+- Do not replay customer actions blindly; use audited rescue or repair paths only.
+
+## Billing Entitlement Mismatch
+
+Runbook ID: `runbook_billing_entitlement_mismatch`
+
+Severity:
+- P1 for repeated entitlement mismatches or any paid feature access inconsistency.
+- P2 for a single isolated mismatch with no customer-visible impact.
+
+Signals:
+- Metric: `billing.entitlement.mismatch_total`.
+- Canonical billing snapshot checks.
+- Safe support diagnostics with provider type, plan tier, status, and reason code.
+
+Operator actions:
+- Recompute from canonical billing snapshot only.
+- Check Paddle/manual/PayPal exception state without inferring access from provider label.
+- Never log raw billing provider payloads, secrets, payment details, or customer payment data.
+
+## Background Job Retry Exhaustion
+
+Runbook ID: `runbook_background_job_retry_exhaustion`
+
+Severity:
+- P1 for repeated retry exhaustion across exports, OCR, reminders, or internal jobs.
+- P2 for isolated retry exhaustion on one job.
+
+Signals:
+- Metric: `background_job.retry_exhausted_total`.
+- Job-specific failure metrics and safe diagnostics.
+- Admin operational snapshot counts for stale/failed jobs.
+
+Operator actions:
+- Identify subsystem, job type, failure category, oldest stuck age, retry count, and affected organization count.
+- Fix provider/config/queue issue before rerunning.
+- Rerun only through authorized internal routes or audited admin actions.
 
 Severity:
 - P1 if restore evidence is missing/stale during a production incident or backup readiness cannot be established.

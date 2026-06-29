@@ -4,6 +4,8 @@ Monitoring currently emits through the `structured_log` sink via `lib/observabil
 
 Runbook response guidance lives in `docs/OPERATIONAL_RUNBOOKS.md`.
 
+Operational events are not metrics. Metrics are defined separately in `lib/observability/metrics.ts`, and alert rules as code are defined in `lib/observability/alert-rules.ts`. Alert webhook delivery is a sink for alert-worthy operational events; it is not the alert-rule evaluation engine. Future Datadog, Grafana, Sentry, OpenTelemetry, or Prometheus integration should consume the metric and alert-rule contracts without adding raw customer/provider payloads.
+
 | Event name | Source | Signal type | Org/user context | Sensitivity | Alert | Severity |
 | --- | --- | --- | --- | --- | --- | --- |
 | `internal_route_auth_failed` | `lib/http/route-handler.ts` internal auth helpers | structured log + monitoring | request ID, route; no user by default | internal | yes | P2 |

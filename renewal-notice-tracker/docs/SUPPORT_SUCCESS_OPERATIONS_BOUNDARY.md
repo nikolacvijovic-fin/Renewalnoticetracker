@@ -1,10 +1,12 @@
 # Support Success Operations Boundary
 
-Canonical code sources: `lib/product/support-success.ts` and `lib/product/event-taxonomy.ts`.
+Canonical code sources: `lib/product/support-success.ts`, `lib/product/customer-onboarding-progress.ts`, `lib/product/enterprise-onboarding-readiness.ts`, and `lib/product/event-taxonomy.ts`.
 
 NoticeControl support and success operations exist to keep the renewal-control product safe to operate. They are not a full CRM, helpdesk, customer success platform, impersonation system, or raw-data browsing console.
 
 The shipped customer onboarding checklist is a first-value product surface, not a support dashboard. Its progress model lives in `lib/product/customer-onboarding-progress.ts` and may use only shipped event evidence or durable state/query fallbacks from the onboarding registry.
+
+Enterprise onboarding readiness lives in `lib/product/enterprise-onboarding-readiness.ts` and is documented in [ENTERPRISE_ONBOARDING_READINESS.md](ENTERPRISE_ONBOARDING_READINESS.md). It can produce support-safe pilot, paid-launch, and enterprise-launch summaries, but it must not claim provider-backed SSO login, live SCIM provisioning, customer health scores, or support impersonation are shipped.
 
 ## Capability Boundary
 

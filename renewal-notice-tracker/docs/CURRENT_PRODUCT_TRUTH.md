@@ -20,4 +20,6 @@ Current customer-facing runtime includes only:
 
 Gated intelligence, financial exposure, procurement analytics, exports, OCR/import, reminders, billing, and internal operations may ship only as renewal-control modules classified in the registry. Enterprise controls, broad integrations, advanced analytics, and full CLM remain deferred, experimental, or excluded until the registry and release gates explicitly promote them.
 
+Customer first-value onboarding is shipped as a renewal-control checklist. Enterprise onboarding readiness is a support-safe launch model in [ENTERPRISE_ONBOARDING_READINESS.md](ENTERPRISE_ONBOARDING_READINESS.md): it can summarize pilot, paid launch, and enterprise launch categories, but it does not ship customer success health scores, support impersonation, provider-backed SSO login, or live SCIM provisioning endpoints.
+
 Anything outside this loop belongs in deferred capability records, future activation rules, or reference-only material.

@@ -108,6 +108,33 @@ Support-safe diagnostics are available for:
 
 Diagnostics may include safe IDs, status, retry counts, timestamps, failure codes, and bounded metadata. They must not include contract body text, OCR raw text, SAML assertions, OIDC tokens, SCIM bearer tokens, SCIM raw payloads, payment secrets, provider responses, private keys/certificates, passwords, secrets, or tokens.
 
+## Metrics And Alert Rules As Code
+
+Operational events are not metrics, and alert webhook delivery is not alert-rule evaluation. Operational events describe discrete runtime happenings. Metrics are aggregated numeric signals. Alert rules define backend-agnostic threshold logic over metric contracts. Audit and analytics remain separate signal types.
+
+Metric contracts live in `lib/observability/metrics.ts`. Each metric defines:
+- metric name
+- subsystem
+- type: counter, gauge, or histogram
+- safe bounded dimensions
+- forbidden sensitive/high-cardinality dimensions
+- sensitivity
+- owner/runbook area
+
+Alert rules as code live in `lib/observability/alert-rules.ts`. Each rule defines:
+- rule ID
+- metric name
+- severity
+- threshold
+- time window
+- runbook ID
+- safe diagnostic fields
+- forbidden diagnostic fields
+
+Incident snapshots are safe support/incident summaries derived from alert rules. They may include affected organization count, affected job count, oldest failed/stuck age, retry-exhausted count, recent safe event IDs, failure category, and runbook ID. They must not include raw contract text, notes, OCR output, SAML/OIDC/SCIM secrets, billing provider payloads, storage paths, raw provider responses, passwords, secrets, or tokens.
+
+Current state: NoticeControl defines backend-agnostic metric contracts, alert rules, and incident snapshot helpers. It does not yet push metrics to Datadog, Grafana, Sentry, OpenTelemetry, Prometheus, or another backend, and it does not yet provide dashboards, paging/on-call automation, or SLO reporting.
+
 ## Monitoring Readiness Map
 
 Monitoring currently emits through `lib/observability/monitoring.ts` into the `structured_log` sink. Callers should only use `emitOperationalEvent`; future alerting providers should be added behind the sink resolver so route and business code do not change. See `docs/OPERATIONAL_EVENT_INVENTORY.md` for the event inventory and P0/P1/P2/P3 severity policy, and `docs/OPERATIONAL_RUNBOOKS.md` for operator response steps.
