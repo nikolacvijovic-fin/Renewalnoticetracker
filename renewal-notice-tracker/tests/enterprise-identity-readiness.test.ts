@@ -73,6 +73,7 @@ describe("enterprise identity implementation readiness", () => {
   it("defines the future identity audit-event contract with safe metadata rules", () => {
     const requiredEvents: EnterpriseIdentityAuditEventName[] = [
       "identity.sso_config_changed",
+      "identity.sso_callback_prepared",
       "identity.scim_directory_configured",
       "identity.scim_user_provisioned",
       "identity.scim_user_updated",

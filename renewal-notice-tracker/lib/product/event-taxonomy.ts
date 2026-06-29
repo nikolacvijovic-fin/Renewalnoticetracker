@@ -1020,6 +1020,15 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: ["organization_id", "actor_user_id", "sso_configuration_id", "provider", "previous_state", "new_state", "reason_code"],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
+  "identity.sso_callback_prepared": taxonomyEvent({
+    name: "identity.sso_callback_prepared",
+    type: "audit",
+    emittedToday: false,
+    source: "lib/product/enterprise-identity-runtime.ts SSO callback decision helper; future provider-backed enterprise SSO callback emitter",
+    privacySensitivity: "restricted",
+    safeMetadataFields: ["organization_id", "actor_user_id", "target_user_id", "provider", "external_id_hash", "email_hash", "new_state", "reason_code"],
+    owningProductModule: "enterprise_identity_rbac_retention"
+  }),
   "identity.scim_directory_configured": taxonomyEvent({
     name: "identity.scim_directory_configured",
     type: "audit",

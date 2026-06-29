@@ -18,6 +18,7 @@ import {
   normalizeEnterpriseGroupRoleMapping,
   normalizeEnterpriseScimMutation,
   prepareEnterpriseIdentityConfigChange,
+  prepareEnterpriseIdentitySessionRevocationIntent,
   prepareEnterpriseScimEndpointResponse,
   prepareScimProvisioningDecision,
   prepareEnterpriseScimMutationDecision,
@@ -511,7 +512,17 @@ describe("enterprise identity runtime bridge", () => {
         groupId: "Admins",
         requestedRole: "admin"
       })
-    ).toMatchObject({ allowed: false, normalizedRole: "admin", reasonCode: "future_role_forbidden" });
+    ).toMatchObject({ allowed: false, normalizedRole: "admin", reasonCode: "admin_mapping_policy_required" });
+
+    expect(
+      normalizeEnterpriseGroupRoleMapping({
+        organizationId: "org-1",
+        provider: "saml_2_0",
+        groupId: "Admins",
+        requestedRole: "admin",
+        policy: { allowAdminGroupMapping: true }
+      })
+    ).toMatchObject({ allowed: true, normalizedRole: "admin", reasonCode: "allowed" });
 
     expect(
       normalizeEnterpriseGroupRoleMapping({
@@ -617,6 +628,73 @@ describe("enterprise identity runtime bridge", () => {
     ]) {
       expect(rendered).not.toContain(forbidden);
     }
+  });
+
+  it("keeps both SCIM decision paths on the same safe role-mapping policy", () => {
+    const baseProvisioning = {
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      operation: "provision" as const,
+      externalId: "external-user-1",
+      targetUserId: "user-1"
+    };
+    const baseMutation = {
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      targetCurrentRole: "operator",
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true
+    };
+
+    for (const requestedRole of ["owner", "admin", "security_admin", "operator", "reviewer"] as const) {
+      const provisioningDecision = prepareScimProvisioningDecision({
+        ...baseProvisioning,
+        requestedRole
+      });
+      const mutationDecision = prepareEnterpriseScimMutationDecision({
+        ...baseMutation,
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "external-user-1",
+          targetUserId: "user-1",
+          requestedRole
+        }
+      });
+
+      expect(provisioningDecision.allowed, requestedRole).toBe(mutationDecision.allowed);
+      if (!provisioningDecision.allowed || !mutationDecision.allowed) {
+        expect(provisioningDecision).toMatchObject({ reason: mutationDecision.reason });
+      }
+    }
+
+    expect(
+      prepareScimProvisioningDecision({
+        ...baseProvisioning,
+        requestedRole: "admin",
+        roleMappingPolicy: { allowAdminGroupMapping: true }
+      })
+    ).toMatchObject({ allowed: true, role: "admin" });
+
+    expect(
+      prepareEnterpriseScimMutationDecision({
+        ...baseMutation,
+        roleMappingPolicy: { allowAdminGroupMapping: true },
+        mutation: {
+          organizationId: "org-1",
+          operation: "create",
+          externalId: "external-user-1",
+          targetUserId: "user-1",
+          requestedRole: "admin"
+        }
+      })
+    ).toMatchObject({ allowed: true, mapping: { role: "admin" } });
   });
 
   it("builds precise future-only audit evidence for SSO config, group mapping, and break-glass outcomes", () => {
@@ -1040,10 +1118,12 @@ describe("enterprise identity runtime bridge", () => {
       canAffectCurrentLogin: false,
       targetUserId: "user-1",
       audit: {
-        action: "identity.sso_config_changed",
+        action: "identity.sso_callback_prepared",
         details: {
           provider: "saml",
           target_user_id: "user-1",
+          external_id_hash: callback.allowed ? callback.externalIdHash : undefined,
+          email_hash: callback.allowed ? callback.emailHash : undefined,
           new_state: "verified_callback_prepared",
           reason_code: "safe_callback_reason"
         }
@@ -1086,6 +1166,67 @@ describe("enterprise identity runtime bridge", () => {
       allowed: false,
       reason: "member_locked",
       canAffectCurrentLogin: false
+    });
+  });
+
+  it("creates a future session revocation intent for lock and deprovision decisions without claiming current session revocation", () => {
+    const deprovisionDecision = prepareEnterpriseScimMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      targetCurrentRole: "operator",
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true,
+      mutation: {
+        organizationId: "org-1",
+        operation: "delete",
+        externalId: "external-user-1",
+        targetUserId: "user-1",
+        requestedRole: "operator"
+      }
+    });
+
+    expect(deprovisionDecision).toMatchObject({
+      allowed: true,
+      mapping: { provisioningState: "soft_deprovisioned" },
+      sessionRevocationIntent: {
+        planned: true,
+        canAffectCurrentSessions: false,
+        reasonCode: "member_deprovisioned",
+        audit: {
+          action: "enterprise.scim_user_deprovisioned",
+          details: {
+            target_user_id: "user-1",
+            new_state: "soft_deprovisioned",
+            session_revocation_intent: "planned",
+            can_affect_current_sessions: false
+          }
+        }
+      }
+    });
+
+    const lockIntent = prepareEnterpriseIdentitySessionRevocationIntent({
+      organizationId: "org-1",
+      userId: "user-locked",
+      reasonCode: "member_locked",
+      actorUserId: "system"
+    });
+
+    expect(lockIntent).toMatchObject({
+      planned: true,
+      canAffectCurrentSessions: false,
+      reasonCode: "member_locked",
+      audit: {
+        action: "enterprise.identity_member_locked",
+        details: {
+          target_user_id: "user-locked",
+          new_state: "locked",
+          session_revocation_intent: "planned",
+          can_affect_current_sessions: false
+        }
+      }
     });
   });
 

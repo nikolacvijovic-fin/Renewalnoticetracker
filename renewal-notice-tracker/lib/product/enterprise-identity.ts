@@ -9,6 +9,7 @@ export type EnterpriseIdentityProvider = (typeof ENTERPRISE_IDENTITY_SUPPORTED_P
 
 export type EnterpriseRuntimeIdentityAuditEventName =
   | "identity.sso_config_changed"
+  | "identity.sso_callback_prepared"
   | "identity.scim_directory_configured"
   | "identity.scim_user_provisioned"
   | "identity.scim_user_updated"
@@ -247,6 +248,8 @@ const BASE_SAFE_METADATA_KEYS = [
   "certificate_expires_at",
   "target_user_id",
   "scim_user_id",
+  "external_id_hash",
+  "email_hash",
   "mapping_id",
   "group_id_hash",
   "role",
@@ -255,6 +258,8 @@ const BASE_SAFE_METADATA_KEYS = [
   "lockout_reason",
   "outcome",
   "blocked_reason",
+  "session_revocation_intent",
+  "can_affect_current_sessions",
   "active_admin_owner_count",
   "initiated_by"
 ] as const;
@@ -288,6 +293,11 @@ export const ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS: Record<
     name: "identity.sso_config_changed",
     actor: "enterprise_admin",
     notes: "Future canonical runtime event for SSO provider configuration changes using safe state and fingerprint metadata only."
+  }),
+  "identity.sso_callback_prepared": auditContract({
+    name: "identity.sso_callback_prepared",
+    actor: "system_or_enterprise_admin",
+    notes: "Future canonical runtime event for SSO callback decisions based on already-verified provider results; raw assertions, tokens, and provider payloads are forbidden."
   }),
   "identity.scim_directory_configured": auditContract({
     name: "identity.scim_directory_configured",

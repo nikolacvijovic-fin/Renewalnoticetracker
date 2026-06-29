@@ -119,6 +119,7 @@ These events are registry contracts only. They must not be counted as live evide
 - `privacy.workspace_deletion_executed`
 - `privacy.workspace_deletion_failed`
 - `identity.sso_config_changed`
+- `identity.sso_callback_prepared`
 - `identity.scim_directory_configured`
 - `identity.scim_user_provisioned`
 - `identity.scim_user_updated`

@@ -121,7 +121,12 @@ export type EnterpriseGroupRoleMappingPolicy = {
   requestedRole: string;
   normalizedRole: CustomerRole | null;
   allowed: boolean;
-  reasonCode: "allowed" | "unsupported_role" | "owner_mapping_forbidden" | "future_role_forbidden";
+  reasonCode:
+    | "allowed"
+    | "unsupported_role"
+    | "owner_mapping_forbidden"
+    | "admin_mapping_policy_required"
+    | "future_role_forbidden";
 };
 
 export type EnterpriseIdentityRoleMappingPolicy = {
@@ -446,6 +451,7 @@ export type EnterpriseScimMutationDecisionResult =
       organizationId: string;
       mapping: EnterpriseExternalUserMappingModel;
       audit: ReturnType<typeof buildEnterpriseIdentityAuditLogInput>;
+      sessionRevocationIntent?: EnterpriseIdentitySessionRevocationIntentResult;
     }
   | {
       allowed: false;
@@ -635,6 +641,27 @@ export type EnterpriseIdentitySessionRevocationAdapter = (input: {
   userId: string;
   reasonCode: "member_locked" | "member_deprovisioned" | "member_deactivated";
 }) => Promise<{ revoked: boolean; reasonCode: string }>;
+
+export type EnterpriseIdentitySessionRevocationReason =
+  | "member_locked"
+  | "member_deprovisioned"
+  | "member_deactivated";
+
+export type EnterpriseIdentitySessionRevocationIntentInput = {
+  organizationId: string;
+  userId: string;
+  reasonCode: EnterpriseIdentitySessionRevocationReason;
+  actorUserId?: string | null;
+};
+
+export type EnterpriseIdentitySessionRevocationIntentResult = {
+  organizationId: string;
+  userId: string;
+  planned: true;
+  canAffectCurrentSessions: false;
+  reasonCode: EnterpriseIdentitySessionRevocationReason;
+  audit: ReturnType<typeof buildEnterpriseIdentityAuditLogInput>;
+};
 
 export type EnterpriseIdentityPersistenceAdapter = {
   loadMemberStatus(input: {
@@ -1120,54 +1147,23 @@ export function normalizeEnterpriseGroupRoleMapping(input: {
   provider: EnterpriseGroupRoleMappingPolicy["provider"];
   groupId: string;
   requestedRole: string;
+  policy?: EnterpriseIdentityRoleMappingPolicy;
 }): EnterpriseGroupRoleMappingPolicy {
-  const normalizedRole = normalizeCustomerRole(input.requestedRole);
-  const groupIdHash = stableHash(input.groupId);
-
-  if (!normalizedRole) {
-    return {
-      organizationId: input.organizationId,
-      provider: input.provider,
-      groupIdHash,
-      requestedRole: input.requestedRole,
-      normalizedRole: null,
-      allowed: false,
-      reasonCode: input.requestedRole.includes("_") ? "future_role_forbidden" : "unsupported_role"
-    };
-  }
-
-  if (normalizedRole === "owner") {
-    return {
-      organizationId: input.organizationId,
-      provider: input.provider,
-      groupIdHash,
-      requestedRole: input.requestedRole,
-      normalizedRole,
-      allowed: false,
-      reasonCode: "owner_mapping_forbidden"
-    };
-  }
-
-  if (normalizedRole === "admin") {
-    return {
-      organizationId: input.organizationId,
-      provider: input.provider,
-      groupIdHash,
-      requestedRole: input.requestedRole,
-      normalizedRole,
-      allowed: false,
-      reasonCode: "future_role_forbidden"
-    };
-  }
-
+  const resolved = resolveSafeGroupRoleMapping({
+    organizationId: input.organizationId,
+    providerType: input.provider === "scim_2_0" ? "scim" : input.provider === "saml_2_0" ? "saml" : "oidc",
+    groupId: input.groupId,
+    requestedRole: input.requestedRole,
+    policy: input.policy
+  });
   return {
     organizationId: input.organizationId,
     provider: input.provider,
-    groupIdHash,
-    requestedRole: input.requestedRole,
-    normalizedRole,
-    allowed: CUSTOMER_ROLES_ALLOWED_FROM_GROUP_MAPPING.includes(normalizedRole),
-    reasonCode: "allowed"
+    groupIdHash: resolved.groupIdHash,
+    requestedRole: resolved.requestedRole,
+    normalizedRole: resolved.normalizedRole,
+    allowed: resolved.allowed,
+    reasonCode: resolved.reasonCode
   };
 }
 
@@ -1210,6 +1206,18 @@ export function resolveSafeGroupRoleMapping(
       normalizedRole,
       allowed: false,
       reasonCode: "admin_mapping_policy_required"
+    };
+  }
+
+  if (normalizedRole !== "admin" && !CUSTOMER_ROLES_ALLOWED_FROM_GROUP_MAPPING.includes(normalizedRole)) {
+    return {
+      organizationId: input.organizationId,
+      providerType: input.providerType,
+      groupIdHash,
+      requestedRole: input.requestedRole,
+      normalizedRole,
+      allowed: false,
+      reasonCode: "future_role_forbidden"
     };
   }
 
@@ -1687,11 +1695,13 @@ export function evaluateEnterpriseSsoLoginCallback(
     audit: buildEnterpriseIdentityAuditInput({
       organizationId: input.organizationId,
       actorUserId: verification.targetUserId ?? null,
-      eventName: "identity.sso_config_changed",
+      eventName: "identity.sso_callback_prepared",
       entityId: providerConfiguration.configurationId,
       metadata: {
         provider: verification.providerType,
         target_user_id: verification.targetUserId ?? undefined,
+        external_id_hash: externalIdHash,
+        email_hash: emailHash ?? undefined,
         new_state: "verified_callback_prepared",
         reason_code: verification.reasonCode ?? "sso_callback_verified",
         ...verification.safeMetadata
@@ -1772,6 +1782,20 @@ export function prepareEnterpriseScimMutationDecision(
             ? "enterprise.scim_user_updated"
             : "enterprise.scim_user_provisioned";
 
+  const sessionRevocationIntent =
+    mapping.provisioningState === "soft_deprovisioned" ||
+    mapping.provisioningState === "hard_deprovisioned" ||
+    mapping.provisioningState === "locked"
+      ? prepareEnterpriseIdentitySessionRevocationIntent({
+          organizationId: input.organizationId,
+          userId: mapping.targetUserId ?? "unknown",
+          reasonCode:
+            mapping.provisioningState === "locked"
+              ? "member_locked"
+              : "member_deprovisioned"
+        })
+      : undefined;
+
   return {
     allowed: true,
     reason: "allowed",
@@ -1788,8 +1812,44 @@ export function prepareEnterpriseScimMutationDecision(
         previous_state: input.mutation.operation,
         new_state: mapping.provisioningState,
         role: mapping.role,
+        scim_user_id: mapping.externalIdHash,
+        email_hash: mapping.emailHash ?? undefined,
         reason_code: mapping.reasonCode,
         initiated_by: "scim_directory"
+      }
+    }),
+    sessionRevocationIntent
+  };
+}
+
+export function prepareEnterpriseIdentitySessionRevocationIntent(
+  input: EnterpriseIdentitySessionRevocationIntentInput
+): EnterpriseIdentitySessionRevocationIntentResult {
+  return {
+    organizationId: input.organizationId,
+    userId: input.userId,
+    planned: true,
+    canAffectCurrentSessions: false,
+    reasonCode: input.reasonCode,
+    audit: buildEnterpriseIdentityAuditLogInput({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId ?? null,
+      eventName:
+        input.reasonCode === "member_locked"
+          ? "enterprise.identity_member_locked"
+          : "enterprise.scim_user_deprovisioned",
+      entityId: input.userId,
+      metadata: {
+        target_user_id: input.userId,
+        new_state:
+          input.reasonCode === "member_locked"
+            ? "locked"
+            : input.reasonCode === "member_deactivated"
+              ? "deactivated"
+              : "soft_deprovisioned",
+        reason_code: input.reasonCode,
+        session_revocation_intent: "planned",
+        can_affect_current_sessions: false
       }
     })
   };

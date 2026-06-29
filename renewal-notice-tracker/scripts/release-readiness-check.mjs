@@ -4,6 +4,7 @@ import {
   getMissingReleaseMetadata,
   getMissingTwoWeekAutonomyChecklist
 } from "./phase1-release-gates.mjs";
+import { getDeploymentReadinessIssues } from "./deployment-readiness-gates.mjs";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,3 +59,18 @@ if (autonomyChecklistMissing.length > 0) {
 }
 
 console.log("Two-week operator autonomy gate is present.");
+
+const deploymentIssues = getDeploymentReadinessIssues({
+  repoRoot,
+  env: process.env
+});
+
+if (deploymentIssues.length > 0) {
+  console.error("Deployment readiness gate failed:");
+  for (const issue of deploymentIssues) {
+    console.error(`- ${issue.code}: ${issue.message}`);
+  }
+  process.exit(1);
+}
+
+console.log("Deployment readiness gates passed.");

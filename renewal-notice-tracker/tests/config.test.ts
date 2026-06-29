@@ -248,4 +248,68 @@ describe("runtime configuration", () => {
       monitoringAlertWebhookDeliveryMode: "fire_and_forget"
     });
   });
+
+  it("rejects placeholder and local production configuration without printing secret values", () => {
+    const env = makeValidEnv({
+      NODE_ENV: "production",
+      NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+      NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321",
+      SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
+      PADDLE_ENVIRONMENT: "sandbox"
+    });
+
+    expect(() => parseAppConfig(env)).toThrow(ConfigValidationError);
+
+    try {
+      parseAppConfig(env);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigValidationError);
+      const rendered = String((error as ConfigValidationError).message);
+      expect(rendered).toContain("NEXT_PUBLIC_APP_URL");
+      expect(rendered).toContain("NEXT_PUBLIC_SUPABASE_URL");
+      expect(rendered).toContain("SUPABASE_SERVICE_ROLE_KEY");
+      expect(rendered).toContain("PADDLE_ENVIRONMENT");
+      expect(rendered).not.toContain("test-service-key");
+      expect(rendered).not.toContain("test-paddle-key");
+    }
+  });
+
+  it("accepts explicitly production-safe config values", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        NODE_ENV: "production",
+        NEXT_PUBLIC_APP_URL: "https://app.noticecontrol.example",
+        NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: "pk_live_noticecontrol_anon_123456789",
+        SUPABASE_SERVICE_ROLE_KEY: "sk_live_noticecontrol_service_123456789",
+        SUPABASE_STORAGE_BUCKET: "noticecontrol-prod-contract-files",
+        SUPABASE_EXPORTS_BUCKET: "noticecontrol-prod-export-artifacts",
+        OPENAI_API_KEY: "sk_live_noticecontrol_openai_123456789",
+        OCR_PROVIDER: "openai",
+        OCR_OPENAI_API_KEY: "sk_live_noticecontrol_ocr_123456789",
+        OCR_OPENAI_MODEL: "gpt-4.1-mini",
+        RESEND_API_KEY: "re_live_noticecontrol_123456789",
+        RESEND_WEBHOOK_SIGNING_SECRET: "resend_live_webhook_secret_123456789",
+        NOTICECONTROL_EMAIL_ACTION_SECRET: "email_action_live_secret_123456789",
+        CRON_SHARED_SECRET: "cron_live_secret_123456789",
+        PADDLE_ENVIRONMENT: "production",
+        PADDLE_API_KEY: "paddle_live_api_key_123456789",
+        PADDLE_WEBHOOK_SECRET: "paddle_live_webhook_secret_123456789",
+        PADDLE_STARTER_PRICE_ID: "pri_live_starter_123456789",
+        PADDLE_GROWTH_PRICE_ID: "pri_live_growth_123456789",
+        INTERNAL_HEALTH_SECRET: "health_live_secret_123456789",
+        INTERNAL_OCR_JOBS_SECRET: "ocr_jobs_live_secret_123456789",
+        INTERNAL_OPERATIONS_SECRET: "operations_live_secret_123456789",
+        INTERNAL_DESTRUCTIVE_OPS_SECRET: "destructive_live_secret_123456789",
+        INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: "destructive_signing_live_secret_123456789",
+        MONITORING_EVENT_SINK: "structured_log_and_webhook",
+        MONITORING_ALERT_WEBHOOK_URL: "https://alerts.noticecontrol.example/events",
+        MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "monitoring_live_signing_secret_123456789"
+      })
+    );
+
+    expect(config.public.appUrl).toBe("https://app.noticecontrol.example");
+    expect(config.billing.paddleEnvironment).toBe("production");
+    expect(config.operations.monitoringEventSink).toBe("structured_log_and_webhook");
+  });
 });

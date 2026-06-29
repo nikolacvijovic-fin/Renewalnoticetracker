@@ -67,7 +67,7 @@ Audit logs must never include raw IdP assertions, SAML responses, OIDC tokens, p
 
 Future role/group mapping will use the enterprise RBAC registry, not page-local role logic.
 
-Provider group mapping must not grant `owner`, `admin`, internal roles, or future enterprise roles directly. Those privileges require explicit in-app authority, break-glass policy where applicable, and audit evidence.
+Provider group mapping must never grant `owner`, internal roles, or future enterprise roles. `admin` mapping is denied by default and may be enabled only by an explicit audited Enterprise policy flag with break-glass expectations reviewed. Privileged ownership still requires explicit in-app authority and audit evidence.
 
 Planned roles include:
 - `security_admin`

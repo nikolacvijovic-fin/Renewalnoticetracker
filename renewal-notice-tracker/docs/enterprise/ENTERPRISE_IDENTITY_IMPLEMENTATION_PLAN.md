@@ -64,14 +64,15 @@ These contracts are not live runtime behavior. They exist so future implementati
 The bridge currently provides:
 - Enterprise identity access evaluation requiring org admin or owner role, Enterprise plan, active/trialing subscription status, and explicit feature enablement.
 - SSO configuration readiness shaping for `draft`, `configured`, `active`, `disabled`, `error`, and `future` states. This can identify future-login readiness but cannot affect current login behavior.
-- Prepared SAML/OIDC provider configuration contracts and SSO callback decision shaping that consumes verified provider results only; raw assertions, tokens, certificates, and provider payloads are not accepted as audit evidence.
+- Prepared SAML/OIDC provider configuration contracts and SSO callback decision shaping that consumes verified provider results only; raw assertions, tokens, certificates, and provider payloads are not accepted as audit evidence. Callback decisions audit against `identity.sso_callback_prepared` and carry hashed identifiers only.
 - Provisioning-state login behavior where only `active` may authenticate; `pending`, `soft_deprovisioned`, `hard_deprovisioned`, and `locked` are fail-closed.
 - SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
 - SCIM bearer-token authentication contracts, route-adjacent endpoint response shaping, and SCIM mutation decisions that require Enterprise entitlement, explicit feature enablement, directory organization scope, and break-glass preservation for privileged users.
+- Session revocation intent contracts after SCIM deprovision, member lock, or deactivation. Current helpers can produce safe audit evidence, but `canAffectCurrentSessions` remains `false` until a real auth-session backend is wired.
 - Group-role mapping normalization that rejects `owner`, internal roles, and future enterprise roles. `admin` is denied by default and may be mapped only when an explicit future Enterprise policy flag permits it.
 - Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only, including precise future contracts for provider configuration, SSO configuration changes, SCIM provision/update/deprovision, member lock/unlock, group mapping, and break-glass preservation/blocking.
 
-The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. The prepared contract layer exists so future provider-backed SSO/SCIM work has safe inputs and deterministic outputs, but live SSO login, live SCIM HTTP endpoints, persistence-backed identity records, and session revocation remain future-only until the Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md) are implemented.
+The bridge intentionally does not persist records, revoke sessions, call providers, create API routes, or expose settings UI. The prepared contract layer exists so future provider-backed SSO/SCIM work has safe inputs, deterministic outputs, hashed identifiers, and revocation intent evidence, but live SSO login, live SCIM HTTP endpoints, persistence-backed identity records, and real session revocation remain future-only until the Enterprise release gate and the schema/route contracts in [ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md](ENTERPRISE_IDENTITY_SCHEMA_AND_ROUTES.md) are implemented.
 
 ## Login Lifecycle
 
@@ -111,7 +112,7 @@ Raw SCIM payloads, provider requests, provider responses, tokens, and secrets mu
 Future deprovisioning behavior:
 1. SCIM disable/delete moves user to `soft_deprovisioned` by default.
 2. `soft_deprovisioned` blocks new sessions immediately.
-3. Existing sessions must be revoked or invalidated through a dedicated future session control path.
+3. Existing sessions must be revoked or invalidated through a dedicated future session control path. Current runtime helpers only create planned revocation intent and cannot affect current sessions.
 4. `hard_deprovisioned` may occur only after retention, deletion, audit, and customer policy gates pass.
 5. Owner assignment, reminder accountability, and historical audit records must retain safe references without exposing raw identity provider payloads.
 6. Deprovisioning or locking an admin/owner must preserve at least one accountable admin/owner and a documented break-glass recovery path.

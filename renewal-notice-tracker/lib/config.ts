@@ -23,7 +23,89 @@ const operationalInt = (input: { min: number; max: number; fallback: number }) =
     z.coerce.number().int().min(input.min).max(input.max).default(input.fallback)
   );
 
+const productionEnvironmentValues = new Set(["production", "prod"]);
+const unsafeSecretPattern =
+  /^(test|dev|demo|local|example|placeholder|changeme|change-me|dummy|mock|fake)(?:[-_].*)?$/i;
+const unsafeSecretValuePattern =
+  /(?:test|dev|demo|local|example|placeholder|changeme|change-me|dummy|mock|fake|localhost)/i;
+const unsafeProductionHostPattern = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])$/i;
+
+function isProductionConfigSource(source: {
+  NODE_ENV?: string;
+  VERCEL_ENV?: string;
+  APP_ENV?: string;
+  NOTICECONTROL_ENV?: string;
+  RELEASE_TARGET_ENV?: string;
+}) {
+  return [
+    source.NODE_ENV,
+    source.VERCEL_ENV,
+    source.APP_ENV,
+    source.NOTICECONTROL_ENV,
+    source.RELEASE_TARGET_ENV
+  ].some((value) => productionEnvironmentValues.has(String(value ?? "").trim().toLowerCase()));
+}
+
+function addSafeProductionIssue(
+  context: z.RefinementCtx,
+  path: string,
+  message: string
+) {
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    path: [path],
+    message
+  });
+}
+
+function validateProductionUrl(
+  context: z.RefinementCtx,
+  key: string,
+  value: string,
+  input: { requireHttps?: boolean } = {}
+) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    addSafeProductionIssue(context, key, `${key} must be a valid production URL.`);
+    return;
+  }
+
+  if ((input.requireHttps ?? true) && parsed.protocol !== "https:") {
+    addSafeProductionIssue(context, key, `${key} must use https in production.`);
+  }
+
+  if (unsafeProductionHostPattern.test(parsed.hostname) || parsed.hostname.endsWith(".local")) {
+    addSafeProductionIssue(context, key, `${key} must not point to a local development host in production.`);
+  }
+}
+
+function validateProductionSecret(
+  context: z.RefinementCtx,
+  key: string,
+  value: string | undefined | null,
+  input: { minLength?: number } = {}
+) {
+  const trimmed = String(value ?? "").trim();
+  const minLength = input.minLength ?? 16;
+
+  if (!trimmed) {
+    addSafeProductionIssue(context, key, `${key} is required in production.`);
+    return;
+  }
+
+  if (trimmed.length < minLength || unsafeSecretPattern.test(trimmed) || unsafeSecretValuePattern.test(trimmed)) {
+    addSafeProductionIssue(context, key, `${key} must be a non-placeholder production secret.`);
+  }
+}
+
 const rawEnvBaseSchema = z.object({
+  NODE_ENV: optionalEnum(["development", "test", "production"]),
+  VERCEL_ENV: optionalEnum(["development", "preview", "production"]),
+  APP_ENV: optionalNonEmptyString,
+  NOTICECONTROL_ENV: optionalNonEmptyString,
+  RELEASE_TARGET_ENV: optionalNonEmptyString,
   NEXT_PUBLIC_APP_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: nonEmptyString,
@@ -87,6 +169,88 @@ const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
       path: ["MONITORING_ALERT_WEBHOOK_URL"],
       message: "MONITORING_ALERT_WEBHOOK_URL is required when MONITORING_EVENT_SINK is structured_log_and_webhook."
     });
+  }
+
+  if (!isProductionConfigSource(value)) {
+    return;
+  }
+
+  validateProductionUrl(context, "NEXT_PUBLIC_APP_URL", value.NEXT_PUBLIC_APP_URL);
+  validateProductionUrl(context, "NEXT_PUBLIC_SUPABASE_URL", value.NEXT_PUBLIC_SUPABASE_URL);
+  validateProductionSecret(context, "NEXT_PUBLIC_SUPABASE_ANON_KEY", value.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+  validateProductionSecret(context, "SUPABASE_SERVICE_ROLE_KEY", value.SUPABASE_SERVICE_ROLE_KEY);
+  validateProductionSecret(context, "OPENAI_API_KEY", value.OPENAI_API_KEY);
+  validateProductionSecret(context, "RESEND_API_KEY", value.RESEND_API_KEY);
+  validateProductionSecret(context, "CRON_SHARED_SECRET", value.CRON_SHARED_SECRET);
+  validateProductionSecret(context, "INTERNAL_HEALTH_SECRET", value.INTERNAL_HEALTH_SECRET);
+  validateProductionSecret(context, "INTERNAL_OCR_JOBS_SECRET", value.INTERNAL_OCR_JOBS_SECRET);
+  validateProductionSecret(context, "INTERNAL_OPERATIONS_SECRET", value.INTERNAL_OPERATIONS_SECRET);
+  validateProductionSecret(context, "INTERNAL_DESTRUCTIVE_OPS_SECRET", value.INTERNAL_DESTRUCTIVE_OPS_SECRET);
+  validateProductionSecret(
+    context,
+    "INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET",
+    value.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET
+  );
+
+  if (value.SUPABASE_EXPORTS_BUCKET === "export-artifacts" || value.SUPABASE_STORAGE_BUCKET === "contract-files") {
+    addSafeProductionIssue(
+      context,
+      "SUPABASE_EXPORTS_BUCKET",
+      "Production storage buckets must be explicitly reviewed and not rely on local placeholder defaults."
+    );
+  }
+
+  if (!value.RESEND_WEBHOOK_SIGNING_SECRET) {
+    addSafeProductionIssue(
+      context,
+      "RESEND_WEBHOOK_SIGNING_SECRET",
+      "RESEND_WEBHOOK_SIGNING_SECRET is required in production."
+    );
+  }
+
+  validateProductionSecret(context, "RESEND_WEBHOOK_SIGNING_SECRET", value.RESEND_WEBHOOK_SIGNING_SECRET);
+
+  if (!value.NOTICECONTROL_EMAIL_ACTION_SECRET) {
+    addSafeProductionIssue(
+      context,
+      "NOTICECONTROL_EMAIL_ACTION_SECRET",
+      "NOTICECONTROL_EMAIL_ACTION_SECRET is required in production."
+    );
+  }
+
+  validateProductionSecret(context, "NOTICECONTROL_EMAIL_ACTION_SECRET", value.NOTICECONTROL_EMAIL_ACTION_SECRET);
+
+  if (value.OCR_PROVIDER === "openai") {
+    validateProductionSecret(context, "OCR_OPENAI_API_KEY", value.OCR_OPENAI_API_KEY);
+    if (!value.OCR_OPENAI_MODEL) {
+      addSafeProductionIssue(context, "OCR_OPENAI_MODEL", "OCR_OPENAI_MODEL is required when OCR_PROVIDER is openai in production.");
+    }
+  }
+
+  if (value.PADDLE_ENVIRONMENT !== "production") {
+    addSafeProductionIssue(
+      context,
+      "PADDLE_ENVIRONMENT",
+      "PADDLE_ENVIRONMENT must be production for production deployments."
+    );
+  }
+
+  validateProductionSecret(context, "PADDLE_API_KEY", value.PADDLE_API_KEY);
+  validateProductionSecret(context, "PADDLE_WEBHOOK_SECRET", value.PADDLE_WEBHOOK_SECRET);
+  validateProductionSecret(context, "PADDLE_STARTER_PRICE_ID", value.PADDLE_STARTER_PRICE_ID, {
+    minLength: 8
+  });
+  validateProductionSecret(context, "PADDLE_GROWTH_PRICE_ID", value.PADDLE_GROWTH_PRICE_ID, {
+    minLength: 8
+  });
+
+  if (value.MONITORING_EVENT_SINK === "structured_log_and_webhook") {
+    validateProductionUrl(context, "MONITORING_ALERT_WEBHOOK_URL", value.MONITORING_ALERT_WEBHOOK_URL ?? "");
+    validateProductionSecret(
+      context,
+      "MONITORING_ALERT_WEBHOOK_SIGNING_SECRET",
+      value.MONITORING_ALERT_WEBHOOK_SIGNING_SECRET
+    );
   }
 });
 
