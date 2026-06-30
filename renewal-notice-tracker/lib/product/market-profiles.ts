@@ -14,6 +14,9 @@ export type MarketManualInvoicePolicy = "not_allowed" | "support_exception" | "r
 export type MarketAiProvider = "openai" | "none";
 export type MarketOcrProvider = "openai" | "mock" | "none";
 export type MarketEmailProvider = "resend" | "none";
+export type MarketOutreachMode = "manual_export" | "crm_upload" | "email_send";
+export type MarketToneProfile = "direct_professional" | "formal_review_required" | "support_led_only";
+export type MarketConsentComplianceStrictness = "standard_b2b" | "review_required" | "restricted";
 export type MarketDataResidencyPolicy = "standard_us_hosted" | "standard_eu_review" | "future_review_required";
 export type MarketTaxInvoicePolicy = "standard_self_serve" | "support_led_invoice_review" | "future_review_required";
 export type MarketActivationPolicy =
@@ -49,6 +52,10 @@ export type MarketProfile = {
   allowedAiProviders: readonly MarketAiProvider[];
   allowedOcrProviders: readonly MarketOcrProvider[];
   allowedEmailProviders: readonly MarketEmailProvider[];
+  allowedOutreachModes: readonly MarketOutreachMode[];
+  supportedLanguages: readonly string[];
+  toneProfile: MarketToneProfile;
+  outreachComplianceStrictness: MarketConsentComplianceStrictness;
   dataResidencyPolicy: MarketDataResidencyPolicy;
   taxInvoicePolicy: MarketTaxInvoicePolicy;
   complianceReviewRequired: boolean;
@@ -121,6 +128,10 @@ export const MARKET_PROFILES: Record<MarketProfileId, MarketProfile> = {
     allowedAiProviders: ["openai"],
     allowedOcrProviders: ["openai", "mock"],
     allowedEmailProviders: ["resend"],
+    allowedOutreachModes: ["manual_export"],
+    supportedLanguages: ["en"],
+    toneProfile: "direct_professional",
+    outreachComplianceStrictness: "standard_b2b",
     dataResidencyPolicy: "standard_us_hosted",
     taxInvoicePolicy: "standard_self_serve",
     complianceReviewRequired: false,
@@ -151,6 +162,10 @@ export const MARKET_PROFILES: Record<MarketProfileId, MarketProfile> = {
     allowedAiProviders: ["openai"],
     allowedOcrProviders: ["openai", "mock"],
     allowedEmailProviders: ["resend"],
+    allowedOutreachModes: ["manual_export"],
+    supportedLanguages: ["en"],
+    toneProfile: "direct_professional",
+    outreachComplianceStrictness: "standard_b2b",
     dataResidencyPolicy: "standard_us_hosted",
     taxInvoicePolicy: "standard_self_serve",
     complianceReviewRequired: false,
@@ -170,6 +185,10 @@ export const MARKET_PROFILES: Record<MarketProfileId, MarketProfile> = {
     allowedAiProviders: ["openai"],
     allowedOcrProviders: ["openai", "mock"],
     allowedEmailProviders: ["resend"],
+    allowedOutreachModes: ["manual_export"],
+    supportedLanguages: ["en"],
+    toneProfile: "formal_review_required",
+    outreachComplianceStrictness: "review_required",
     dataResidencyPolicy: "standard_eu_review",
     taxInvoicePolicy: "support_led_invoice_review",
     complianceReviewRequired: false,
@@ -195,6 +214,10 @@ export const MARKET_PROFILES: Record<MarketProfileId, MarketProfile> = {
     allowedAiProviders: ["openai"],
     allowedOcrProviders: ["openai", "mock"],
     allowedEmailProviders: ["resend"],
+    allowedOutreachModes: ["manual_export"],
+    supportedLanguages: ["en"],
+    toneProfile: "support_led_only",
+    outreachComplianceStrictness: "review_required",
     dataResidencyPolicy: "future_review_required",
     taxInvoicePolicy: "support_led_invoice_review",
     complianceReviewRequired: true,
@@ -220,6 +243,10 @@ export const MARKET_PROFILES: Record<MarketProfileId, MarketProfile> = {
     allowedAiProviders: [],
     allowedOcrProviders: ["none"],
     allowedEmailProviders: [],
+    allowedOutreachModes: [],
+    supportedLanguages: [],
+    toneProfile: "support_led_only",
+    outreachComplianceStrictness: "restricted",
     dataResidencyPolicy: "future_review_required",
     taxInvoicePolicy: "future_review_required",
     complianceReviewRequired: true,

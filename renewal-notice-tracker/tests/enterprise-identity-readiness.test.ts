@@ -148,6 +148,7 @@ describe("enterprise identity implementation readiness", () => {
       expect(event.name, eventName).toBe(eventName);
       expect(event.type, eventName).toBe("audit");
       expect(event.emittedToday, eventName).toBe(false);
+      expect(event.source, eventName).toMatch(/audit contract|future/i);
       expect(event.privacySensitivity, eventName).toBe("restricted");
       expect(event.owningProductModule, eventName).toBe("enterprise_identity_rbac_retention");
       expect(eventTaxonomyDoc, eventName).toContain(`\`${eventName}\``);
@@ -167,6 +168,9 @@ describe("enterprise identity implementation readiness", () => {
         expect(allowedTaxonomyFields.has(field), `${eventName} taxonomy field ${field}`).toBe(true);
       }
     }
+
+    expect(eventTaxonomyDoc).toContain("The `identity.*` event family is the newer canonical runtime policy/audit contract");
+    expect(eventTaxonomyDoc).toContain("The older `enterprise.*` identity event family remains documented as future/deferred compatibility contract language");
   });
 
   it("keeps SSO and SCIM Enterprise-only, deferred, and unavailable to current plans", () => {

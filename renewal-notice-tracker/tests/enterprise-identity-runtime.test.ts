@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   buildEnterpriseBreakGlassAuditLogInput,
@@ -30,6 +31,10 @@ import {
   sanitizeEnterpriseIdentityAuditMetadata
 } from "@/lib/product/enterprise-identity-runtime";
 import { ENTERPRISE_IDENTITY_AUDIT_EVENT_CONTRACTS } from "@/lib/product/enterprise-identity";
+
+function stableTestHash(value: string) {
+  return createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
+}
 
 describe("enterprise identity runtime bridge", () => {
   it("requires organization admin or owner, Enterprise plan, active subscription, and explicit feature enablement", () => {
@@ -226,6 +231,24 @@ describe("enterprise identity runtime bridge", () => {
     });
     expect(created.externalIdHash).not.toContain("ProviderExternalUser123");
     expect(created.emailHash).not.toContain("person@example.com");
+
+    const expectedExternalHash = stableTestHash("ProviderExternalUser123");
+    const expectedEmailHash = stableTestHash("person@example.com");
+    expect(created.externalIdHash).toBe(expectedExternalHash);
+    expect(created.emailHash).toBe(expectedEmailHash);
+
+    const preHashed = normalizeEnterpriseScimMutation({
+      organizationId: "org-1",
+      operation: "create",
+      externalIdHash: expectedExternalHash,
+      emailHash: expectedEmailHash,
+      targetUserId: "user-1",
+      requestedRole: "operator"
+    });
+
+    expect(preHashed.externalIdHash).toBe(expectedExternalHash);
+    expect(preHashed.emailHash).toBe(expectedEmailHash);
+    expect(preHashed.externalIdHash).not.toBe(stableTestHash(expectedExternalHash));
 
     expect(
       normalizeEnterpriseScimMutation({
@@ -969,11 +992,7 @@ describe("enterprise identity runtime bridge", () => {
       email: "person@example.com",
       targetUserId: "user-1",
       requestedRole: "admin",
-      roleMappingPolicy: { allowAdminGroupMapping: true },
-      rawProviderPayload: {
-        scim_bearer_token: "SCIM_BEARER_TOKEN_SHOULD_NOT_SURVIVE",
-        raw_group_payload: "RAW_GROUP_PAYLOAD_SHOULD_NOT_SURVIVE"
-      }
+      roleMappingPolicy: { allowAdminGroupMapping: true }
     });
 
     expect(provision).toMatchObject({
@@ -1106,9 +1125,9 @@ describe("enterprise identity runtime bridge", () => {
         email: "person@example.com",
         targetUserId: "user-1",
         reasonCode: "assertion_verified",
-        rawProviderPayload: "RAW_SAML_ASSERTION_SHOULD_NOT_SURVIVE",
         safeMetadata: {
           provider_payload: "PROVIDER_PAYLOAD_SHOULD_NOT_SURVIVE",
+          raw_saml_assertion: "RAW_SAML_ASSERTION_SHOULD_NOT_SURVIVE",
           reason_code: "safe_callback_reason"
         }
       },
@@ -1209,6 +1228,32 @@ describe("enterprise identity runtime bridge", () => {
         }
       }
     });
+
+    const unresolvedDeprovisionDecision = prepareEnterpriseScimMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      targetCurrentRole: "operator",
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true,
+      mutation: {
+        organizationId: "org-1",
+        operation: "delete",
+        externalId: "external-user-1",
+        requestedRole: "operator"
+      }
+    });
+
+    expect(unresolvedDeprovisionDecision).toMatchObject({
+      allowed: true,
+      mapping: {
+        targetUserId: null,
+        provisioningState: "soft_deprovisioned"
+      }
+    });
+    expect(unresolvedDeprovisionDecision).not.toHaveProperty("sessionRevocationIntent");
 
     const lockIntent = prepareEnterpriseIdentitySessionRevocationIntent({
       organizationId: "org-1",
@@ -1412,6 +1457,21 @@ describe("enterprise identity runtime bridge", () => {
     expect(
       evaluateEnterpriseIdentitySessionRevocationDecision({
         organizationId: "org-1",
+        memberStatus: "locked",
+        runtimeRevocationAvailable: true
+      })
+    ).toMatchObject({
+      status: "revocation_unresolved",
+      required: true,
+      canAffectCurrentSessions: false,
+      userId: null,
+      reasonCode: "member_locked",
+      safeMessage: "Session revocation requires a resolved internal user id."
+    });
+
+    expect(
+      evaluateEnterpriseIdentitySessionRevocationDecision({
+        organizationId: "org-1",
         userId: "user-1",
         memberStatus: "soft_deprovisioned",
         revocationCompleted: true
@@ -1552,6 +1612,51 @@ describe("enterprise identity runtime bridge", () => {
     expect(JSON.stringify(provision)).not.toContain("person@example.com");
     expect(JSON.stringify(provision)).not.toContain("Bearer");
 
+    const rawMutationDecision = prepareEnterpriseScimMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      roleMappingPolicy: { allowAdminGroupMapping: true },
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true,
+      mutation: {
+        organizationId: "org-1",
+        operation: "create",
+        externalId: "external-user-1",
+        email: "person@example.com",
+        targetUserId: "user-1",
+        requestedRole: "admin"
+      }
+    });
+    const hashedEndpointDecision = prepareEnterpriseScimEndpointMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      scimAuth,
+      operation: "provision",
+      externalIdHash: stableTestHash("external-user-1"),
+      normalizedEmailHash: stableTestHash("person@example.com"),
+      targetUserId: "user-1",
+      requestedRole: "admin",
+      roleMappingPolicy: { allowAdminGroupMapping: true },
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true
+    });
+
+    expect(rawMutationDecision.allowed).toBe(true);
+    expect(hashedEndpointDecision.allowed).toBe(true);
+    if (rawMutationDecision.allowed && hashedEndpointDecision.allowed) {
+      expect(hashedEndpointDecision.mapping.externalIdHash).toBe(rawMutationDecision.mapping.externalIdHash);
+      expect(hashedEndpointDecision.mapping.emailHash).toBe(rawMutationDecision.mapping.emailHash);
+      expect(hashedEndpointDecision.mapping.externalIdHash).not.toBe(
+        stableTestHash(rawMutationDecision.mapping.externalIdHash)
+      );
+    }
+
     const lock = prepareEnterpriseScimEndpointMutationDecision({
       organizationId: "org-1",
       directoryOrganizationId: "org-1",
@@ -1582,6 +1687,32 @@ describe("enterprise identity runtime bridge", () => {
           planned: true,
           canAffectCurrentSessions: false
         }
+      }
+    });
+
+    const unresolvedLock = prepareEnterpriseScimEndpointMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      scimAuth,
+      operation: "lock",
+      externalIdHash: "external-hash-only",
+      currentRole: "operator",
+      requestedRole: "operator",
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true
+    });
+
+    expect(unresolvedLock).toMatchObject({
+      allowed: true,
+      sessionRevocation: {
+        status: "revocation_unresolved",
+        required: true,
+        canAffectCurrentSessions: false,
+        userId: null,
+        reasonCode: "member_locked"
       }
     });
   });

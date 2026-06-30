@@ -4,6 +4,8 @@ NoticeControl currently ships with the `global/default` market profile. The mark
 
 Canonical registry: `lib/product/market-profiles.ts`.
 
+Revenue intelligence and outreach safety contracts are defined in [REVENUE_INTELLIGENCE_MARKET_EXPANSION_BOUNDARY.md](REVENUE_INTELLIGENCE_MARKET_EXPANSION_BOUNDARY.md) and `lib/product/revenue-intelligence.ts`. These contracts are future foundation only; they do not ship lead generation, campaign automation, or email sending.
+
 ## Compatibility Is Not Runtime Permission
 
 Market profiles can express future compatibility, such as a provider or module that may be intended for a planned market later. Compatibility is not runtime permission.
@@ -62,6 +64,9 @@ Market policies can answer:
 - whether manual invoice is allowed
 - whether AI extraction is allowed
 - whether OCR is allowed
+- which future outreach modes are allowed
+- which languages and tone profile are expected
+- whether outreach compliance strictness is standard, review-required, or restricted
 - whether customer activation requires compliance review
 - whether a product module is available in the market
 - whether self-serve activation is allowed

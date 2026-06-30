@@ -84,6 +84,8 @@ describe("market profile provider policy boundary", () => {
       reason: "compliance_review_required"
     });
     expect(MARKET_PROFILES.restricted_market_review.allowedEmailProviders).toEqual([]);
+    expect(MARKET_PROFILES.restricted_market_review.allowedOutreachModes).toEqual([]);
+    expect(MARKET_PROFILES.restricted_market_review.outreachComplianceStrictness).toBe("restricted");
     expect(canUseProductModule("restricted_market_review", "core_renewal_control_kernel")).toMatchObject({
       allowed: false,
       reason: "compliance_review_required"
@@ -134,6 +136,8 @@ describe("market profile provider policy boundary", () => {
         compatible: true,
         reason: "compatible"
       });
+      expect(MARKET_PROFILES[marketId].allowedOutreachModes).toContain("manual_export");
+      expect(MARKET_PROFILES[marketId].supportedLanguages).toContain("en");
 
       expect(canUsePaymentProviderAtRuntime(marketId, "paddle")).toMatchObject({
         allowed: false,

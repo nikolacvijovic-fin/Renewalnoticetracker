@@ -70,7 +70,7 @@ The bridge currently provides:
 - SCIM create/update/delete/lock/recover normalization into organization-scoped safe state with hashed external identifiers.
 - SCIM bearer-token authentication contracts, route-adjacent endpoint response shaping, and SCIM mutation decisions that require Enterprise entitlement, explicit feature enablement, directory organization scope, and break-glass preservation for privileged users.
 - Canonical SCIM endpoint mutation decisions through `prepareEnterpriseScimEndpointMutationDecision`, which accepts safe hashed identifiers and routes provision/update/deprovision/lock/unlock through the same role-mapping, lifecycle, break-glass, and revocation-intent policy as the older helper paths.
-- Session revocation status and intent contracts after SCIM deprovision, member lock, or deactivation. Current helpers can report `no_revocation_needed`, `revocation_required`, `revocation_future_only`, or `revocation_completed`, but live runtime remains `revocation_future_only` until a real auth-session backend is wired.
+- Session revocation status and intent contracts after SCIM deprovision, member lock, or deactivation. Current helpers can report `no_revocation_needed`, `revocation_unresolved`, `revocation_required`, `revocation_future_only`, or `revocation_completed`. `revocation_unresolved` is used when only a hashed external identity is known and no internal member/session id has been resolved. Live runtime remains `revocation_future_only` until a real auth-session backend is wired.
 - Group-role mapping normalization that rejects `owner`, internal roles, and future enterprise roles. `admin` is denied by default and may be mapped only when an explicit future Enterprise policy flag permits it.
 - Safe audit-input shaping for `enterprise.*` audit contracts using allow-listed metadata only, including precise future contracts for provider configuration, SSO configuration changes, SCIM provision/update/deprovision, member lock/unlock, group mapping, and break-glass preservation/blocking.
 
@@ -114,7 +114,7 @@ Raw SCIM payloads, provider requests, provider responses, tokens, and secrets mu
 Future deprovisioning behavior:
 1. SCIM disable/delete moves user to `soft_deprovisioned` by default.
 2. `soft_deprovisioned` blocks new sessions immediately.
-3. Existing sessions must be revoked or invalidated through a dedicated future session control path. Current runtime helpers create planned revocation intent and report `revocation_future_only` unless a future auth-session backend explicitly marks revocation available/completed.
+3. Existing sessions must be revoked or invalidated through a dedicated future session control path. Current runtime helpers create planned revocation intent only when an internal user id is resolved; hashed-only identities report `revocation_unresolved`, and otherwise helpers report `revocation_future_only` unless a future auth-session backend explicitly marks revocation available/completed.
 4. `hard_deprovisioned` may occur only after retention, deletion, audit, and customer policy gates pass.
 5. Owner assignment, reminder accountability, and historical audit records must retain safe references without exposing raw identity provider payloads.
 6. Deprovisioning or locking an admin/owner must preserve at least one accountable admin/owner and a documented break-glass recovery path.

@@ -252,13 +252,14 @@ export type ScimProvisioningDecisionInput = EnterpriseIdentityFeatureGateInput &
   directoryOrganizationId: string;
   operation: EnterpriseScimOperation;
   externalId?: string | null;
+  externalIdHash?: string | null;
   email?: string | null;
+  emailHash?: string | null;
   targetUserId?: string | null;
   requestedRole?: string | null;
   roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
   currentRole?: string | null;
   breakGlassPolicy?: EnterpriseBreakGlassPolicy;
-  rawProviderPayload?: unknown;
 };
 
 export type ScimProvisioningDecisionResult =
@@ -328,7 +329,9 @@ export type EnterpriseScimMutationInput = {
   organizationId: string;
   operation: "create" | "update" | "delete" | "lock" | "recover";
   externalId?: string | null;
+  externalIdHash?: string | null;
   email?: string | null;
+  emailHash?: string | null;
   targetUserId?: string | null;
   requestedRole?: string | null;
   active?: boolean;
@@ -597,7 +600,6 @@ export type EnterpriseSsoLoginVerificationResult = {
   targetUserId?: string | null;
   reasonCode?: string | null;
   safeMetadata?: Record<string, unknown>;
-  rawProviderPayload?: unknown;
 };
 
 export type EnterpriseSsoLoginCallbackInput = EnterpriseIdentityFeatureGateInput & {
@@ -719,6 +721,7 @@ export type EnterpriseIdentitySessionRevocationIntentResult = {
 export type EnterpriseIdentitySessionRevocationStatus =
   | "no_revocation_needed"
   | "revocation_required"
+  | "revocation_unresolved"
   | "revocation_future_only"
   | "revocation_completed";
 
@@ -740,13 +743,18 @@ export type EnterpriseIdentitySessionRevocationDecisionResult =
       userId: string | null;
     }
   | {
-      status: "revocation_required" | "revocation_future_only" | "revocation_completed";
+      status:
+        | "revocation_required"
+        | "revocation_unresolved"
+        | "revocation_future_only"
+        | "revocation_completed";
       required: true;
       canAffectCurrentSessions: boolean;
       organizationId: string;
-      userId: string;
+      userId: string | null;
       reasonCode: EnterpriseIdentitySessionRevocationReason;
-      intent: EnterpriseIdentitySessionRevocationIntentResult;
+      safeMessage?: string;
+      intent?: EnterpriseIdentitySessionRevocationIntentResult;
     };
 
 export type EnterpriseScimEndpointMutationDecisionInput = EnterpriseIdentityFeatureGateInput & {
@@ -856,6 +864,31 @@ const SENSITIVE_IDENTITY_VALUE_PATTERN =
 
 function stableHash(value: string) {
   return createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
+}
+
+function normalizeEnterpriseScimIdentity(input: {
+  externalId?: string | null;
+  externalIdHash?: string | null;
+  email?: string | null;
+  emailHash?: string | null;
+  targetUserId?: string | null;
+}) {
+  const externalIdHash =
+    input.externalIdHash ??
+    (input.externalId
+      ? stableHash(input.externalId)
+      : input.emailHash ??
+        (input.email
+          ? stableHash(input.email)
+          : input.targetUserId
+            ? stableHash(input.targetUserId)
+            : stableHash("unknown")));
+  const emailHash = input.emailHash ?? (input.email ? stableHash(input.email) : null);
+
+  return {
+    externalIdHash,
+    emailHash
+  };
 }
 
 export function evaluateEnterpriseIdentityAdminAccess(
@@ -1359,6 +1392,7 @@ export function normalizeEnterpriseScimMutation(
     roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
   }
 ): EnterpriseExternalUserMappingModel {
+  const identity = normalizeEnterpriseScimIdentity(input);
   const requestedMapping = input.requestedRole
     ? resolveSafeGroupRoleMapping({
         organizationId: input.organizationId,
@@ -1383,8 +1417,8 @@ export function normalizeEnterpriseScimMutation(
   return {
     organizationId: input.organizationId,
     targetUserId: input.targetUserId ?? null,
-    externalIdHash: stableHash(input.externalId ?? input.email ?? input.targetUserId ?? "unknown"),
-    emailHash: input.email ? stableHash(input.email) : null,
+    externalIdHash: identity.externalIdHash,
+    emailHash: identity.emailHash,
     provisioningState,
     role: requestedMapping?.allowed ? requestedMapping.normalizedRole : null,
     reasonCode:
@@ -1616,16 +1650,15 @@ export function prepareScimProvisioningDecision(
         ? "identity.scim_user_updated"
         : "identity.scim_user_deprovisioned";
 
-  const externalIdHash = stableHash(input.externalId ?? input.email ?? input.targetUserId ?? "unknown");
-  const emailHash = input.email ? stableHash(input.email) : null;
+  const identity = normalizeEnterpriseScimIdentity(input);
 
   return {
     allowed: true,
     reason: "allowed",
     organizationId: input.organizationId,
     targetUserId: input.targetUserId ?? null,
-    externalIdHash,
-    emailHash,
+    externalIdHash: identity.externalIdHash,
+    emailHash: identity.emailHash,
     memberStatus,
     role: mapping?.normalizedRole ?? null,
     audit: buildEnterpriseIdentityAuditInput({
@@ -1641,7 +1674,7 @@ export function prepareScimProvisioningDecision(
         role: mapping?.normalizedRole ?? undefined,
         reason_code: mapping?.reasonCode ?? "scim_decision_normalized",
         initiated_by: "scim_directory",
-        scim_user_id: externalIdHash
+        scim_user_id: identity.externalIdHash
       }
     })
   };
@@ -2008,12 +2041,13 @@ export function prepareEnterpriseScimMutationDecision(
             : "enterprise.scim_user_provisioned";
 
   const sessionRevocationIntent =
-    mapping.provisioningState === "soft_deprovisioned" ||
-    mapping.provisioningState === "hard_deprovisioned" ||
-    mapping.provisioningState === "locked"
+    (mapping.provisioningState === "soft_deprovisioned" ||
+      mapping.provisioningState === "hard_deprovisioned" ||
+      mapping.provisioningState === "locked") &&
+    mapping.targetUserId
       ? prepareEnterpriseIdentitySessionRevocationIntent({
           organizationId: input.organizationId,
-          userId: mapping.targetUserId ?? "unknown",
+          userId: mapping.targetUserId,
           reasonCode:
             mapping.provisioningState === "locked"
               ? "member_locked"
@@ -2071,9 +2105,21 @@ export function evaluateEnterpriseIdentitySessionRevocationDecision(
     };
   }
 
+  if (!input.userId) {
+    return {
+      status: "revocation_unresolved",
+      required: true,
+      canAffectCurrentSessions: false,
+      organizationId: input.organizationId,
+      userId: null,
+      reasonCode,
+      safeMessage: "Session revocation requires a resolved internal user id."
+    };
+  }
+
   const intent = prepareEnterpriseIdentitySessionRevocationIntent({
     organizationId: input.organizationId,
-    userId: input.userId ?? "unknown",
+    userId: input.userId,
     reasonCode,
     actorUserId: input.actorUserId
   });
@@ -2087,7 +2133,7 @@ export function evaluateEnterpriseIdentitySessionRevocationDecision(
     required: true,
     canAffectCurrentSessions: Boolean(input.runtimeRevocationAvailable && input.revocationCompleted),
     organizationId: input.organizationId,
-    userId: input.userId ?? "unknown",
+    userId: input.userId,
     reasonCode,
     intent
   };
@@ -2138,8 +2184,8 @@ export function prepareEnterpriseScimEndpointMutationDecision(
     mutation: {
       organizationId: input.organizationId,
       operation: mutationOperation,
-      externalId: input.externalIdHash ?? input.normalizedEmailHash ?? input.targetUserId ?? null,
-      email: input.normalizedEmailHash ?? null,
+      externalIdHash: input.externalIdHash ?? input.normalizedEmailHash ?? null,
+      emailHash: input.normalizedEmailHash ?? null,
       targetUserId: input.targetUserId,
       requestedRole: input.requestedRole
     }
