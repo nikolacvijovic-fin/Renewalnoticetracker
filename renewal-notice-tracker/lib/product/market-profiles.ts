@@ -24,6 +24,7 @@ export type MarketActivationPolicy =
 
 export type MarketCustomerSafeReasonCode =
   | "allowed"
+  | "compatible"
   | "market_not_shipped"
   | "compliance_review_required"
   | "provider_unavailable"
@@ -63,6 +64,13 @@ export type MarketPolicyDecision = {
   reason: MarketCustomerSafeReasonCode;
   customerSafeMessage: string;
   requiresComplianceReview: boolean;
+  marketId: MarketProfileId;
+};
+
+export type MarketCompatibilityDecision = {
+  compatible: boolean;
+  reason: MarketCustomerSafeReasonCode;
+  customerSafeMessage: string;
   marketId: MarketProfileId;
 };
 
@@ -316,6 +324,28 @@ function allowed(profile: MarketProfile, message = "Allowed by the current marke
   };
 }
 
+function compatible(profile: MarketProfile, message: string): MarketCompatibilityDecision {
+  return {
+    compatible: true,
+    reason: "compatible",
+    customerSafeMessage: message,
+    marketId: profile.marketId
+  };
+}
+
+function incompatible(
+  profile: MarketProfile,
+  reason: MarketCustomerSafeReasonCode,
+  message: string
+): MarketCompatibilityDecision {
+  return {
+    compatible: false,
+    reason,
+    customerSafeMessage: message,
+    marketId: profile.marketId
+  };
+}
+
 function profileCanActivate(profile: MarketProfile) {
   if (profile.marketStatus === "unsupported") {
     return denied(profile, "unsupported_market", "This market is not supported.");
@@ -323,6 +353,10 @@ function profileCanActivate(profile: MarketProfile) {
 
   if (profile.marketStatus === "restricted_review" || profile.complianceReviewRequired) {
     return denied(profile, "compliance_review_required", profile.customerSafeStatusMessage);
+  }
+
+  if (profile.marketStatus !== "shipped") {
+    return denied(profile, "market_not_shipped", "This market is planned or review-only and is not runtime-enabled.");
   }
 
   if (profile.activationPolicy !== "self_serve_allowed") {
@@ -336,26 +370,87 @@ export function getAllowedPaymentProviders(marketId?: MarketProfileId | string |
   return getMarketProfile(marketId).allowedPaymentProviders;
 }
 
-export function canUsePaymentProvider(
+export function isPaymentProviderCompatibleWithMarket(
+  marketId: MarketProfileId | string | null | undefined,
+  provider: MarketPaymentProvider
+): MarketCompatibilityDecision {
+  const profile = getMarketProfile(marketId);
+
+  if (!profile.allowedPaymentProviders.includes(provider)) {
+    return incompatible(profile, "provider_unavailable", `${provider} is not compatible with this market profile.`);
+  }
+
+  return compatible(profile, `${provider} is compatible with this market profile.`);
+}
+
+export function isAiProviderCompatibleWithMarket(
+  marketId: MarketProfileId | string | null | undefined,
+  provider: MarketAiProvider
+): MarketCompatibilityDecision {
+  const profile = getMarketProfile(marketId);
+  if (!profile.allowedAiProviders.includes(provider)) {
+    return incompatible(profile, "provider_unavailable", `${provider} AI processing is not compatible with this market profile.`);
+  }
+  return compatible(profile, `${provider} AI processing is compatible with this market profile.`);
+}
+
+export function isOcrProviderCompatibleWithMarket(
+  marketId: MarketProfileId | string | null | undefined,
+  provider: MarketOcrProvider
+): MarketCompatibilityDecision {
+  const profile = getMarketProfile(marketId);
+  if (!profile.allowedOcrProviders.includes(provider)) {
+    return incompatible(profile, "provider_unavailable", `${provider} OCR processing is not compatible with this market profile.`);
+  }
+  return compatible(profile, `${provider} OCR processing is compatible with this market profile.`);
+}
+
+export function isProductModuleCompatibleWithMarket(
+  marketId: MarketProfileId | string | null | undefined,
+  moduleId: PlatformModuleId
+): MarketCompatibilityDecision {
+  const profile = getMarketProfile(marketId);
+  if (profile.unavailableProductModules.includes(moduleId) || !profile.allowedProductModules.includes(moduleId)) {
+    return incompatible(profile, "feature_unavailable", `${moduleId} is not compatible with this market profile.`);
+  }
+  return compatible(profile, `${moduleId} is compatible with this market profile.`);
+}
+
+function denyIfNotRuntimeEnabled(profile: MarketProfile) {
+  const activation = profileCanActivate(profile);
+  if (!activation.allowed) {
+    return activation;
+  }
+  return null;
+}
+
+export function canUsePaymentProviderAtRuntime(
   marketId: MarketProfileId | string | null | undefined,
   provider: MarketPaymentProvider
 ): MarketPolicyDecision {
   const profile = getMarketProfile(marketId);
-  const activation = profileCanActivate(profile);
+  const runtimeDenial = denyIfNotRuntimeEnabled(profile);
+  if (runtimeDenial) return runtimeDenial;
 
-  if (!activation.allowed && profile.activationPolicy === "compliance_review_required") {
-    return denied(profile, activation.reason, activation.customerSafeMessage);
-  }
-
+  const compatibility = isPaymentProviderCompatibleWithMarket(profile.marketId, provider);
   if (!profile.allowedPaymentProviders.includes(provider)) {
-    return denied(profile, "provider_unavailable", `${provider} is not available for this market profile.`);
+    return denied(profile, compatibility.reason, compatibility.customerSafeMessage);
   }
 
-  return allowed(profile, `${provider} is allowed by this market profile.`);
+  return allowed(profile, `${provider} is allowed at runtime by the shipped market profile.`);
 }
 
-export function canUseManualInvoice(marketId?: MarketProfileId | string | null): MarketPolicyDecision {
+export function canUsePaymentProvider(
+  marketId: MarketProfileId | string | null | undefined,
+  provider: MarketPaymentProvider
+): MarketPolicyDecision {
+  return canUsePaymentProviderAtRuntime(marketId, provider);
+}
+
+export function canUseManualInvoiceAtRuntime(marketId?: MarketProfileId | string | null): MarketPolicyDecision {
   const profile = getMarketProfile(marketId);
+  const runtimeDenial = denyIfNotRuntimeEnabled(profile);
+  if (runtimeDenial) return runtimeDenial;
 
   if (profile.allowedManualInvoicePolicy === "not_allowed") {
     return denied(profile, "manual_invoice_not_allowed", "Manual invoice is not available for this market profile.");
@@ -368,46 +463,74 @@ export function canUseManualInvoice(marketId?: MarketProfileId | string | null):
   return allowed(profile, "Manual invoice is available only as a support-led exception.");
 }
 
-export function canUseAiProvider(
+export function canUseManualInvoice(marketId?: MarketProfileId | string | null): MarketPolicyDecision {
+  return canUseManualInvoiceAtRuntime(marketId);
+}
+
+export function canUseAiProviderAtRuntime(
   marketId: MarketProfileId | string | null | undefined,
   provider: MarketAiProvider
 ): MarketPolicyDecision {
   const profile = getMarketProfile(marketId);
-  if (profile.complianceReviewRequired) {
-    return denied(profile, "compliance_review_required", profile.customerSafeStatusMessage);
+  const runtimeDenial = denyIfNotRuntimeEnabled(profile);
+  if (runtimeDenial) return runtimeDenial;
+
+  const compatibility = isAiProviderCompatibleWithMarket(profile.marketId, provider);
+  if (!compatibility.compatible) {
+    return denied(profile, compatibility.reason, compatibility.customerSafeMessage);
   }
-  if (!profile.allowedAiProviders.includes(provider)) {
-    return denied(profile, "provider_unavailable", `${provider} AI processing is not available for this market profile.`);
+  return allowed(profile, `${provider} AI processing is allowed at runtime by the shipped market profile.`);
+}
+
+export function canUseAiProvider(
+  marketId: MarketProfileId | string | null | undefined,
+  provider: MarketAiProvider
+): MarketPolicyDecision {
+  return canUseAiProviderAtRuntime(marketId, provider);
+}
+
+export function canUseOcrProviderAtRuntime(
+  marketId: MarketProfileId | string | null | undefined,
+  provider: MarketOcrProvider
+): MarketPolicyDecision {
+  const profile = getMarketProfile(marketId);
+  const runtimeDenial = denyIfNotRuntimeEnabled(profile);
+  if (runtimeDenial) return runtimeDenial;
+
+  const compatibility = isOcrProviderCompatibleWithMarket(profile.marketId, provider);
+  if (!compatibility.compatible) {
+    return denied(profile, compatibility.reason, compatibility.customerSafeMessage);
   }
-  return allowed(profile, `${provider} AI processing is allowed by this market profile.`);
+  return allowed(profile, `${provider} OCR processing is allowed at runtime by the shipped market profile.`);
 }
 
 export function canUseOcrProvider(
   marketId: MarketProfileId | string | null | undefined,
   provider: MarketOcrProvider
 ): MarketPolicyDecision {
+  return canUseOcrProviderAtRuntime(marketId, provider);
+}
+
+export function canUseProductModuleAtRuntime(
+  marketId: MarketProfileId | string | null | undefined,
+  moduleId: PlatformModuleId
+): MarketPolicyDecision {
   const profile = getMarketProfile(marketId);
-  if (profile.complianceReviewRequired) {
-    return denied(profile, "compliance_review_required", profile.customerSafeStatusMessage);
+  const runtimeDenial = denyIfNotRuntimeEnabled(profile);
+  if (runtimeDenial) return runtimeDenial;
+
+  const compatibility = isProductModuleCompatibleWithMarket(profile.marketId, moduleId);
+  if (!compatibility.compatible) {
+    return denied(profile, compatibility.reason, compatibility.customerSafeMessage);
   }
-  if (!profile.allowedOcrProviders.includes(provider)) {
-    return denied(profile, "provider_unavailable", `${provider} OCR processing is not available for this market profile.`);
-  }
-  return allowed(profile, `${provider} OCR processing is allowed by this market profile.`);
+  return allowed(profile, `${moduleId} is available at runtime by the shipped market profile.`);
 }
 
 export function canUseProductModule(
   marketId: MarketProfileId | string | null | undefined,
   moduleId: PlatformModuleId
 ): MarketPolicyDecision {
-  const profile = getMarketProfile(marketId);
-  if (profile.complianceReviewRequired) {
-    return denied(profile, "compliance_review_required", profile.customerSafeStatusMessage);
-  }
-  if (profile.unavailableProductModules.includes(moduleId) || !profile.allowedProductModules.includes(moduleId)) {
-    return denied(profile, "feature_unavailable", `${moduleId} is not available for this market profile.`);
-  }
-  return allowed(profile, `${moduleId} is available for this market profile.`);
+  return canUseProductModuleAtRuntime(marketId, moduleId);
 }
 
 export function canSelfServeActivateMarket(marketId?: MarketProfileId | string | null): MarketPolicyDecision {

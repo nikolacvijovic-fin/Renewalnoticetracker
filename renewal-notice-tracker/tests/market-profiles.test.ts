@@ -10,12 +10,21 @@ import {
   buildMarketOnboardingWarning,
   canSelfServeActivateMarket,
   canUseAiProvider,
+  canUseAiProviderAtRuntime,
   canUseManualInvoice,
+  canUseManualInvoiceAtRuntime,
   canUseOcrProvider,
+  canUseOcrProviderAtRuntime,
   canUsePaymentProvider,
+  canUsePaymentProviderAtRuntime,
   canUseProductModule,
+  canUseProductModuleAtRuntime,
   getAllowedPaymentProviders,
-  getMarketProfile
+  getMarketProfile,
+  isAiProviderCompatibleWithMarket,
+  isOcrProviderCompatibleWithMarket,
+  isPaymentProviderCompatibleWithMarket,
+  isProductModuleCompatibleWithMarket
 } from "@/lib/product/market-profiles";
 import { PLATFORM_MODULES } from "@/lib/product/platform-modules";
 
@@ -74,11 +83,21 @@ describe("market profile provider policy boundary", () => {
       allowed: false,
       reason: "compliance_review_required"
     });
+    expect(MARKET_PROFILES.restricted_market_review.allowedEmailProviders).toEqual([]);
+    expect(canUseProductModule("restricted_market_review", "core_renewal_control_kernel")).toMatchObject({
+      allowed: false,
+      reason: "compliance_review_required"
+    });
+    expect(getMarketProfile("unknown-market").marketId).toBe("restricted_market_review");
   });
 
   it("preserves current global provider policy without changing runtime billing behavior", () => {
     expect(getAllowedPaymentProviders("global")).toEqual(["paddle", "manual", "paypal"]);
     expect(canUsePaymentProvider("global", "paddle")).toMatchObject({
+      allowed: true,
+      reason: "allowed"
+    });
+    expect(canUsePaymentProviderAtRuntime("global", "paddle")).toMatchObject({
       allowed: true,
       reason: "allowed"
     });
@@ -91,6 +110,48 @@ describe("market profile provider policy boundary", () => {
       allowed: false,
       reason: "compliance_review_required"
     });
+    expect(canUseManualInvoiceAtRuntime("manual_invoice_review")).toMatchObject({
+      allowed: false,
+      reason: "compliance_review_required"
+    });
+  });
+
+  it("separates future compatibility from current runtime permission for planned markets", () => {
+    for (const marketId of ["us", "eu"] as const) {
+      expect(isPaymentProviderCompatibleWithMarket(marketId, "paddle")).toMatchObject({
+        compatible: true,
+        reason: "compatible"
+      });
+      expect(isAiProviderCompatibleWithMarket(marketId, "openai")).toMatchObject({
+        compatible: true,
+        reason: "compatible"
+      });
+      expect(isOcrProviderCompatibleWithMarket(marketId, "openai")).toMatchObject({
+        compatible: true,
+        reason: "compatible"
+      });
+      expect(isProductModuleCompatibleWithMarket(marketId, "core_renewal_control_kernel")).toMatchObject({
+        compatible: true,
+        reason: "compatible"
+      });
+
+      expect(canUsePaymentProviderAtRuntime(marketId, "paddle")).toMatchObject({
+        allowed: false,
+        reason: "market_not_shipped"
+      });
+      expect(canUseAiProviderAtRuntime(marketId, "openai")).toMatchObject({
+        allowed: false,
+        reason: "market_not_shipped"
+      });
+      expect(canUseOcrProviderAtRuntime(marketId, "openai")).toMatchObject({
+        allowed: false,
+        reason: "market_not_shipped"
+      });
+      expect(canUseProductModuleAtRuntime(marketId, "core_renewal_control_kernel")).toMatchObject({
+        allowed: false,
+        reason: "market_not_shipped"
+      });
+    }
   });
 
   it("gates product modules by market profile without promoting future modules", () => {
@@ -174,6 +235,8 @@ describe("market profile provider policy boundary", () => {
     const combined = `${boundaryDoc}\n${productTruthDoc}`;
 
     expect(boundaryDoc).toContain("lawful future expansion");
+    expect(boundaryDoc).toContain("Compatibility is not runtime permission");
+    expect(boundaryDoc).toContain("support-led review does not equal approval");
     expect(boundaryDoc).toContain("not sanctions evasion");
     expect(boundaryDoc).toContain("restricted_market_review");
     expect(combined).toContain("global/default");

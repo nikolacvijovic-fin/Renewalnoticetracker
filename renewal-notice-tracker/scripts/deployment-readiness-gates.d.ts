@@ -7,6 +7,7 @@ declare module "@/scripts/deployment-readiness-gates.mjs" {
 
   export const REQUIRED_DEPLOYMENT_SCRIPTS: readonly string[];
   export const REQUIRED_DEPLOYMENT_DOCS: readonly string[];
+  export const REQUIRED_PRODUCT_POLICY_CONTRACTS: readonly string[];
   export const REQUIRED_OPERATIONAL_CONTRACTS: readonly string[];
   export const REQUIRED_MIGRATION_SLUGS: readonly string[];
   export const REQUIRED_RUNBOOK_TOPICS: readonly string[];

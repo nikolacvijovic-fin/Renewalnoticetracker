@@ -25,7 +25,12 @@ export const REQUIRED_DEPLOYMENT_DOCS = [
   "docs/DATA_GOVERNANCE_RETENTION_BOUNDARY.md",
   "docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md",
   "docs/API_AND_INTEGRATION_BOUNDARY.md",
+  "docs/MARKET_EXPANSION_BOUNDARY.md",
   "docs/PLATFORM_MODULE_REGISTRY.md"
+];
+
+export const REQUIRED_PRODUCT_POLICY_CONTRACTS = [
+  "lib/product/market-profiles.ts"
 ];
 
 export const REQUIRED_OPERATIONAL_CONTRACTS = [
@@ -96,7 +101,10 @@ const REQUIRED_SCRIPT_TEST_FILES = {
     "tests/deployment-readiness-gates.test.ts",
     "tests/release-script-boundary.test.ts"
   ],
-  "test:scope-freeze": ["tests/deployment-readiness-gates.test.ts"]
+  "test:scope-freeze": [
+    "tests/deployment-readiness-gates.test.ts",
+    "tests/market-profiles.test.ts"
+  ]
 };
 
 function issue(code, message, details = {}) {
@@ -301,6 +309,16 @@ export function getRepoStructureIssues(repoRoot) {
     if (!exists(repoRoot, contractPath)) {
       issues.push(
         issue("ERR_DEPLOY_OPERATIONAL_CONTRACT_MISSING", `Missing operational contract module: ${contractPath}.`, {
+          path: contractPath
+        })
+      );
+    }
+  }
+
+  for (const contractPath of REQUIRED_PRODUCT_POLICY_CONTRACTS) {
+    if (!exists(repoRoot, contractPath)) {
+      issues.push(
+        issue("ERR_DEPLOY_PRODUCT_POLICY_CONTRACT_MISSING", `Missing product policy contract module: ${contractPath}.`, {
           path: contractPath
         })
       );

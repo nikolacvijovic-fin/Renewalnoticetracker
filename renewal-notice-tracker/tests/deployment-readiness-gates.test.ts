@@ -14,7 +14,8 @@ import {
   getScriptContentIssues,
   REQUIRED_DEPLOYMENT_DOCS,
   REQUIRED_DEPLOYMENT_SCRIPTS,
-  REQUIRED_OPERATIONAL_CONTRACTS
+  REQUIRED_OPERATIONAL_CONTRACTS,
+  REQUIRED_PRODUCT_POLICY_CONTRACTS
 } from "@/scripts/deployment-readiness-gates.mjs";
 
 function makeProductionEnv(overrides: Record<string, string | undefined> = {}) {
@@ -77,6 +78,8 @@ describe("deployment readiness gates", () => {
       ])
     );
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/DEPLOYMENT_RELEASE_SAFETY.md");
+    expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/MARKET_EXPANSION_BOUNDARY.md");
+    expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-profiles.ts");
     expect(REQUIRED_OPERATIONAL_CONTRACTS).toEqual(
       expect.arrayContaining([
         "lib/observability/monitoring.ts",
@@ -107,9 +110,47 @@ describe("deployment readiness gates", () => {
     expect(issues.map((issue) => issue.details.testFile)).toEqual(
       expect.arrayContaining([
         "tests/metrics-alert-rules.test.ts",
-        "tests/deployment-readiness-gates.test.ts"
+        "tests/deployment-readiness-gates.test.ts",
+        "tests/market-profiles.test.ts"
       ])
     );
+  });
+
+  it("fails deployment readiness when market policy boundary files are missing", () => {
+    const repoRoot = makeTempRepo({
+      "docs/CURRENT_PRODUCT_TRUTH.md": "provider-backed SSO login live SCIM provisioning endpoints customer API Slack/Teams full CLM",
+      "lib/observability/monitoring.ts": "export {};",
+      "lib/observability/server-logger.ts": "export {};",
+      "lib/observability/operational-logging.ts": "export {};",
+      "lib/observability/metrics.ts": "export {};",
+      "lib/observability/alert-rules.ts": "export {};",
+      "docs/OPERATIONAL_RUNBOOKS.md": "export OCR queue reminder dispatch billing webhook leaked secret tenant isolation backup",
+      "supabase/migrations/202604050001_initial.sql": "-- initial",
+      "lib/product/platform-modules.ts": `
+        export const PLATFORM_MODULES = {
+          enterprise_identity_rbac_retention: { status: "deferred" },
+          enterprise_integrations: { status: "deferred" },
+          advanced_retention_governance_analytics: { status: "experimental" },
+          full_clm_expansion: { status: "excluded" }
+        };
+      `,
+      "docs/enterprise/ENTERPRISE_IDENTITY_IMPLEMENTATION_PLAN.md": "provider-backed SSO login live SCIM provisioning endpoints",
+      "docs/API_AND_INTEGRATION_BOUNDARY.md": "customer API Slack/Teams"
+    });
+
+    const issues = getDeploymentReadinessIssues({
+      repoRoot,
+      env: makeProductionEnv(),
+      packageJson: {
+        scripts: Object.fromEntries(REQUIRED_DEPLOYMENT_SCRIPTS.map((scriptName) => [scriptName, "echo ok"]))
+      }
+    });
+    const codes = issues.map((issue) => issue.code);
+
+    expect(codes).toContain("ERR_DEPLOY_DOC_MISSING");
+    expect(codes).toContain("ERR_DEPLOY_PRODUCT_POLICY_CONTRACT_MISSING");
+    expect(JSON.stringify(issues)).toContain("docs/MARKET_EXPANSION_BOUNDARY.md");
+    expect(JSON.stringify(issues)).toContain("lib/product/market-profiles.ts");
   });
 
   it("rejects production placeholder config without exposing secret values", () => {

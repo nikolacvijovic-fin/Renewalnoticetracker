@@ -4,6 +4,19 @@ NoticeControl currently ships with the `global/default` market profile. The mark
 
 Canonical registry: `lib/product/market-profiles.ts`.
 
+## Compatibility Is Not Runtime Permission
+
+Market profiles can express future compatibility, such as a provider or module that may be intended for a planned market later. Compatibility is not runtime permission.
+
+Runtime permission requires all of the following:
+
+- the market status is `shipped`
+- the activation policy is `self_serve_allowed`
+- compliance review is not required
+- the provider or product module is compatible with the market profile
+
+Planned markets such as `us` and `eu` may describe future-compatible providers, but they are not runtime-enabled today. `support_led_only` means support review is required before any future activation work; support-led review does not equal approval.
+
 ## Current Shipped Position
 
 - `global` is the only shipped market profile.
