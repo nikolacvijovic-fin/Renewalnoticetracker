@@ -80,6 +80,7 @@ describe("deployment readiness gates", () => {
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/DEPLOYMENT_RELEASE_SAFETY.md");
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/MARKET_EXPANSION_BOUNDARY.md");
     expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-profiles.ts");
+    expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-activation-approval.ts");
     expect(REQUIRED_OPERATIONAL_CONTRACTS).toEqual(
       expect.arrayContaining([
         "lib/observability/monitoring.ts",
@@ -111,7 +112,8 @@ describe("deployment readiness gates", () => {
       expect.arrayContaining([
         "tests/metrics-alert-rules.test.ts",
         "tests/deployment-readiness-gates.test.ts",
-        "tests/market-profiles.test.ts"
+        "tests/market-profiles.test.ts",
+        "tests/market-activation-approval.test.ts"
       ])
     );
   });
@@ -151,6 +153,7 @@ describe("deployment readiness gates", () => {
     expect(codes).toContain("ERR_DEPLOY_PRODUCT_POLICY_CONTRACT_MISSING");
     expect(JSON.stringify(issues)).toContain("docs/MARKET_EXPANSION_BOUNDARY.md");
     expect(JSON.stringify(issues)).toContain("lib/product/market-profiles.ts");
+    expect(JSON.stringify(issues)).toContain("lib/product/market-activation-approval.ts");
   });
 
   it("rejects production placeholder config without exposing secret values", () => {

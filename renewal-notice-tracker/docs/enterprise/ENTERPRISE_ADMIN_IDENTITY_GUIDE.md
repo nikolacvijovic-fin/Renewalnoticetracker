@@ -37,6 +37,7 @@ Expected behavior:
 Future deprovisioning behavior:
 - `soft_deprovisioned` blocks login while preserving audit and workflow history.
 - `hard_deprovisioned` requires retention, deletion, and customer policy gates.
+- Session revocation is currently a future-only intent contract; live invalidation of existing sessions requires the future auth-session backend before SSO/SCIM can be called production-ready.
 - Existing ownership, reminder, and decision history should remain explainable without exposing identity provider payloads.
 
 ## Lockout And Recovery
@@ -94,6 +95,7 @@ Customer responsibilities in a future Enterprise rollout:
 
 NoticeControl responsibilities before shipping:
 - Verify provider requests.
+- Wire provider-backed SSO/SCIM routes, persistence, and live session revocation before claiming production SSO/SCIM support.
 - Fail closed on invalid metadata, signatures, or domains.
 - Keep logs/audits free of secrets and raw provider payloads.
 - Provide runbooks for lockout, recovery, certificate expiry, and provisioning failures.

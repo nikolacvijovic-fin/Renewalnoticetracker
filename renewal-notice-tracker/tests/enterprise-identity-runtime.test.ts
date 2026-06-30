@@ -13,12 +13,15 @@ import {
   evaluateEnterpriseBreakGlassPreservation,
   evaluateEnterpriseMemberAccess,
   evaluateEnterpriseProvisionedMemberAccess,
+  evaluateEnterpriseIdentitySessionRevocationDecision,
+  evaluateEnterpriseSsoVerifiedCallbackDecision,
   evaluateEnterpriseSsoLoginCallback,
   evaluateEnterpriseSsoConfigurationReadiness,
   normalizeEnterpriseGroupRoleMapping,
   normalizeEnterpriseScimMutation,
   prepareEnterpriseIdentityConfigChange,
   prepareEnterpriseIdentitySessionRevocationIntent,
+  prepareEnterpriseScimEndpointMutationDecision,
   prepareEnterpriseScimEndpointResponse,
   prepareScimProvisioningDecision,
   prepareEnterpriseScimMutationDecision,
@@ -1225,6 +1228,359 @@ describe("enterprise identity runtime bridge", () => {
           new_state: "locked",
           session_revocation_intent: "planned",
           can_affect_current_sessions: false
+        }
+      }
+    });
+  });
+
+  it("evaluates provider-backed SSO callback decisions from verified hashed identifiers only", () => {
+    const decision = evaluateEnterpriseSsoVerifiedCallbackDecision({
+      organizationId: "org-1",
+      matchedOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      providerType: "oidc",
+      providerId: "sso-provider-1",
+      providerStatus: "active",
+      verifiedDomain: "example.com",
+      expectedDomain: "example.com",
+      normalizedEmailHash: "email-hash-123",
+      externalSubjectHash: "subject-hash-123",
+      targetUserId: "user-1",
+      membershipRole: "operator",
+      memberStatus: "active",
+      reasonCode: "oidc_claims_verified"
+    });
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      canAffectCurrentLogin: false,
+      externalSubjectHash: "subject-hash-123",
+      normalizedEmailHash: "email-hash-123",
+      sessionBindingIntent: {
+        planned: true,
+        canAffectCurrentLogin: false,
+        providerType: "oidc",
+        providerId: "sso-provider-1",
+        targetUserId: "user-1"
+      },
+      audit: {
+        action: "identity.sso_callback_prepared",
+        details: {
+          provider: "oidc",
+          target_user_id: "user-1",
+          external_id_hash: "subject-hash-123",
+          email_hash: "email-hash-123",
+          new_state: "verified_callback_prepared",
+          reason_code: "oidc_claims_verified"
+        }
+      }
+    });
+    expect(JSON.stringify(decision)).not.toContain("person@example.com");
+    expect(JSON.stringify(decision)).not.toContain("raw-subject");
+
+    expect(
+      evaluateEnterpriseSsoVerifiedCallbackDecision({
+        organizationId: "org-1",
+        matchedOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        providerType: "saml",
+        providerId: "sso-provider-2",
+        providerStatus: "draft",
+        verifiedDomain: "example.com",
+        expectedDomain: "example.com",
+        normalizedEmailHash: "email-hash-123",
+        externalSubjectHash: "subject-hash-123",
+        targetUserId: "user-1",
+        membershipRole: "operator",
+        memberStatus: "active"
+      })
+    ).toMatchObject({ allowed: false, reason: "provider_configuration_inactive" });
+
+    expect(
+      evaluateEnterpriseSsoVerifiedCallbackDecision({
+        organizationId: "org-1",
+        matchedOrganizationId: "org-2",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        providerType: "saml",
+        providerId: "sso-provider-2",
+        providerStatus: "active",
+        verifiedDomain: "example.com",
+        expectedDomain: "example.com",
+        normalizedEmailHash: "email-hash-123",
+        externalSubjectHash: "subject-hash-123",
+        targetUserId: "user-1",
+        membershipRole: "operator",
+        memberStatus: "active"
+      })
+    ).toMatchObject({ allowed: false, reason: "organization_scope_mismatch" });
+
+    expect(
+      evaluateEnterpriseSsoVerifiedCallbackDecision({
+        organizationId: "org-1",
+        matchedOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        providerType: "saml",
+        providerId: "sso-provider-2",
+        providerStatus: "active",
+        verifiedDomain: "other.example.com",
+        expectedDomain: "example.com",
+        normalizedEmailHash: "email-hash-123",
+        externalSubjectHash: "subject-hash-123",
+        targetUserId: "user-1",
+        membershipRole: "operator",
+        memberStatus: "active"
+      })
+    ).toMatchObject({ allowed: false, reason: "domain_scope_mismatch" });
+
+    expect(
+      evaluateEnterpriseSsoVerifiedCallbackDecision({
+        organizationId: "org-1",
+        matchedOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        providerType: "saml",
+        providerId: "sso-provider-2",
+        providerStatus: "active",
+        verifiedDomain: "example.com",
+        expectedDomain: "example.com",
+        targetUserId: "user-1",
+        membershipRole: "operator",
+        memberStatus: "active"
+      })
+    ).toMatchObject({ allowed: false, reason: "missing_verified_identifier" });
+
+    expect(
+      evaluateEnterpriseSsoVerifiedCallbackDecision({
+        organizationId: "org-1",
+        matchedOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        providerType: "saml",
+        providerId: "sso-provider-2",
+        providerStatus: "active",
+        verifiedDomain: "example.com",
+        expectedDomain: "example.com",
+        normalizedEmailHash: "email-hash-123",
+        externalSubjectHash: "subject-hash-123",
+        targetUserId: "user-locked",
+        membershipRole: "admin",
+        memberStatus: "deprovisioned"
+      })
+    ).toMatchObject({ allowed: false, reason: "member_deprovisioned" });
+  });
+
+  it("normalizes session revocation status without pretending live session revocation exists", () => {
+    expect(
+      evaluateEnterpriseIdentitySessionRevocationDecision({
+        organizationId: "org-1",
+        userId: "user-1",
+        memberStatus: "active"
+      })
+    ).toMatchObject({
+      status: "no_revocation_needed",
+      required: false,
+      canAffectCurrentSessions: false
+    });
+
+    expect(
+      evaluateEnterpriseIdentitySessionRevocationDecision({
+        organizationId: "org-1",
+        userId: "user-1",
+        memberStatus: "locked"
+      })
+    ).toMatchObject({
+      status: "revocation_future_only",
+      required: true,
+      canAffectCurrentSessions: false,
+      reasonCode: "member_locked",
+      intent: {
+        planned: true,
+        canAffectCurrentSessions: false
+      }
+    });
+
+    expect(
+      evaluateEnterpriseIdentitySessionRevocationDecision({
+        organizationId: "org-1",
+        userId: "user-1",
+        memberStatus: "soft_deprovisioned",
+        revocationCompleted: true
+      })
+    ).toMatchObject({
+      status: "revocation_future_only",
+      required: true,
+      canAffectCurrentSessions: false,
+      reasonCode: "member_deprovisioned"
+    });
+
+    expect(
+      evaluateEnterpriseIdentitySessionRevocationDecision({
+        organizationId: "org-1",
+        userId: "user-1",
+        memberStatus: "soft_deprovisioned",
+        runtimeRevocationAvailable: true
+      })
+    ).toMatchObject({
+      status: "revocation_required",
+      required: true,
+      canAffectCurrentSessions: false,
+      reasonCode: "member_deprovisioned"
+    });
+
+    expect(
+      evaluateEnterpriseIdentitySessionRevocationDecision({
+        organizationId: "org-1",
+        userId: "user-1",
+        memberStatus: "deactivated",
+        runtimeRevocationAvailable: true,
+        revocationCompleted: true
+      })
+    ).toMatchObject({
+      status: "revocation_completed",
+      required: true,
+      canAffectCurrentSessions: true,
+      reasonCode: "member_deactivated"
+    });
+  });
+
+  it("prepares canonical SCIM endpoint mutation decisions from safe identifiers and shared role policy", () => {
+    const scimAuth = {
+      authenticated: true,
+      reason: "allowed",
+      organizationId: "org-1",
+      tokenFingerprint: "token-fingerprint"
+    } as const;
+
+    expect(
+      prepareEnterpriseScimEndpointMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        scimAuth,
+        operation: "provision",
+        requestedRole: "operator"
+      })
+    ).toMatchObject({ allowed: false, reason: "missing_scim_identifier" });
+
+    expect(
+      prepareEnterpriseScimEndpointMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-2",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        scimAuth,
+        operation: "provision",
+        externalIdHash: "external-hash",
+        requestedRole: "operator"
+      })
+    ).toMatchObject({ allowed: false, reason: "organization_scope_mismatch" });
+
+    expect(
+      prepareEnterpriseScimEndpointMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        scimAuth,
+        operation: "provision",
+        externalIdHash: "external-hash",
+        targetUserId: "user-1",
+        requestedRole: "owner"
+      })
+    ).toMatchObject({ allowed: false, reason: "owner_mapping_forbidden" });
+
+    expect(
+      prepareEnterpriseScimEndpointMutationDecision({
+        organizationId: "org-1",
+        directoryOrganizationId: "org-1",
+        planTier: "enterprise",
+        subscriptionStatus: "active",
+        enterpriseIdentityEnabled: true,
+        scimAuth,
+        operation: "provision",
+        externalIdHash: "external-hash",
+        targetUserId: "user-1",
+        requestedRole: "admin"
+      })
+    ).toMatchObject({ allowed: false, reason: "admin_mapping_policy_required" });
+
+    const provision = prepareEnterpriseScimEndpointMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      scimAuth,
+      operation: "provision",
+      externalIdHash: "external-hash",
+      normalizedEmailHash: "email-hash",
+      targetUserId: "user-1",
+      requestedRole: "admin",
+      roleMappingPolicy: { allowAdminGroupMapping: true },
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true
+    });
+
+    expect(provision).toMatchObject({
+      allowed: true,
+      lifecycleAction: "provision",
+      mapping: {
+        organizationId: "org-1",
+        targetUserId: "user-1",
+        provisioningState: "active",
+        role: "admin"
+      },
+      sessionRevocation: {
+        status: "no_revocation_needed",
+        required: false
+      }
+    });
+    expect(JSON.stringify(provision)).not.toContain("person@example.com");
+    expect(JSON.stringify(provision)).not.toContain("Bearer");
+
+    const lock = prepareEnterpriseScimEndpointMutationDecision({
+      organizationId: "org-1",
+      directoryOrganizationId: "org-1",
+      planTier: "enterprise",
+      subscriptionStatus: "active",
+      enterpriseIdentityEnabled: true,
+      scimAuth,
+      operation: "lock",
+      externalIdHash: "external-hash",
+      targetUserId: "user-1",
+      currentRole: "operator",
+      requestedRole: "operator",
+      activeAdminOrOwnerCount: 2,
+      breakGlassRecoveryActive: true
+    });
+
+    expect(lock).toMatchObject({
+      allowed: true,
+      lifecycleAction: "lock",
+      mapping: {
+        provisioningState: "locked"
+      },
+      sessionRevocation: {
+        status: "revocation_future_only",
+        required: true,
+        reasonCode: "member_locked",
+        intent: {
+          planned: true,
+          canAffectCurrentSessions: false
         }
       }
     });

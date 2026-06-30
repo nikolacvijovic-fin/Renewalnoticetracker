@@ -48,11 +48,12 @@ Route contract rules:
 - Every route is `allowedRuntimeToday: false`.
 - Every route is Enterprise-gated and tied to a future RBAC capability.
 - Every route declares lifecycle state references, rate-limit expectations, idempotency expectations, audit event, monitoring event, forbidden fields, and release gates.
-- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SSO readiness shaping, verified-result SSO callback decisions, SCIM bearer-token authentication contracts, tenant-scoped SCIM endpoint response shaping, SCIM mutation decisions, SCIM state normalization, group-role mapping safety, break-glass preservation, deprovisioned/locked access semantics, and safe audit metadata shaping.
+- Every future route must pass through `lib/product/enterprise-identity-runtime.ts` for Enterprise admin/owner gating, SSO readiness shaping, verified-result and hashed-identifier SSO callback decisions, SCIM bearer-token authentication contracts, tenant-scoped SCIM endpoint response and mutation decision shaping, SCIM state normalization, group-role mapping safety, break-glass preservation, deprovisioned/locked access semantics, session revocation intent/status decisions, and safe audit metadata shaping.
 - SCIM create/update/delete routes must preserve provisioning and deprovisioning semantics: `pending`, `active`, `locked`, `soft_deprovisioned`, and `hard_deprovisioned`.
 - SCIM mutation decisions must reject cross-organization directory mutations and privileged lock/deprovision operations that would leave no accountable admin/owner or no documented break-glass path.
 - Lock/recovery decisions must use `enterprise.identity_member_locked` and `enterprise.identity_member_unlocked` rather than overloading provisioning events.
 - Privileged identity mutations must produce break-glass preservation or blocking evidence through `enterprise.break_glass_admin_preserved` or `enterprise.break_glass_admin_blocked`.
+- Session revocation must remain explicit: current helpers may prepare revocation intent, but live session invalidation is future-only until a real auth-session backend is wired and tested.
 - Admin recovery is future-only break-glass behavior and must not become hidden founder rescue.
 
 ## Validation Contracts

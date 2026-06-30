@@ -17,6 +17,22 @@ Runtime permission requires all of the following:
 
 Planned markets such as `us` and `eu` may describe future-compatible providers, but they are not runtime-enabled today. `support_led_only` means support review is required before any future activation work; support-led review does not equal approval.
 
+## Activation Approval Infrastructure
+
+`lib/product/market-activation-approval.ts` defines future activation approval contracts. This is infrastructure only; it does not expose customer-facing activation or enable planned/restricted markets today.
+
+Activation approval is:
+
+- organization-specific
+- market-specific
+- time-bound by `approvedAt` and `expiresAt`
+- review-backed across legal, sanctions-screening, payment rail, provider stack, data residency, tax/invoice, and support/incident readiness
+- grant-based for payment providers, AI providers, OCR providers, email providers, manual invoice, currencies, and product modules
+
+Approval can grant only providers and modules compatible with the selected market profile. Approval cannot enable unsupported markets, cannot override provider incompatibility, cannot grant future/excluded modules, and cannot convert review-required markets into self-serve markets.
+
+Separate entities, local providers, manual invoice paths, or alternate payment rails do not bypass legal/compliance review. This infrastructure is not sanctions evasion and is not a provider restriction workaround.
+
 ## Current Shipped Position
 
 - `global` is the only shipped market profile.

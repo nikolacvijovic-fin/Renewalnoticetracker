@@ -30,7 +30,8 @@ export const REQUIRED_DEPLOYMENT_DOCS = [
 ];
 
 export const REQUIRED_PRODUCT_POLICY_CONTRACTS = [
-  "lib/product/market-profiles.ts"
+  "lib/product/market-profiles.ts",
+  "lib/product/market-activation-approval.ts"
 ];
 
 export const REQUIRED_OPERATIONAL_CONTRACTS = [
@@ -103,7 +104,8 @@ const REQUIRED_SCRIPT_TEST_FILES = {
   ],
   "test:scope-freeze": [
     "tests/deployment-readiness-gates.test.ts",
-    "tests/market-profiles.test.ts"
+    "tests/market-profiles.test.ts",
+    "tests/market-activation-approval.test.ts"
   ]
 };
 

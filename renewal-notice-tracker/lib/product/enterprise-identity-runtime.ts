@@ -636,6 +636,59 @@ export type EnterpriseSsoLoginCallbackResult =
       audit?: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
     };
 
+export type EnterpriseSsoVerifiedCallbackDecisionInput = EnterpriseIdentityFeatureGateInput & {
+  providerType: EnterpriseIdentityProviderType;
+  providerId: string;
+  providerStatus: EnterpriseIdentityProviderStatus;
+  organizationId: string;
+  matchedOrganizationId: string;
+  verifiedDomain: string;
+  expectedDomain: string;
+  normalizedEmailHash?: string | null;
+  externalSubjectHash?: string | null;
+  targetUserId?: string | null;
+  membershipRole: string | null | undefined;
+  memberStatus?: EnterpriseIdentityMemberStatus | null;
+  reasonCode?: string | null;
+};
+
+export type EnterpriseSsoVerifiedCallbackDecisionResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      providerType: EnterpriseIdentityProviderType;
+      providerId: string;
+      targetUserId: string | null;
+      normalizedEmailHash: string | null;
+      externalSubjectHash: string;
+      canAffectCurrentLogin: false;
+      sessionBindingIntent: {
+        planned: true;
+        canAffectCurrentLogin: false;
+        providerType: EnterpriseIdentityProviderType;
+        providerId: string;
+        targetUserId: string | null;
+      };
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    }
+  | {
+      allowed: false;
+      reason:
+        | "enterprise_plan_required"
+        | "active_subscription_required"
+        | "feature_disabled"
+        | "provider_configuration_inactive"
+        | "organization_scope_mismatch"
+        | "domain_scope_mismatch"
+        | "missing_verified_identifier"
+        | EnterpriseMemberAccessResult["reason"];
+      organizationId: string;
+      canAffectCurrentLogin: false;
+      safeMessage: string;
+      audit?: ReturnType<typeof buildEnterpriseIdentityAuditInput>;
+    };
+
 export type EnterpriseIdentitySessionRevocationAdapter = (input: {
   organizationId: string;
   userId: string;
@@ -662,6 +715,75 @@ export type EnterpriseIdentitySessionRevocationIntentResult = {
   reasonCode: EnterpriseIdentitySessionRevocationReason;
   audit: ReturnType<typeof buildEnterpriseIdentityAuditLogInput>;
 };
+
+export type EnterpriseIdentitySessionRevocationStatus =
+  | "no_revocation_needed"
+  | "revocation_required"
+  | "revocation_future_only"
+  | "revocation_completed";
+
+export type EnterpriseIdentitySessionRevocationDecisionInput = {
+  organizationId: string;
+  userId?: string | null;
+  memberStatus: EnterpriseIdentityMemberStatus | EnterpriseProvisioningState;
+  runtimeRevocationAvailable?: boolean;
+  revocationCompleted?: boolean;
+  actorUserId?: string | null;
+};
+
+export type EnterpriseIdentitySessionRevocationDecisionResult =
+  | {
+      status: "no_revocation_needed";
+      required: false;
+      canAffectCurrentSessions: false;
+      organizationId: string;
+      userId: string | null;
+    }
+  | {
+      status: "revocation_required" | "revocation_future_only" | "revocation_completed";
+      required: true;
+      canAffectCurrentSessions: boolean;
+      organizationId: string;
+      userId: string;
+      reasonCode: EnterpriseIdentitySessionRevocationReason;
+      intent: EnterpriseIdentitySessionRevocationIntentResult;
+    };
+
+export type EnterpriseScimEndpointMutationDecisionInput = EnterpriseIdentityFeatureGateInput & {
+  directoryOrganizationId: string;
+  scimAuth: EnterpriseScimBearerTokenAuthenticationResult;
+  operation: "provision" | "update" | "deprovision" | "lock" | "unlock";
+  externalIdHash?: string | null;
+  normalizedEmailHash?: string | null;
+  targetUserId?: string | null;
+  requestedRole?: string | null;
+  currentRole?: string | null;
+  roleMappingPolicy?: EnterpriseIdentityRoleMappingPolicy;
+  activeAdminOrOwnerCount?: number | null;
+  breakGlassRecoveryActive?: boolean;
+};
+
+export type EnterpriseScimEndpointMutationDecisionResult =
+  | {
+      allowed: true;
+      reason: "allowed";
+      organizationId: string;
+      lifecycleAction: EnterpriseScimEndpointMutationDecisionInput["operation"];
+      mapping: EnterpriseExternalUserMappingModel;
+      audit: ReturnType<typeof buildEnterpriseIdentityAuditLogInput>;
+      sessionRevocation?: EnterpriseIdentitySessionRevocationDecisionResult;
+    }
+  | {
+      allowed: false;
+      reason:
+        | EnterpriseScimMutationDecisionDeniedReason
+        | "scim_auth_required"
+        | "missing_scim_identifier";
+      organizationId: string;
+      lifecycleAction: EnterpriseScimEndpointMutationDecisionInput["operation"];
+      safeMessage: string;
+      audit?: ReturnType<typeof buildEnterpriseIdentityAuditLogInput>;
+    };
 
 export type EnterpriseIdentityPersistenceAdapter = {
   loadMemberStatus(input: {
@@ -1710,6 +1832,109 @@ export function evaluateEnterpriseSsoLoginCallback(
   };
 }
 
+export function evaluateEnterpriseSsoVerifiedCallbackDecision(
+  input: EnterpriseSsoVerifiedCallbackDecisionInput
+): EnterpriseSsoVerifiedCallbackDecisionResult {
+  const featureGate = evaluateEnterpriseIdentityFeatureGate(input);
+  if (!featureGate.allowed) {
+    return {
+      ...featureGate,
+      canAffectCurrentLogin: false
+    };
+  }
+
+  if (input.providerStatus !== "active") {
+    return {
+      allowed: false,
+      reason: "provider_configuration_inactive",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO provider configuration is not active."
+    };
+  }
+
+  if (input.matchedOrganizationId !== input.organizationId) {
+    return {
+      allowed: false,
+      reason: "organization_scope_mismatch",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO callback must match the active organization."
+    };
+  }
+
+  if (input.verifiedDomain.toLowerCase() !== input.expectedDomain.toLowerCase()) {
+    return {
+      allowed: false,
+      reason: "domain_scope_mismatch",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO callback domain is not allowed for this organization."
+    };
+  }
+
+  if (!input.externalSubjectHash && !input.normalizedEmailHash) {
+    return {
+      allowed: false,
+      reason: "missing_verified_identifier",
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: "SSO callback requires a verified safe subject or email identifier."
+    };
+  }
+
+  const memberAccess = evaluateEnterpriseMemberAccess({
+    organizationId: input.organizationId,
+    userId: input.targetUserId ?? "unknown",
+    membershipRole: input.membershipRole,
+    memberStatus: input.memberStatus
+  });
+  if (!memberAccess.allowed) {
+    return {
+      allowed: false,
+      reason: memberAccess.reason,
+      organizationId: input.organizationId,
+      canAffectCurrentLogin: false,
+      safeMessage: memberAccess.safeMessage
+    };
+  }
+
+  const externalSubjectHash = input.externalSubjectHash ?? input.normalizedEmailHash ?? "unknown";
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    providerType: input.providerType,
+    providerId: input.providerId,
+    targetUserId: input.targetUserId ?? null,
+    normalizedEmailHash: input.normalizedEmailHash ?? null,
+    externalSubjectHash,
+    canAffectCurrentLogin: false,
+    sessionBindingIntent: {
+      planned: true,
+      canAffectCurrentLogin: false,
+      providerType: input.providerType,
+      providerId: input.providerId,
+      targetUserId: input.targetUserId ?? null
+    },
+    audit: buildEnterpriseIdentityAuditInput({
+      organizationId: input.organizationId,
+      actorUserId: input.targetUserId ?? null,
+      eventName: "identity.sso_callback_prepared",
+      entityId: input.providerId,
+      metadata: {
+        provider: input.providerType,
+        target_user_id: input.targetUserId ?? undefined,
+        external_id_hash: externalSubjectHash,
+        email_hash: input.normalizedEmailHash ?? undefined,
+        new_state: "verified_callback_prepared",
+        reason_code: input.reasonCode ?? "sso_callback_verified"
+      }
+    })
+  };
+}
+
 export function prepareEnterpriseScimMutationDecision(
   input: EnterpriseScimMutationDecisionInput
 ): EnterpriseScimMutationDecisionResult {
@@ -1819,6 +2044,130 @@ export function prepareEnterpriseScimMutationDecision(
       }
     }),
     sessionRevocationIntent
+  };
+}
+
+export function evaluateEnterpriseIdentitySessionRevocationDecision(
+  input: EnterpriseIdentitySessionRevocationDecisionInput
+): EnterpriseIdentitySessionRevocationDecisionResult {
+  const reasonCode: EnterpriseIdentitySessionRevocationReason | null =
+    input.memberStatus === "locked"
+      ? "member_locked"
+      : input.memberStatus === "deactivated"
+        ? "member_deactivated"
+        : input.memberStatus === "soft_deprovisioned" ||
+            input.memberStatus === "hard_deprovisioned" ||
+            input.memberStatus === "deprovisioned"
+          ? "member_deprovisioned"
+          : null;
+
+  if (!reasonCode) {
+    return {
+      status: "no_revocation_needed",
+      required: false,
+      canAffectCurrentSessions: false,
+      organizationId: input.organizationId,
+      userId: input.userId ?? null
+    };
+  }
+
+  const intent = prepareEnterpriseIdentitySessionRevocationIntent({
+    organizationId: input.organizationId,
+    userId: input.userId ?? "unknown",
+    reasonCode,
+    actorUserId: input.actorUserId
+  });
+
+  return {
+    status: input.runtimeRevocationAvailable
+      ? input.revocationCompleted
+        ? "revocation_completed"
+        : "revocation_required"
+      : "revocation_future_only",
+    required: true,
+    canAffectCurrentSessions: Boolean(input.runtimeRevocationAvailable && input.revocationCompleted),
+    organizationId: input.organizationId,
+    userId: input.userId ?? "unknown",
+    reasonCode,
+    intent
+  };
+}
+
+export function prepareEnterpriseScimEndpointMutationDecision(
+  input: EnterpriseScimEndpointMutationDecisionInput
+): EnterpriseScimEndpointMutationDecisionResult {
+  if (!input.scimAuth.authenticated) {
+    return {
+      allowed: false,
+      reason: "scim_auth_required",
+      organizationId: input.organizationId,
+      lifecycleAction: input.operation,
+      safeMessage: input.scimAuth.safeMessage
+    };
+  }
+
+  if (!input.externalIdHash && !input.normalizedEmailHash && !input.targetUserId) {
+    return {
+      allowed: false,
+      reason: "missing_scim_identifier",
+      organizationId: input.organizationId,
+      lifecycleAction: input.operation,
+      safeMessage: "SCIM endpoint decisions require a safe hashed external identifier, hashed email, or target user id."
+    };
+  }
+
+  const mutationOperation: EnterpriseScimMutationInput["operation"] =
+    input.operation === "provision"
+      ? "create"
+      : input.operation === "deprovision"
+        ? "delete"
+        : input.operation === "unlock"
+          ? "recover"
+          : input.operation;
+
+  const decision = prepareEnterpriseScimMutationDecision({
+    organizationId: input.organizationId,
+    directoryOrganizationId: input.directoryOrganizationId,
+    planTier: input.planTier,
+    subscriptionStatus: input.subscriptionStatus,
+    enterpriseIdentityEnabled: input.enterpriseIdentityEnabled,
+    roleMappingPolicy: input.roleMappingPolicy,
+    targetCurrentRole: input.currentRole,
+    activeAdminOrOwnerCount: input.activeAdminOrOwnerCount,
+    breakGlassRecoveryActive: input.breakGlassRecoveryActive,
+    mutation: {
+      organizationId: input.organizationId,
+      operation: mutationOperation,
+      externalId: input.externalIdHash ?? input.normalizedEmailHash ?? input.targetUserId ?? null,
+      email: input.normalizedEmailHash ?? null,
+      targetUserId: input.targetUserId,
+      requestedRole: input.requestedRole
+    }
+  });
+
+  if (!decision.allowed) {
+    return {
+      allowed: false,
+      reason: decision.reason,
+      organizationId: decision.organizationId,
+      lifecycleAction: input.operation,
+      safeMessage: decision.safeMessage
+    };
+  }
+
+  return {
+    allowed: true,
+    reason: "allowed",
+    organizationId: input.organizationId,
+    lifecycleAction: input.operation,
+    mapping: decision.mapping,
+    audit: decision.audit,
+    sessionRevocation: evaluateEnterpriseIdentitySessionRevocationDecision({
+      organizationId: input.organizationId,
+      userId: decision.mapping.targetUserId,
+      memberStatus: decision.mapping.provisioningState,
+      actorUserId: null
+    })
   };
 }
 

@@ -179,6 +179,7 @@ Signals:
 Operator actions:
 - Confirm SCIM bearer token fingerprint, directory organization scope, role mapping policy, and break-glass admin coverage.
 - Ensure `owner`, internal, and future roles remain blocked and `admin` mapping requires explicit policy.
+- Treat session invalidation as future-only until the auth-session backend is wired; current runtime can prepare revocation intent but must not imply completed live revocation.
 - Never paste raw SCIM payloads, bearer tokens, group payloads, or provider responses into tickets.
 
 ## Audit Event Persistence Failure

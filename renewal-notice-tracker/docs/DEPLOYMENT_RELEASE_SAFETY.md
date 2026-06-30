@@ -37,7 +37,7 @@ The command verifies:
 - Required package scripts exist.
 - Release-critical, scope-freeze, monitoring, privacy, scale, background export, and ops readiness test scripts exist.
 - Required shipped/future boundary docs exist.
-- Market expansion boundary docs and market profile policy contracts exist.
+- Market expansion boundary docs, market profile policy contracts, and market activation approval contracts exist.
 - Operational runbooks exist.
 - Metrics, alert rules, monitoring, logging, and operational logging contracts exist.
 - Supabase migrations are named with `YYYYMMDDNNNN_slug.sql`, have unique timestamps, and cover shipped critical features.
