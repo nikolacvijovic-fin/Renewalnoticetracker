@@ -21,8 +21,16 @@ declare module "@/scripts/deployment-readiness-gates.mjs" {
   export function getMissingRequiredScripts(packageJson: {
     scripts?: Record<string, string>;
   }): string[];
+  export function getScriptContentIssues(packageJson: {
+    scripts?: Record<string, string>;
+  }): DeploymentReadinessIssue[];
   export function getRepoStructureIssues(repoRoot: string): DeploymentReadinessIssue[];
+  export function getMigrationFileSafetyIssues(
+    files: string[],
+    readMigrationContents?: (file: string) => string
+  ): DeploymentReadinessIssue[];
   export function getMigrationSafetyIssues(repoRoot: string): DeploymentReadinessIssue[];
+  export function getAlertRunbookReadinessIssues(repoRoot: string): DeploymentReadinessIssue[];
   export function getRunbookCoverageIssues(repoRoot: string): DeploymentReadinessIssue[];
   export function getFutureFeatureTruthIssues(repoRoot: string): DeploymentReadinessIssue[];
   export function getScriptReadinessIssues(packageJson: {

@@ -84,6 +84,21 @@ const productionSecrets = [
   "INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET"
 ];
 
+const productionBuckets = ["SUPABASE_STORAGE_BUCKET", "SUPABASE_EXPORTS_BUCKET"];
+
+const REQUIRED_SCRIPT_TEST_FILES = {
+  "test:monitoring-readiness": [
+    "tests/monitoring-readiness.test.ts",
+    "tests/metrics-alert-rules.test.ts"
+  ],
+  "test:deployment-readiness": [
+    "tests/config.test.ts",
+    "tests/deployment-readiness-gates.test.ts",
+    "tests/release-script-boundary.test.ts"
+  ],
+  "test:scope-freeze": ["tests/deployment-readiness-gates.test.ts"]
+};
+
 function issue(code, message, details = {}) {
   return { code, message, details };
 }
@@ -157,6 +172,25 @@ function validateProductionSecret(env, key) {
   return null;
 }
 
+function validateProductionBucket(env, key) {
+  const value = String(env[key] ?? "").trim();
+  if (!value) {
+    return issue("ERR_DEPLOY_CONFIG_MISSING_BUCKET", `${key} is required for production deployment.`, {
+      key
+    });
+  }
+
+  if (unsafeSecretPattern.test(value) || unsafeSecretValuePattern.test(value)) {
+    return issue(
+      "ERR_DEPLOY_CONFIG_PLACEHOLDER_BUCKET",
+      `${key} must be an explicit production storage bucket name.`,
+      { key }
+    );
+  }
+
+  return null;
+}
+
 function validateBoundedInteger(env, key, min, max) {
   const value = env[key];
   if (value == null || String(value).trim() === "") {
@@ -187,7 +221,8 @@ export function getProductionConfigSafetyIssues(env = process.env) {
   const checks = [
     validateProductionUrl(env, "NEXT_PUBLIC_APP_URL"),
     validateProductionUrl(env, "NEXT_PUBLIC_SUPABASE_URL"),
-    ...productionSecrets.map((key) => validateProductionSecret(env, key))
+    ...productionSecrets.map((key) => validateProductionSecret(env, key)),
+    ...productionBuckets.map((key) => validateProductionBucket(env, key))
   ];
 
   if (env.PADDLE_ENVIRONMENT !== "production") {
@@ -231,6 +266,28 @@ export function getMissingRequiredScripts(packageJson) {
   return REQUIRED_DEPLOYMENT_SCRIPTS.filter((scriptName) => !scripts[scriptName]);
 }
 
+export function getScriptContentIssues(packageJson) {
+  const scripts = packageJson.scripts ?? {};
+  const issues = [];
+
+  for (const [scriptName, requiredTestFiles] of Object.entries(REQUIRED_SCRIPT_TEST_FILES)) {
+    const script = scripts[scriptName] ?? "";
+    for (const testFile of requiredTestFiles) {
+      if (!script.includes(testFile)) {
+        issues.push(
+          issue(
+            "ERR_DEPLOY_SCRIPT_COVERAGE_MISSING",
+            `${scriptName} must include ${testFile} so deployment readiness cannot drift out of CI.`,
+            { scriptName, testFile }
+          )
+        );
+      }
+    }
+  }
+
+  return issues;
+}
+
 export function getRepoStructureIssues(repoRoot) {
   const issues = [];
 
@@ -260,8 +317,13 @@ export function getMigrationSafetyIssues(repoRoot) {
   }
 
   const files = fs.readdirSync(migrationDir).filter((file) => file.endsWith(".sql"));
+  return getMigrationFileSafetyIssues(files, (file) => fs.readFileSync(path.join(migrationDir, file), "utf8"));
+}
+
+export function getMigrationFileSafetyIssues(files, readMigrationContents = () => "") {
   const issues = [];
   const timestampCounts = new Map();
+  let previousTimestamp = null;
 
   if (files.length === 0) {
     issues.push(issue("ERR_DEPLOY_MIGRATIONS_EMPTY", "No Supabase migration files were found."));
@@ -274,7 +336,24 @@ export function getMigrationSafetyIssues(repoRoot) {
       continue;
     }
 
-    timestampCounts.set(match[1], (timestampCounts.get(match[1]) ?? 0) + 1);
+    const timestamp = match[1];
+    timestampCounts.set(timestamp, (timestampCounts.get(timestamp) ?? 0) + 1);
+
+    if (previousTimestamp && timestamp < previousTimestamp) {
+      issues.push(
+        issue(
+          "ERR_DEPLOY_MIGRATION_ORDER_INVALID",
+          `Migration ${file} is out of timestamp order.`,
+          { file, previousTimestamp, timestamp }
+        )
+      );
+    }
+    previousTimestamp = timestamp;
+
+    const contents = String(readMigrationContents(file) ?? "");
+    if (contents.trim().length === 0) {
+      issues.push(issue("ERR_DEPLOY_MIGRATION_EMPTY_FILE", `Migration ${file} must not be empty.`, { file }));
+    }
   }
 
   for (const [timestamp, count] of timestampCounts.entries()) {
@@ -286,6 +365,42 @@ export function getMigrationSafetyIssues(repoRoot) {
   for (const slug of REQUIRED_MIGRATION_SLUGS) {
     if (!files.some((file) => file.includes(slug))) {
       issues.push(issue("ERR_DEPLOY_MIGRATION_COVERAGE_MISSING", `Missing expected migration coverage for ${slug}.`, { slug }));
+    }
+  }
+
+  return issues;
+}
+
+export function getAlertRunbookReadinessIssues(repoRoot) {
+  const issues = [];
+  const alertRulesPath = "lib/observability/alert-rules.ts";
+  const runbookPath = "docs/OPERATIONAL_RUNBOOKS.md";
+
+  if (!exists(repoRoot, alertRulesPath) || !exists(repoRoot, runbookPath)) {
+    return issues;
+  }
+
+  const alertRules = readText(repoRoot, alertRulesPath);
+  const runbooks = readText(repoRoot, runbookPath);
+  const runbookIds = [...alertRules.matchAll(/runbookId:\s*"([^"]+)"/g)].map((match) => match[1]);
+
+  if (runbookIds.length === 0) {
+    issues.push(
+      issue("ERR_DEPLOY_ALERT_RULES_NO_RUNBOOK_IDS", "Alert rules must reference explicit runbook IDs.", {
+        path: alertRulesPath
+      })
+    );
+  }
+
+  for (const runbookId of runbookIds) {
+    if (!runbooks.includes(`Runbook ID: \`${runbookId}\``)) {
+      issues.push(
+        issue(
+          "ERR_DEPLOY_ALERT_RULE_RUNBOOK_MISSING",
+          `Alert rule runbook ID ${runbookId} is not documented in docs/OPERATIONAL_RUNBOOKS.md.`,
+          { runbookId }
+        )
+      );
     }
   }
 
@@ -360,9 +475,12 @@ export function getFutureFeatureTruthIssues(repoRoot) {
 }
 
 export function getScriptReadinessIssues(packageJson) {
-  return getMissingRequiredScripts(packageJson).map((scriptName) =>
-    issue("ERR_DEPLOY_SCRIPT_MISSING", `Missing required package script: ${scriptName}.`, { scriptName })
-  );
+  return [
+    ...getMissingRequiredScripts(packageJson).map((scriptName) =>
+      issue("ERR_DEPLOY_SCRIPT_MISSING", `Missing required package script: ${scriptName}.`, { scriptName })
+    ),
+    ...getScriptContentIssues(packageJson)
+  ];
 }
 
 export function getDeploymentReadinessIssues({
@@ -377,6 +495,7 @@ export function getDeploymentReadinessIssues({
     ...getRepoStructureIssues(repoRoot),
     ...getMigrationSafetyIssues(repoRoot),
     ...getRunbookCoverageIssues(repoRoot),
+    ...getAlertRunbookReadinessIssues(repoRoot),
     ...getFutureFeatureTruthIssues(repoRoot)
   ];
 }

@@ -40,7 +40,10 @@ The command verifies:
 - Operational runbooks exist.
 - Metrics, alert rules, monitoring, logging, and operational logging contracts exist.
 - Supabase migrations are named with `YYYYMMDDNNNN_slug.sql`, have unique timestamps, and cover shipped critical features.
+- Supabase migrations are non-empty and remain in timestamp order.
 - Background job config is bounded.
+- Monitoring readiness includes metric-contract and alert-rule tests.
+- Alert rules reference documented runbook IDs.
 - Future-only modules are not accidentally marked shipped.
 
 ## Migration Safety
@@ -49,6 +52,8 @@ Migration checks are static. They enforce:
 
 - `supabase/migrations` exists.
 - Migration filenames use `YYYYMMDDNNNN_slug.sql`.
+- Migration files are not empty.
+- Migration timestamps stay ordered.
 - Migration timestamps are unique.
 - Shipped critical areas have migration coverage, including billing, security hardening, privacy operations, OCR jobs, Phase-1 workflow, financial intelligence fields, and scale readiness indexes.
 
@@ -70,6 +75,8 @@ These checks are designed to prevent unbounded export generation, stranded remin
 ## Monitoring And Alert Readiness
 
 Structured logs remain the baseline sink. Optional alert webhooks are allowed only through the configured monitoring sink and must be sanitized before delivery. Production webhook fanout must use HTTPS and a signing secret.
+
+Alert rules as code must reference `Runbook ID: ...` entries in `docs/OPERATIONAL_RUNBOOKS.md`. A rule without a documented runbook is not production-ready, even if the metric exists.
 
 Alert-worthy events and response guidance live in:
 

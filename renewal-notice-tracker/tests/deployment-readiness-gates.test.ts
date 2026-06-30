@@ -3,12 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  getAlertRunbookReadinessIssues,
   getBackgroundJobConfigIssues,
   getDeploymentReadinessIssues,
   getFutureFeatureTruthIssues,
+  getMigrationFileSafetyIssues,
   getMigrationSafetyIssues,
   getMissingRequiredScripts,
   getProductionConfigSafetyIssues,
+  getScriptContentIssues,
   REQUIRED_DEPLOYMENT_DOCS,
   REQUIRED_DEPLOYMENT_SCRIPTS,
   REQUIRED_OPERATIONAL_CONTRACTS
@@ -21,6 +24,8 @@ function makeProductionEnv(overrides: Record<string, string | undefined> = {}) {
     NEXT_PUBLIC_SUPABASE_URL: "https://project.supabase.co",
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "pk_live_noticecontrol_anon_123456789",
     SUPABASE_SERVICE_ROLE_KEY: "sk_live_noticecontrol_service_123456789",
+    SUPABASE_STORAGE_BUCKET: "noticecontrol-prod-contract-files",
+    SUPABASE_EXPORTS_BUCKET: "noticecontrol-prod-export-artifacts",
     OPENAI_API_KEY: "sk_live_noticecontrol_openai_123456789",
     OCR_PROVIDER: "openai",
     OCR_OPENAI_API_KEY: "sk_live_noticecontrol_ocr_123456789",
@@ -87,10 +92,31 @@ describe("deployment readiness gates", () => {
     );
   });
 
+  it("catches release scripts that exist but omit required deployment safety tests", () => {
+    const issues = getScriptContentIssues({
+      scripts: {
+        "test:monitoring-readiness": "vitest run tests/monitoring-readiness.test.ts",
+        "test:deployment-readiness": "vitest run tests/config.test.ts",
+        "test:scope-freeze": "vitest run tests/release-gates.test.ts"
+      }
+    });
+
+    expect(issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining(["ERR_DEPLOY_SCRIPT_COVERAGE_MISSING"])
+    );
+    expect(issues.map((issue) => issue.details.testFile)).toEqual(
+      expect.arrayContaining([
+        "tests/metrics-alert-rules.test.ts",
+        "tests/deployment-readiness-gates.test.ts"
+      ])
+    );
+  });
+
   it("rejects production placeholder config without exposing secret values", () => {
     const issues = getProductionConfigSafetyIssues(
       makeProductionEnv({
         NEXT_PUBLIC_APP_URL: "http://localhost:3000",
+        SUPABASE_EXPORTS_BUCKET: "export-artifacts",
         SUPABASE_SERVICE_ROLE_KEY: "test-service-key",
         PADDLE_ENVIRONMENT: "sandbox"
       })
@@ -102,6 +128,7 @@ describe("deployment readiness gates", () => {
         "ERR_DEPLOY_CONFIG_INSECURE_URL",
         "ERR_DEPLOY_CONFIG_LOCAL_URL",
         "ERR_DEPLOY_CONFIG_PLACEHOLDER_SECRET",
+        "ERR_DEPLOY_CONFIG_PLACEHOLDER_BUCKET",
         "ERR_DEPLOY_CONFIG_BILLING_ENVIRONMENT"
       ])
     );
@@ -145,6 +172,45 @@ describe("deployment readiness gates", () => {
     expect(issues.map((issue) => issue.code)).toContain("ERR_DEPLOY_MIGRATION_COVERAGE_MISSING");
     expect(JSON.stringify(issues)).not.toContain("enterprise_identity");
     expect(JSON.stringify(issues)).not.toContain("scim");
+  });
+
+  it("rejects unordered, duplicated, and empty migration files with stable deployment errors", () => {
+    const issues = getMigrationFileSafetyIssues(
+      [
+        "202604050002_second.sql",
+        "202604050001_first.sql",
+        "202604050001_duplicate.sql",
+        "202604050003_empty.sql"
+      ],
+      (file) => (file.includes("empty") ? "   " : "-- migration")
+    );
+
+    expect(issues.map((issue) => issue.code)).toEqual(
+      expect.arrayContaining([
+        "ERR_DEPLOY_MIGRATION_ORDER_INVALID",
+        "ERR_DEPLOY_MIGRATION_TIMESTAMP_DUPLICATE",
+        "ERR_DEPLOY_MIGRATION_EMPTY_FILE"
+      ])
+    );
+  });
+
+  it("requires every alert rule runbook ID to resolve to an operational runbook", () => {
+    const repoRoot = makeTempRepo({
+      "lib/observability/alert-rules.ts": `
+        export const ALERT_RULES = {
+          export_failure: { runbookId: "runbook_export_job_failure" },
+          missing: { runbookId: "runbook_missing" }
+        };
+      `,
+      "docs/OPERATIONAL_RUNBOOKS.md": "Runbook ID: `runbook_export_job_failure`"
+    });
+
+    expect(getAlertRunbookReadinessIssues(repoRoot)).toEqual([
+      expect.objectContaining({
+        code: "ERR_DEPLOY_ALERT_RULE_RUNBOOK_MISSING",
+        details: expect.objectContaining({ runbookId: "runbook_missing" })
+      })
+    ]);
   });
 
   it("detects shipped/future product truth drift for enterprise and integration modules", () => {
