@@ -4,6 +4,8 @@ NoticeControl is a renewal-control product, not a general CLM suite. Architectur
 
 The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODULE_REGISTRY.md), backed by [lib/product/platform-modules.ts](../lib/product/platform-modules.ts).
 
+The cross-domain orchestration contract is [PLATFORM_ORCHESTRATION_FOUNDATION.md](PLATFORM_ORCHESTRATION_FOUNDATION.md), backed by [lib/product/platform-orchestration.ts](../lib/product/platform-orchestration.ts). It registers capabilities, dependency graph, runtime context, event expectations, health states, and lifecycle states without adding end-user functionality.
+
 Enterprise identity and granular RBAC expansion is governed by [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by [lib/product/enterprise-rbac.ts](../lib/product/enterprise-rbac.ts) and [lib/product/enterprise-identity.ts](../lib/product/enterprise-identity.ts). SSO, SCIM, future enterprise roles, permission groups, retention controls, and delegated administration are not shipped runtime features until that boundary moves through a future enterprise release gate.
 
 Data governance and retention expansion is governed by [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), backed by [lib/product/data-governance.ts](../lib/product/data-governance.ts). Customer-facing retention settings, legal hold, configurable deletion windows, data residency, broad customer data export, and support-access review portals are not shipped runtime features.
