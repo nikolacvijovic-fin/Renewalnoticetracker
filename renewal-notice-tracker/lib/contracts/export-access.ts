@@ -66,7 +66,10 @@ export async function assertContractExportPresetAccess(input: {
   if (input.preset.id === "intelligence_export") {
     await assertCanAccessIntelligenceSurface({
       context: input.context,
-      surface: "risk_queue"
+      surface: "risk_queue",
+      billingSnapshot: commercialResult.billingSnapshot,
+      platformRuntimeContextInput: input.platformRuntimeContextInput,
+      platformRuntimeContextOverrides: input.platformRuntimeContextOverrides
     });
   }
 }

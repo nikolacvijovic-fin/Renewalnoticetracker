@@ -299,6 +299,30 @@ describe("platform capability enforcement surfaces", () => {
     );
   });
 
+  it("carries resolved platform context into intelligence export access", async () => {
+    const { assertContractExportPresetAccess } = await import("@/lib/contracts/export-access");
+    const { EXPORT_PRESETS } = await import("@/lib/contracts/export");
+
+    await expect(
+      assertContractExportPresetAccess({
+        context: makeContext("operator"),
+        preset: EXPORT_PRESETS.intelligence_export,
+        format: "csv",
+        source: "export_route",
+        platformRuntimeContextInput: {
+          providerAvailability: { openai: false }
+        }
+      })
+    ).rejects.toMatchObject({
+      name: "IntelligencePlatformAccessError",
+      capabilityId: "contract_intelligence",
+      decision: expect.objectContaining({
+        allowed: false,
+        reasonCodes: expect.arrayContaining(["provider_missing_openai"])
+      })
+    });
+  });
+
   it("keeps future-only revenue intelligence blocked with customer-safe output", async () => {
     const { evaluatePlatformCapabilityGate } = await import("@/lib/product/platform-capability-gates");
     const decision = evaluatePlatformCapabilityGate({

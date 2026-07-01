@@ -125,6 +125,17 @@ No circular dependencies are allowed.
 
 Runtime dependency evaluation is bounded and explicit. Callers may evaluate dependencies recursively, shallowly, or disable dependency traversal for focused checks. Recursive evaluation tracks visited capabilities so dependency cycles cannot create infinite recursion.
 
+## Registry, Evaluator, Gate, Resolver
+
+The platform control plane has four separate responsibilities:
+
+- Registry: `lib/product/platform-orchestration.ts` declares capability truth, lifecycle, dependencies, providers, plans, permissions, market policy, identity policy, audit expectations, and release gates.
+- Evaluator: `evaluatePlatformCapabilityRuntime(...)` answers whether a capability is usable for a supplied runtime context.
+- Resolver: `resolvePlatformRuntimeContext(...)` in `lib/product/platform-capability-gates.ts` builds that runtime context from canonical product state such as active organization context, billing snapshot, market profile, provider availability, and shipped feature gates.
+- Gate: `evaluatePlatformCapabilityGate(...)` and `assertPlatformCapabilityGate(...)` compose the platform evaluation with existing billing and permission decisions for real route/helper surfaces.
+
+These layers should not be collapsed. The registry is product truth, the evaluator is capability logic, the resolver is runtime-state composition, and the gate is enforcement composition.
+
 ## Runtime Context
 
 `PlatformRuntimeContext` is the future shared context shape. It includes:
