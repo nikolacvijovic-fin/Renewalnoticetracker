@@ -91,6 +91,67 @@ describe("platform capability enforcement surfaces", () => {
     );
   }, 15000);
 
+  it("resolves runtime context from billing provider, market profile, feature gates, and commercial features", async () => {
+    const {
+      resolvePlatformRuntimeContext,
+      resolvePlatformProviders,
+      resolveShippedPlatformFeatureGates
+    } = await import("@/lib/product/platform-capability-gates");
+
+    expect(
+      resolvePlatformProviders({
+        billingSnapshot: makeBillingSnapshot("growth")
+      })
+    ).toEqual(expect.arrayContaining(["paddle", "supabase", "openai", "resend"]));
+
+    const manualContext = resolvePlatformRuntimeContext({
+      context: makeContext("admin"),
+      billingSnapshot: {
+        ...makeBillingSnapshot("growth"),
+        billingProvider: "manual"
+      }
+    });
+    expect(manualContext.providerPolicies.providers).toEqual(
+      expect.arrayContaining(["manual_invoice", "supabase", "openai", "resend"])
+    );
+    expect(manualContext.providerPolicies.providers).not.toContain("future_identity_provider");
+    expect(manualContext.providerPolicies.providers).not.toContain("future_public_api_provider");
+    expect(manualContext.subscription.commercialFeatures).toEqual(
+      expect.arrayContaining(["exports", "risk_scores", "financial_intelligence", "procurement_analytics"])
+    );
+
+    const gates = resolveShippedPlatformFeatureGates();
+    expect(gates).toContain("exports");
+    expect(gates).toContain("contract_intelligence");
+    expect(gates).not.toContain("revenue_intelligence");
+    expect(gates).not.toContain("identity");
+    expect(gates).not.toContain("market_activation");
+    expect(gates).not.toContain("approval_queue");
+    expect(gates).not.toContain("platform_api_integrations");
+    expect(gates).not.toContain("ai_generation");
+  });
+
+  it.each([
+    ["global", true],
+    ["us", false],
+    ["eu", false],
+    ["manual_invoice_review", false],
+    ["restricted_market_review", false],
+    ["unknown_market", false]
+  ] as const)("resolves %s market runtime permission conservatively", async (marketId, expectedRuntime) => {
+    const { resolvePlatformRuntimeContext } = await import("@/lib/product/platform-capability-gates");
+
+    expect(
+      resolvePlatformRuntimeContext({
+        context: makeContext("admin"),
+        billingSnapshot: makeBillingSnapshot("growth"),
+        market: { marketId }
+      }).market
+    ).toMatchObject({
+      runtimeEnabled: expectedRuntime
+    });
+  });
+
   it("blocks export access before payload assembly when the platform exports feature gate is missing", async () => {
     const { assertContractExportPresetAccess } = await import("@/lib/contracts/export-access");
     const { EXPORT_PRESETS } = await import("@/lib/contracts/export");
@@ -126,6 +187,52 @@ describe("platform capability enforcement surfaces", () => {
           platformStatus: "missing_feature_gate",
           missingFeatureGates: ["exports"]
         })
+      }
+    });
+  });
+
+  it("blocks export access when the resolved market is not runtime-enabled", async () => {
+    const { assertContractExportPresetAccess } = await import("@/lib/contracts/export-access");
+    const { EXPORT_PRESETS } = await import("@/lib/contracts/export");
+
+    await expect(
+      assertContractExportPresetAccess({
+        context: makeContext("admin"),
+        preset: EXPORT_PRESETS.basic_contract_register,
+        format: "csv",
+        source: "export_route",
+        platformRuntimeContextInput: {
+          market: { marketId: "eu" }
+        }
+      })
+    ).rejects.toMatchObject({
+      decision: {
+        allowed: false,
+        capabilityId: "exports",
+        reasonCodes: expect.arrayContaining(["market_runtime_disabled", "market_not_shipped_runtime"])
+      }
+    });
+  });
+
+  it("blocks export access when a required resolved provider is unavailable", async () => {
+    const { assertContractExportPresetAccess } = await import("@/lib/contracts/export-access");
+    const { EXPORT_PRESETS } = await import("@/lib/contracts/export");
+
+    await expect(
+      assertContractExportPresetAccess({
+        context: makeContext("admin"),
+        preset: EXPORT_PRESETS.basic_contract_register,
+        format: "csv",
+        source: "export_route",
+        platformRuntimeContextInput: {
+          providerAvailability: { supabase: false }
+        }
+      })
+    ).rejects.toMatchObject({
+      decision: {
+        allowed: false,
+        capabilityId: "exports",
+        reasonCodes: expect.arrayContaining(["provider_missing_supabase"])
       }
     });
   });
@@ -167,8 +274,8 @@ describe("platform capability enforcement surfaces", () => {
         context: makeContext("operator"),
         billingSnapshot: makeBillingSnapshot("growth"),
         surface: "risk_queue",
-        platformRuntimeContextOverrides: {
-          providerPolicies: { providers: ["paddle", "supabase", "resend"] }
+        platformRuntimeContextInput: {
+          providerAvailability: { openai: false }
         }
       })
     ).rejects.toMatchObject({

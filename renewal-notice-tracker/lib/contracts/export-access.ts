@@ -4,7 +4,10 @@ import { OrganizationAuthorizationError } from "@/lib/auth";
 import { enforceFeatureAccess, getBillingSnapshot } from "@/lib/billing/entitlements";
 import type { ExportFormat, ExportPreset } from "@/lib/contracts/export";
 import { assertCanAccessIntelligenceSurface } from "@/lib/intelligence/access";
-import { assertPlatformCapabilityGate } from "@/lib/product/platform-capability-gates";
+import {
+  assertPlatformCapabilityGate,
+  type PlatformRuntimeContextResolverInput
+} from "@/lib/product/platform-capability-gates";
 import type { PlatformRuntimeContext } from "@/lib/product/platform-orchestration";
 
 export async function assertContractExportPresetAccess(input: {
@@ -12,6 +15,7 @@ export async function assertContractExportPresetAccess(input: {
   preset: ExportPreset;
   format: ExportFormat;
   source: "export_route" | "background_export_request";
+  platformRuntimeContextInput?: Omit<PlatformRuntimeContextResolverInput, "context" | "billingSnapshot">;
   platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   if (!input.preset.allowedRoles.includes(input.context.role)) {
@@ -55,6 +59,7 @@ export async function assertContractExportPresetAccess(input: {
     permissionDecision: {
       allowed: true
     },
+    runtimeContextInput: input.platformRuntimeContextInput,
     runtimeContextOverrides: input.platformRuntimeContextOverrides
   });
 

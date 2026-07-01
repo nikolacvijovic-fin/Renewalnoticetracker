@@ -10,7 +10,8 @@ import {
 import type { ActiveOrganizationContext, MembershipRole } from "@/lib/auth";
 import {
   evaluatePlatformCapabilityGate,
-  type PlatformCapabilityGateDecision
+  type PlatformCapabilityGateDecision,
+  type PlatformRuntimeContextResolverInput
 } from "@/lib/product/platform-capability-gates";
 import type { PlatformCapabilityId, PlatformRuntimeContext } from "@/lib/product/platform-orchestration";
 
@@ -165,6 +166,7 @@ export function getIntelligenceSurfaceAccess(input: {
   surface: IntelligenceSurface;
   contractOwnerUserId?: string | null;
   platformRuntimeContext?: PlatformRuntimeContext;
+  platformRuntimeContextInput?: Omit<PlatformRuntimeContextResolverInput, "context" | "billingSnapshot">;
   platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const rule = INTELLIGENCE_SURFACE_MATRIX[input.surface];
@@ -186,6 +188,7 @@ export function getIntelligenceSurfaceAccess(input: {
       reasonCode: !roleAllowed ? "role_not_allowed" : !ownerScopedAllowed ? "owner_scope_required" : undefined
     },
     runtimeContext: input.platformRuntimeContext,
+    runtimeContextInput: input.platformRuntimeContextInput,
     runtimeContextOverrides: input.platformRuntimeContextOverrides
   });
 
@@ -205,6 +208,7 @@ export async function getIntelligenceSurfaceAccessState(input: {
   contractOwnerUserId?: string | null;
   billingSnapshot?: BillingSnapshot;
   platformRuntimeContext?: PlatformRuntimeContext;
+  platformRuntimeContextInput?: Omit<PlatformRuntimeContextResolverInput, "context" | "billingSnapshot">;
   platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const billingSnapshot =
@@ -215,6 +219,7 @@ export async function getIntelligenceSurfaceAccessState(input: {
     surface: input.surface,
     contractOwnerUserId: input.contractOwnerUserId,
     platformRuntimeContext: input.platformRuntimeContext,
+    platformRuntimeContextInput: input.platformRuntimeContextInput,
     platformRuntimeContextOverrides: input.platformRuntimeContextOverrides
   });
 
@@ -228,6 +233,7 @@ export async function getIntelligenceSurfaceAccessMap(input: {
   context: ActiveOrganizationContext;
   surfaces: readonly IntelligenceSurface[];
   contractOwnerUserId?: string | null;
+  platformRuntimeContextInput?: Omit<PlatformRuntimeContextResolverInput, "context" | "billingSnapshot">;
   platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const billingSnapshot = await getBillingSnapshot(input.context.organizationId);
@@ -239,6 +245,7 @@ export async function getIntelligenceSurfaceAccessMap(input: {
         billingSnapshot,
         surface,
         contractOwnerUserId: input.contractOwnerUserId,
+        platformRuntimeContextInput: input.platformRuntimeContextInput,
         platformRuntimeContextOverrides: input.platformRuntimeContextOverrides
       })
     ])
@@ -256,6 +263,7 @@ export async function assertCanAccessIntelligenceSurface(input: {
   contractOwnerUserId?: string | null;
   billingSnapshot?: BillingSnapshot;
   platformRuntimeContext?: PlatformRuntimeContext;
+  platformRuntimeContextInput?: Omit<PlatformRuntimeContextResolverInput, "context" | "billingSnapshot">;
   platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const { billingSnapshot, access } = await getIntelligenceSurfaceAccessState(input);

@@ -142,6 +142,19 @@ Runtime dependency evaluation is bounded and explicit. Callers may evaluate depe
 
 Future modules should consume this context instead of reading many unrelated helpers directly. The current implementation validates context shape and consistency and exposes `evaluatePlatformCapabilityRuntime(...)` as the shared capability decision helper.
 
+`lib/product/platform-capability-gates.ts` owns the current runtime-context resolver used by real enforcement seams. It derives platform state from canonical product state:
+
+- active organization context for organization, actor, and role
+- canonical billing snapshot for plan tier, subscription status, commercial features, and billing provider
+- market profiles for runtime market activation
+- provider availability input for configured runtime providers
+- shipped capability gates from the platform capability registry lifecycle
+- explicit audit, approval, and monitoring context when a route or worker has it
+
+The resolver intentionally preserves the current shipped global path while avoiding future-feature assumptions. `global` is the only default runtime-enabled market. Future identity/API providers are never enabled by default. `openai` and `resend` remain default-available only to preserve current shipped intelligence/OCR/email behavior until provider health/config checks are wired into those call sites.
+
+Runtime overrides remain available for focused tests and compatibility, but new route or worker code should prefer resolver inputs such as billing snapshot, market, provider availability, and feature gates. Overrides should not become a second source of product truth.
+
 The runtime evaluator returns:
 
 - `usable`
@@ -167,6 +180,13 @@ The evaluator is now consumed by the first runtime safety seams:
 These checks are additive. Export routes still enforce active organization, shipped action permissions, preset role rules, commercial feature access, tenant-scoped row assembly, preflight limits, and audit logging. Intelligence routes still enforce role, owner-scope, billing, and surface-specific authorization. Platform evaluation fails closed only when the capability itself is not usable in the current runtime context.
 
 Future modules must pass platform evaluation before route, UI, API, or provider exposure. Passing platform evaluation is necessary but not sufficient: domain authorization remains mandatory.
+
+Current enforcement surfaces use resolved runtime context rather than hand-built capability state:
+
+- Export access receives canonical billing truth from entitlement checks and can pass market/provider availability into the resolver before the `exports` capability is evaluated.
+- Intelligence access receives canonical billing truth from the intelligence surface helper and can pass market/provider availability into the resolver before risk, financial, or procurement capabilities are evaluated.
+
+This prevents a page or route from accidentally treating a planned market, missing provider, missing feature gate, or future-only module as usable simply because its local billing or role check passed.
 
 ## Event Registry
 

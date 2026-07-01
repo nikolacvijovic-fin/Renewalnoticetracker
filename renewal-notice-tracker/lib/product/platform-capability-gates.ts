@@ -1,6 +1,14 @@
 import type { ActiveOrganizationContext } from "@/lib/auth";
-import type { BillingSnapshot, CommercialAccessResult } from "@/lib/billing/entitlements";
 import {
+  getFeatureAccessResult,
+  type BillingSnapshot,
+  type CommercialAccessResult,
+  type CommercialFeature
+} from "@/lib/billing/entitlements";
+import type { BillingProviderName } from "@/lib/billing/types";
+import { canSelfServeActivateMarket, getMarketProfile } from "@/lib/product/market-profiles";
+import {
+  PLATFORM_CAPABILITIES,
   evaluatePlatformCapabilityRuntime,
   type PlatformCapabilityEvaluationMode,
   type PlatformCapabilityId,
@@ -55,37 +63,155 @@ export const SHIPPED_PLATFORM_FEATURE_GATES: readonly PlatformCapabilityId[] = [
   "financial_intelligence",
   "procurement_analytics",
   "ocr",
-  "ai_generation",
   "exports",
   "notifications",
   "audit",
   "permissions"
 ] as const;
 
-export const SHIPPED_PLATFORM_PROVIDERS: readonly PlatformProvider[] = [
-  "paddle",
-  "supabase",
-  "openai",
-  "resend"
-] as const;
+export const SHIPPED_CORE_PLATFORM_PROVIDERS: readonly PlatformProvider[] = ["supabase"] as const;
+
+export type PlatformProviderAvailability = Partial<Record<PlatformProvider, boolean>>;
+
+export type PlatformRuntimeContextResolverInput = {
+  context: ActiveOrganizationContext;
+  billingSnapshot: BillingSnapshot;
+  workspace?: {
+    workspaceId?: string | null;
+    activeOrganizationId?: string | null;
+  };
+  organization?: {
+    active?: boolean;
+    marketId?: string | null;
+  };
+  market?: {
+    marketId?: string | null;
+    runtimeEnabled?: boolean;
+  };
+  providerAvailability?: PlatformProviderAvailability;
+  featureGates?: readonly PlatformCapabilityId[];
+  monitoring?: {
+    health?: PlatformRuntimeContext["monitoringContext"]["health"];
+  };
+  approvalContext?: PlatformRuntimeContext["approvalContext"];
+  auditRequestId?: string | null;
+  auditBoundary?: PlatformRuntimeContext["auditContext"]["auditBoundary"];
+  runtimeContextOverrides?: Partial<PlatformRuntimeContext>;
+};
+
+const COMMERCIAL_FEATURES = [
+  "exports",
+  "manual_contracts",
+  "multi_recipient_reminders",
+  "risk_badges",
+  "risk_scores",
+  "financial_intelligence",
+  "procurement_analytics",
+  "intelligence_settings"
+] as const satisfies readonly CommercialFeature[];
+
+function mapBillingProviderToPlatformProvider(
+  provider: BillingSnapshot["billingProvider"] | BillingProviderName | "none"
+): PlatformProvider | null {
+  if (provider === "paddle") return "paddle";
+  if (provider === "manual") return "manual_invoice";
+  if (provider === "paypal") return "paypal_exception";
+  return null;
+}
+
+export function resolveCommercialFeaturesFromBillingSnapshot(
+  billingSnapshot: BillingSnapshot
+): readonly CommercialFeature[] {
+  return COMMERCIAL_FEATURES.filter((feature) => getFeatureAccessResult(billingSnapshot, feature).allowed);
+}
+
+export function resolvePlatformProviders(input: {
+  billingSnapshot: BillingSnapshot;
+  providerAvailability?: PlatformProviderAvailability;
+}): readonly PlatformProvider[] {
+  const providers = new Set<PlatformProvider>();
+  for (const provider of SHIPPED_CORE_PLATFORM_PROVIDERS) {
+    if (input.providerAvailability?.[provider] ?? true) {
+      providers.add(provider);
+    }
+  }
+
+  const billingProvider = mapBillingProviderToPlatformProvider(input.billingSnapshot.billingProvider);
+  if (billingProvider && (input.providerAvailability?.[billingProvider] ?? true)) {
+    providers.add(billingProvider);
+  }
+
+  for (const provider of ["openai", "resend"] as const) {
+    if (input.providerAvailability?.[provider] ?? true) {
+      providers.add(provider);
+    }
+  }
+
+  for (const [provider, available] of Object.entries(input.providerAvailability ?? {}) as [
+    PlatformProvider,
+    boolean
+  ][]) {
+    if (available && provider !== "future_identity_provider" && provider !== "future_public_api_provider") {
+      providers.add(provider);
+    }
+  }
+
+  return [...providers];
+}
+
+export function resolveShippedPlatformFeatureGates(input: {
+  enabledCapabilities?: readonly PlatformCapabilityId[];
+} = {}): readonly PlatformCapabilityId[] {
+  if (input.enabledCapabilities) return input.enabledCapabilities;
+
+  return SHIPPED_PLATFORM_FEATURE_GATES.filter((capabilityId) => {
+    const capability = PLATFORM_CAPABILITIES[capabilityId];
+    return capability.lifecycle === "generally_available" || capability.lifecycle === "customer_preview";
+  });
+}
+
+export function resolvePlatformMarketRuntime(input: {
+  marketId?: string | null;
+  runtimeEnabledOverride?: boolean;
+}) {
+  const profile = getMarketProfile(input.marketId ?? "global");
+  const activation = canSelfServeActivateMarket(profile.marketId);
+  return {
+    marketId: profile.marketId,
+    runtimeEnabled: input.runtimeEnabledOverride ?? activation.allowed,
+    decision: activation
+  };
+}
 
 export function buildPlatformRuntimeContext(input: {
   context: ActiveOrganizationContext;
   billingSnapshot: BillingSnapshot;
   overrides?: Partial<PlatformRuntimeContext>;
 }): PlatformRuntimeContext {
+  return resolvePlatformRuntimeContext({
+    context: input.context,
+    billingSnapshot: input.billingSnapshot,
+    runtimeContextOverrides: input.overrides
+  });
+}
+
+export function resolvePlatformRuntimeContext(input: PlatformRuntimeContextResolverInput): PlatformRuntimeContext {
+  const market = resolvePlatformMarketRuntime({
+    marketId: input.market?.marketId ?? input.organization?.marketId ?? "global",
+    runtimeEnabledOverride: input.market?.runtimeEnabled
+  });
   const base: PlatformRuntimeContext = {
     organization: {
       organizationId: input.context.organizationId,
-      active: true
+      active: input.organization?.active ?? true
     },
     workspace: {
-      workspaceId: null,
-      activeOrganizationId: input.context.organizationId
+      workspaceId: input.workspace?.workspaceId ?? null,
+      activeOrganizationId: input.workspace?.activeOrganizationId ?? input.context.organizationId
     },
     market: {
-      marketId: "global",
-      runtimeEnabled: true
+      marketId: market.marketId,
+      runtimeEnabled: market.runtimeEnabled
     },
     identity: {
       actorUserId: input.context.user.id,
@@ -94,39 +220,45 @@ export function buildPlatformRuntimeContext(input: {
     subscription: {
       planTier: input.billingSnapshot.planTier,
       subscriptionStatus: input.billingSnapshot.subscriptionStatus,
-      commercialFeatures: []
+      commercialFeatures: resolveCommercialFeaturesFromBillingSnapshot(input.billingSnapshot)
     },
     providerPolicies: {
-      providers: SHIPPED_PLATFORM_PROVIDERS
+      providers: resolvePlatformProviders({
+        billingSnapshot: input.billingSnapshot,
+        providerAvailability: input.providerAvailability
+      })
     },
     featureGates: {
-      enabledCapabilities: SHIPPED_PLATFORM_FEATURE_GATES
+      enabledCapabilities: resolveShippedPlatformFeatureGates({
+        enabledCapabilities: input.featureGates
+      })
     },
-    approvalContext: {
+    approvalContext: input.approvalContext ?? {
       approvalRequired: false,
       approvalIds: []
     },
     auditContext: {
-      auditBoundary: "customer_truth"
+      requestId: input.auditRequestId ?? undefined,
+      auditBoundary: input.auditBoundary ?? "customer_truth"
     },
     monitoringContext: {
-      health: "healthy"
+      health: input.monitoring?.health ?? "healthy"
     }
   };
 
   return {
     ...base,
-    ...input.overrides,
-    organization: { ...base.organization, ...input.overrides?.organization },
-    workspace: { ...base.workspace, ...input.overrides?.workspace },
-    market: { ...base.market, ...input.overrides?.market },
-    identity: { ...base.identity, ...input.overrides?.identity },
-    subscription: { ...base.subscription, ...input.overrides?.subscription },
-    providerPolicies: { ...base.providerPolicies, ...input.overrides?.providerPolicies },
-    featureGates: { ...base.featureGates, ...input.overrides?.featureGates },
-    approvalContext: { ...base.approvalContext, ...input.overrides?.approvalContext },
-    auditContext: { ...base.auditContext, ...input.overrides?.auditContext },
-    monitoringContext: { ...base.monitoringContext, ...input.overrides?.monitoringContext }
+    ...input.runtimeContextOverrides,
+    organization: { ...base.organization, ...input.runtimeContextOverrides?.organization },
+    workspace: { ...base.workspace, ...input.runtimeContextOverrides?.workspace },
+    market: { ...base.market, ...input.runtimeContextOverrides?.market },
+    identity: { ...base.identity, ...input.runtimeContextOverrides?.identity },
+    subscription: { ...base.subscription, ...input.runtimeContextOverrides?.subscription },
+    providerPolicies: { ...base.providerPolicies, ...input.runtimeContextOverrides?.providerPolicies },
+    featureGates: { ...base.featureGates, ...input.runtimeContextOverrides?.featureGates },
+    approvalContext: { ...base.approvalContext, ...input.runtimeContextOverrides?.approvalContext },
+    auditContext: { ...base.auditContext, ...input.runtimeContextOverrides?.auditContext },
+    monitoringContext: { ...base.monitoringContext, ...input.runtimeContextOverrides?.monitoringContext }
   };
 }
 
@@ -136,6 +268,7 @@ export function evaluatePlatformCapabilityGate(input: {
   billingSnapshot: BillingSnapshot;
   runtimeContext?: PlatformRuntimeContext;
   runtimeContextOverrides?: Partial<PlatformRuntimeContext>;
+  runtimeContextInput?: Omit<PlatformRuntimeContextResolverInput, "context" | "billingSnapshot">;
   platformMode?: PlatformCapabilityEvaluationMode;
   billingDecision?: CommercialAccessResult;
   permissionDecision?: PlatformCapabilityGateDecision["sourceDecisions"]["permission"];
@@ -143,10 +276,11 @@ export function evaluatePlatformCapabilityGate(input: {
 }): PlatformCapabilityGateDecision {
   const runtimeContext =
     input.runtimeContext ??
-    buildPlatformRuntimeContext({
+    resolvePlatformRuntimeContext({
       context: input.context,
       billingSnapshot: input.billingSnapshot,
-      overrides: input.runtimeContextOverrides
+      ...input.runtimeContextInput,
+      runtimeContextOverrides: input.runtimeContextOverrides
     });
   const platform = evaluatePlatformCapabilityRuntime(
     input.capabilityId,

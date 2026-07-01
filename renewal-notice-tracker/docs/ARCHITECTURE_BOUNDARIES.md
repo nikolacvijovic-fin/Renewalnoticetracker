@@ -6,6 +6,8 @@ The module/add-on source of truth is [PLATFORM_MODULE_REGISTRY.md](PLATFORM_MODU
 
 The cross-domain orchestration contract is [PLATFORM_ORCHESTRATION_FOUNDATION.md](PLATFORM_ORCHESTRATION_FOUNDATION.md), backed by [lib/product/platform-orchestration.ts](../lib/product/platform-orchestration.ts). It registers capabilities, dependency graph, runtime context, event expectations, health states, and lifecycle states without adding end-user functionality.
 
+Runtime capability gates are additive safety checks. They consume canonical product state such as active organization context, billing snapshots, market profiles, provider availability, and shipped capability gates, but they do not replace route auth, tenant-scoped queries, billing enforcement, role checks, or domain-specific workflow rules.
+
 Enterprise identity and granular RBAC expansion is governed by [ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md](ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md), backed by [lib/product/enterprise-rbac.ts](../lib/product/enterprise-rbac.ts) and [lib/product/enterprise-identity.ts](../lib/product/enterprise-identity.ts). SSO, SCIM, future enterprise roles, permission groups, retention controls, and delegated administration are not shipped runtime features until that boundary moves through a future enterprise release gate.
 
 Data governance and retention expansion is governed by [DATA_GOVERNANCE_RETENTION_BOUNDARY.md](DATA_GOVERNANCE_RETENTION_BOUNDARY.md), backed by [lib/product/data-governance.ts](../lib/product/data-governance.ts). Customer-facing retention settings, legal hold, configurable deletion windows, data residency, broad customer data export, and support-access review portals are not shipped runtime features.
