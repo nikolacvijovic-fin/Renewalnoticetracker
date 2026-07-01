@@ -41,6 +41,7 @@ import {
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { ROUTE_REQUEST_ID_HEADER } from "@/lib/http";
 import { assertContractExportPresetAccess } from "@/lib/contracts/export-access";
+import { PlatformCapabilityGateError } from "@/lib/product/platform-capability-gates";
 
 function getPresetFromRequest(request?: Request) {
   if (!request) return resolveExportPreset(null);
@@ -414,6 +415,20 @@ export async function handleContractsExport(
           `${getAppConfig().public.appUrl}/dashboard/contracts?commercial=${getCommercialRedirectCode(error.feature, error.access.reason)}`,
           { status: 303 }
         ),
+        requestId
+      );
+    }
+    if (error instanceof PlatformCapabilityGateError) {
+      logExportDenied({
+        request,
+        requestId,
+        preset,
+        format,
+        context: auth,
+        reason: `platform_${error.decision.internalDiagnostics.platformStatus}`
+      });
+      return withExportRequestId(
+        NextResponse.json({ error: error.decision.customerSafeMessage }, { status: 403 }),
         requestId
       );
     }

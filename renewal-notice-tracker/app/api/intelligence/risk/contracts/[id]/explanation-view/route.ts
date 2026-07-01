@@ -13,7 +13,8 @@ import { getContractRiskAuditContext } from "@/lib/contracts/kernel-queries";
 import {
   assertCanAccessIntelligenceSurface,
   IntelligenceAuthorizationError,
-  IntelligencePlanAccessError
+  IntelligencePlanAccessError,
+  IntelligencePlatformAccessError
 } from "@/lib/intelligence/access";
 import {
   auditRiskExplanationViewed,
@@ -86,7 +87,8 @@ export const POST = createRouteHandler<
     mapError: (error) => {
       if (
         error instanceof IntelligenceAuthorizationError ||
-        error instanceof IntelligencePlanAccessError
+        error instanceof IntelligencePlanAccessError ||
+        error instanceof IntelligencePlatformAccessError
       ) {
         return routeForbiddenError();
       }

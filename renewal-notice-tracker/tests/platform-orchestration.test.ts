@@ -11,6 +11,7 @@ import {
   PLATFORM_HEALTH_STATES,
   PLATFORM_LIFECYCLE_STATES,
   detectPlatformDependencyCycles,
+  evaluatePlatformCapabilityRuntime,
   getPlatformEventsForCapability,
   getPlatformModuleCapabilityCoverage,
   resolvePlatformCapabilityDependencies,
@@ -23,6 +24,35 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 function readRepoFile(...segments: string[]) {
   return fs.readFileSync(path.join(repoRoot, ...segments), "utf8");
 }
+
+const healthyContext = {
+  organization: { organizationId: "org-1", active: true },
+  workspace: { workspaceId: "workspace-1", activeOrganizationId: "org-1" },
+  market: { marketId: "global", runtimeEnabled: true },
+  identity: { actorUserId: "user-1", role: "admin" },
+  subscription: {
+    planTier: "growth",
+    subscriptionStatus: "active",
+    commercialFeatures: ["exports", "risk_scores"]
+  },
+  providerPolicies: { providers: ["paddle", "supabase", "openai", "resend"] },
+  featureGates: {
+    enabledCapabilities: [
+      "billing",
+      "contracts",
+      "renewals",
+      "contract_intelligence",
+      "ocr",
+      "ai_generation",
+      "exports",
+      "notifications",
+      "permissions"
+    ]
+  },
+  approvalContext: { approvalRequired: false, approvalIds: [] },
+  auditContext: { requestId: "req-1", auditBoundary: "customer_truth" },
+  monitoringContext: { requestId: "req-1", health: "healthy" }
+} as const;
 
 describe("platform orchestration foundation", () => {
   it("registers unique capabilities with valid lifecycle and health states", () => {
@@ -129,6 +159,161 @@ describe("platform orchestration foundation", () => {
     ).toEqual({
       valid: false,
       reasonCodes: ["organization_inactive", "workspace_org_mismatch"]
+    });
+  });
+
+  it("evaluates generally available capabilities as usable in a healthy runtime context", () => {
+    expect(evaluatePlatformCapabilityRuntime("billing", healthyContext)).toMatchObject({
+      usable: true,
+      status: "usable",
+      capabilityId: "billing",
+      lifecycle: "generally_available",
+      health: "healthy",
+      missingProviders: [],
+      missingFeatureGates: []
+    });
+
+    const contracts = evaluatePlatformCapabilityRuntime("contracts", healthyContext);
+    expect(contracts.usable).toBe(true);
+    expect(contracts.dependencyDecisions.map((decision) => decision.capabilityId)).toEqual(
+      expect.arrayContaining(["audit", "permissions"])
+    );
+  });
+
+  it("keeps future-only capabilities blocked even with providers, plans, and feature gates present", () => {
+    const futureReadyContext = {
+      ...healthyContext,
+      subscription: { ...healthyContext.subscription, planTier: "enterprise" },
+      providerPolicies: {
+        providers: [
+          ...healthyContext.providerPolicies.providers,
+          "future_identity_provider",
+          "future_public_api_provider"
+        ]
+      },
+      featureGates: {
+        enabledCapabilities: [
+          ...healthyContext.featureGates.enabledCapabilities,
+          "revenue_intelligence",
+          "identity",
+          "market_activation",
+          "approval_queue"
+        ]
+      }
+    } as const;
+
+    for (const capabilityId of ["revenue_intelligence", "identity", "market_activation", "approval_queue"] as const) {
+      expect(evaluatePlatformCapabilityRuntime(capabilityId, futureReadyContext)).toMatchObject({
+        usable: false,
+        status: "future_only",
+        lifecycle: "future_only",
+        health: "future_only"
+      });
+    }
+  });
+
+  it("blocks capabilities for missing providers, plan, feature gate, and unhealthy context", () => {
+    expect(
+      evaluatePlatformCapabilityRuntime(
+        "contract_intelligence",
+        {
+          ...healthyContext,
+          providerPolicies: { providers: ["paddle", "supabase", "resend"] }
+        },
+        { dependencyMode: "disabled" }
+      )
+    ).toMatchObject({
+      usable: false,
+      status: "missing_provider",
+      missingProviders: ["openai"],
+      reasonCodes: expect.arrayContaining(["provider_missing_openai"])
+    });
+
+    expect(
+      evaluatePlatformCapabilityRuntime(
+        "exports",
+        {
+          ...healthyContext,
+          subscription: { ...healthyContext.subscription, planTier: "free" }
+        },
+        { dependencyMode: "disabled" }
+      )
+    ).toMatchObject({
+      usable: false,
+      status: "missing_plan",
+      reasonCodes: expect.arrayContaining(["plan_requirement_not_met"])
+    });
+
+    expect(
+      evaluatePlatformCapabilityRuntime(
+        "billing",
+        {
+          ...healthyContext,
+          featureGates: { enabledCapabilities: ["contracts"] }
+        },
+        { dependencyMode: "disabled" }
+      )
+    ).toMatchObject({
+      usable: false,
+      status: "missing_feature_gate",
+      missingFeatureGates: ["billing"]
+    });
+
+    expect(
+      evaluatePlatformCapabilityRuntime("contracts", {
+        ...healthyContext,
+        organization: { organizationId: "org-1", active: false },
+        workspace: { workspaceId: "workspace-1", activeOrganizationId: "org-2" }
+      })
+    ).toMatchObject({
+      usable: false,
+      status: "unhealthy_context",
+      reasonCodes: expect.arrayContaining(["context_organization_inactive", "context_workspace_org_mismatch"])
+    });
+  });
+
+  it("includes dependency decisions and blocks parents when dependencies are unavailable", () => {
+    const decision = evaluatePlatformCapabilityRuntime("contract_intelligence", {
+      ...healthyContext,
+      providerPolicies: { providers: ["paddle", "supabase", "resend"] }
+    });
+
+    expect(decision.usable).toBe(false);
+    expect(decision.status).toBe("missing_dependency");
+    expect(decision.dependencyDecisions.length).toBeGreaterThan(0);
+    expect(decision.dependencyDecisions.some((item) => item.capabilityId === "ocr" && !item.usable)).toBe(true);
+    expect(decision.reasonCodes).toEqual(expect.arrayContaining(["dependency_blocked_ocr", "provider_missing_openai"]));
+  });
+
+  it("does not let planned or restricted market contexts become runtime usable", () => {
+    expect(
+      evaluatePlatformCapabilityRuntime(
+        "billing",
+        {
+          ...healthyContext,
+          market: { marketId: "eu", runtimeEnabled: true }
+        },
+        { dependencyMode: "disabled" }
+      )
+    ).toMatchObject({
+      usable: false,
+      status: "missing_market_policy",
+      reasonCodes: expect.arrayContaining(["market_not_shipped_runtime"])
+    });
+
+    expect(
+      evaluatePlatformCapabilityRuntime(
+        "billing",
+        {
+          ...healthyContext,
+          market: { marketId: "restricted_market_review", runtimeEnabled: false }
+        },
+        { dependencyMode: "disabled" }
+      )
+    ).toMatchObject({
+      usable: false,
+      status: "missing_market_policy",
+      reasonCodes: expect.arrayContaining(["market_runtime_disabled", "market_not_shipped_runtime"])
     });
   });
 

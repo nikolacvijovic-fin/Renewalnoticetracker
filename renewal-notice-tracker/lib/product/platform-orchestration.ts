@@ -53,9 +53,12 @@ export type PlatformCapabilityId =
   | "renewals"
   | "contracts"
   | "contract_intelligence"
+  | "financial_intelligence"
+  | "procurement_analytics"
   | "revenue_intelligence"
   | "billing"
   | "identity"
+  | "platform_api_integrations"
   | "providers"
   | "market_profiles"
   | "market_activation"
@@ -158,6 +161,42 @@ export type PlatformRuntimeContext = {
 export type PlatformRuntimeContextValidation = {
   valid: boolean;
   reasonCodes: readonly string[];
+};
+
+export type PlatformCapabilityRuntimeStatus =
+  | "usable"
+  | "blocked"
+  | "future_only"
+  | "disabled"
+  | "missing_dependency"
+  | "missing_provider"
+  | "missing_plan"
+  | "missing_market_policy"
+  | "missing_identity_policy"
+  | "missing_feature_gate"
+  | "unhealthy_context";
+
+export type PlatformCapabilityEvaluationMode = {
+  dependencyMode?: "recursive" | "shallow" | "disabled";
+  requireFeatureGate?: boolean;
+  allowInternalCapabilities?: boolean;
+  allowDegradedHealth?: boolean;
+};
+
+export type PlatformCapabilityRuntimeDecision = {
+  usable: boolean;
+  status: PlatformCapabilityRuntimeStatus;
+  reasonCodes: readonly string[];
+  capabilityId: PlatformCapabilityId;
+  lifecycle: PlatformLifecycleState;
+  health: PlatformHealthState;
+  requiredProviders: readonly PlatformProvider[];
+  missingProviders: readonly PlatformProvider[];
+  requiredPlans: readonly PlatformPlanRequirement[];
+  requiredPermissions: readonly string[];
+  missingFeatureGates: readonly PlatformCapabilityId[];
+  dependencyDecisions: readonly PlatformCapabilityRuntimeDecision[];
+  customerSafeMessage: string;
 };
 
 export type PlatformEventRegistration = {
@@ -307,11 +346,47 @@ export const PLATFORM_CAPABILITIES: Record<PlatformCapabilityId, PlatformCapabil
     requiredPlans: ["starter", "growth", "portfolio"],
     requiredMarketPolicies: ["AI provider allowed for market"],
     requiredIdentityPolicies: ["active organization membership"],
-    requiredAuditEvents: ["intelligence.risk_score_viewed", "intelligence.risk_queue_viewed"],
+    requiredAuditEvents: ["intelligence.risk_explanation_viewed", "intelligence.risk_queue_viewed"],
     requiredMonitoring: ["intelligence access denial"],
     requiredDeploymentGates: ["test:intelligence-release-gate"],
     docs: ["docs/intelligence/INTELLIGENCE_RELEASE_GATE.md"],
     notes: "Reads trusted workflow state and cannot mutate reminders or contract truth."
+  },
+  financial_intelligence: {
+    id: "financial_intelligence",
+    label: "Financial exposure intelligence",
+    lifecycle: "generally_available",
+    health: "healthy",
+    owningModule: "financial_exposure_intelligence",
+    dependencies: ["contracts", "billing", "audit", "monitoring", "permissions"],
+    requiredProviders: ["supabase"],
+    requiredPermissions: ["view_financial_intelligence"],
+    requiredPlans: ["growth", "portfolio"],
+    requiredMarketPolicies: ["global/default runtime market"],
+    requiredIdentityPolicies: ["admin financial intelligence access"],
+    requiredAuditEvents: ["intelligence.financial_viewed"],
+    requiredMonitoring: ["intelligence access denial", "financial exposure calculation failures"],
+    requiredDeploymentGates: ["test:intelligence-release-gate", "tests/financial-exposure.test.ts"],
+    docs: ["docs/intelligence/FINANCIAL_INTELLIGENCE_SCOPE.md", "docs/intelligence/INTELLIGENCE_RELEASE_GATE.md"],
+    notes: "Calculates renewal exposure from reviewed workflow state with trust metadata and no ERP/accounting claims."
+  },
+  procurement_analytics: {
+    id: "procurement_analytics",
+    label: "Procurement/vendor analytics",
+    lifecycle: "generally_available",
+    health: "healthy",
+    owningModule: "procurement_vendor_analytics",
+    dependencies: ["contracts", "billing", "audit", "monitoring", "permissions"],
+    requiredProviders: ["supabase"],
+    requiredPermissions: ["view_procurement_analytics"],
+    requiredPlans: ["growth", "portfolio"],
+    requiredMarketPolicies: ["global/default runtime market"],
+    requiredIdentityPolicies: ["admin/operator procurement analytics access"],
+    requiredAuditEvents: ["intelligence.procurement_viewed"],
+    requiredMonitoring: ["intelligence access denial", "procurement analytics query failures"],
+    requiredDeploymentGates: ["test:intelligence-release-gate", "tests/procurement-query-helpers.test.ts"],
+    docs: ["docs/intelligence/PROCUREMENT_ANALYTICS_SCOPE.md", "docs/intelligence/INTELLIGENCE_RELEASE_GATE.md"],
+    notes: "Surfaces action-oriented vendor renewal portfolio metrics with drilldown IDs and no vendor enrichment."
   },
   revenue_intelligence: {
     id: "revenue_intelligence",
@@ -366,6 +441,24 @@ export const PLATFORM_CAPABILITIES: Record<PlatformCapabilityId, PlatformCapabil
     requiredDeploymentGates: ["test:permission-boundaries"],
     docs: ["docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md"],
     notes: "Runtime policy layer exists; provider-backed SSO/SCIM remains future-only."
+  },
+  platform_api_integrations: {
+    id: "platform_api_integrations",
+    label: "Public API and enterprise integration boundary",
+    lifecycle: "future_only",
+    health: "future_only",
+    owningModule: "enterprise_integrations",
+    dependencies: ["permissions", "audit", "monitoring", "billing", "providers"],
+    requiredProviders: ["future_public_api_provider"],
+    requiredPermissions: ["future_public_api_tokens", "future_integrations_manage"],
+    requiredPlans: ["enterprise"],
+    requiredMarketPolicies: ["future API/integration activation approval"],
+    requiredIdentityPolicies: ["future scoped API token and OAuth app policy"],
+    requiredAuditEvents: [],
+    requiredMonitoring: ["future API/integration auth failures"],
+    requiredDeploymentGates: ["tests/platform-api-boundary.test.ts", "tests/platform-api-schema-routes.test.ts"],
+    docs: ["docs/API_AND_INTEGRATION_BOUNDARY.md", "docs/enterprise/API_INTEGRATION_IMPLEMENTATION_PLAN.md"],
+    notes: "Registry and contract boundary only; no customer API keys, Slack/Teams, ERP/CRM sync, or live integration runtime is shipped."
   },
   providers: {
     id: "providers",
@@ -710,6 +803,206 @@ export function validatePlatformRuntimeContext(
   return {
     valid: reasonCodes.length === 0,
     reasonCodes
+  };
+}
+
+const planRank: Record<string, number> = {
+  none: 0,
+  free: 0,
+  starter: 1,
+  growth: 2,
+  portfolio: 3,
+  enterprise: 4
+};
+
+function planSatisfiesRequirement(
+  currentPlan: PlatformRuntimeContext["subscription"]["planTier"],
+  requirement: PlatformPlanRequirement,
+  mode: PlatformCapabilityEvaluationMode
+) {
+  if (requirement === "none") return true;
+  if (requirement === "internal_only") return Boolean(mode.allowInternalCapabilities);
+  if (requirement === "future_policy" || requirement === "preset_specific") return false;
+
+  return (planRank[String(currentPlan ?? "none")] ?? -1) >= (planRank[requirement] ?? Number.POSITIVE_INFINITY);
+}
+
+function isCustomerUsableLifecycle(lifecycle: PlatformLifecycleState, mode: PlatformCapabilityEvaluationMode) {
+  if (lifecycle === "internal") return Boolean(mode.allowInternalCapabilities);
+  return lifecycle === "generally_available" || lifecycle === "beta" || lifecycle === "customer_preview";
+}
+
+function isCustomerUsableHealth(health: PlatformHealthState, mode: PlatformCapabilityEvaluationMode) {
+  if (health === "healthy" || health === "warning" || health === "maintenance") return true;
+  if (health === "degraded" && mode.allowDegradedHealth) return true;
+  return false;
+}
+
+function requiresRuntimeMarket(capability: PlatformCapability) {
+  return capability.lifecycle === "generally_available" || capability.lifecycle === "beta" || capability.lifecycle === "customer_preview";
+}
+
+function hasInternalPlanRequirement(capability: PlatformCapability) {
+  return capability.requiredPlans.includes("internal_only");
+}
+
+function statusFromReasonCodes(reasonCodes: readonly string[]): PlatformCapabilityRuntimeStatus {
+  if (reasonCodes.some((reason) => reason.startsWith("context_"))) return "unhealthy_context";
+  if (reasonCodes.some((reason) => reason.startsWith("lifecycle_future") || reason.startsWith("health_future"))) {
+    return "future_only";
+  }
+  if (
+    reasonCodes.some((reason) =>
+      ["lifecycle_disabled", "health_disabled", "lifecycle_deprecated", "health_blocked"].includes(reason)
+    )
+  ) {
+    return "disabled";
+  }
+  if (reasonCodes.some((reason) => reason.startsWith("dependency_"))) return "missing_dependency";
+  if (reasonCodes.some((reason) => reason.startsWith("provider_"))) return "missing_provider";
+  if (reasonCodes.some((reason) => reason.startsWith("plan_"))) return "missing_plan";
+  if (reasonCodes.some((reason) => reason.startsWith("market_"))) return "missing_market_policy";
+  if (reasonCodes.some((reason) => reason.startsWith("identity_"))) return "missing_identity_policy";
+  if (reasonCodes.some((reason) => reason.startsWith("feature_gate_"))) return "missing_feature_gate";
+  return reasonCodes.length > 0 ? "blocked" : "usable";
+}
+
+function messageForStatus(status: PlatformCapabilityRuntimeStatus) {
+  switch (status) {
+    case "usable":
+      return "Capability is usable in the current platform runtime context.";
+    case "future_only":
+      return "Capability is future-only and cannot be used in current runtime.";
+    case "disabled":
+      return "Capability is disabled or deprecated and cannot be used.";
+    case "missing_dependency":
+      return "Capability is blocked because a required dependency is not usable.";
+    case "missing_provider":
+      return "Capability is blocked because a required provider is unavailable.";
+    case "missing_plan":
+      return "Capability is blocked by the current plan or packaging policy.";
+    case "missing_market_policy":
+      return "Capability is blocked by market runtime policy.";
+    case "missing_identity_policy":
+      return "Capability is blocked by identity or actor context policy.";
+    case "missing_feature_gate":
+      return "Capability is blocked because the feature gate is not enabled.";
+    case "unhealthy_context":
+      return "Capability is blocked because the platform runtime context is unhealthy.";
+    default:
+      return "Capability is blocked by platform policy.";
+  }
+}
+
+export function evaluatePlatformCapabilityRuntime(
+  capabilityId: PlatformCapabilityId,
+  context: PlatformRuntimeContext,
+  mode: PlatformCapabilityEvaluationMode = {},
+  visited: Set<PlatformCapabilityId> = new Set()
+): PlatformCapabilityRuntimeDecision {
+  const capability = PLATFORM_CAPABILITIES[capabilityId];
+  const reasonCodes: string[] = [];
+  const dependencyDecisions: PlatformCapabilityRuntimeDecision[] = [];
+  const dependencyMode = mode.dependencyMode ?? "recursive";
+  const requireFeatureGate = mode.requireFeatureGate ?? true;
+
+  const contextValidation = validatePlatformRuntimeContext(context);
+  if (!contextValidation.valid) {
+    reasonCodes.push(...contextValidation.reasonCodes.map((reason) => `context_${reason}`));
+  }
+
+  if (!isCustomerUsableLifecycle(capability.lifecycle, mode)) {
+    reasonCodes.push(`lifecycle_${capability.lifecycle}`);
+  }
+
+  if (!isCustomerUsableHealth(capability.health, mode)) {
+    reasonCodes.push(`health_${capability.health}`);
+  }
+
+  if (hasInternalPlanRequirement(capability) && !mode.allowInternalCapabilities) {
+    reasonCodes.push("plan_internal_only");
+  }
+
+  const missingProviders = capability.requiredProviders.filter(
+    (provider) => !context.providerPolicies.providers.includes(provider)
+  );
+  if (missingProviders.length > 0) {
+    reasonCodes.push(...missingProviders.map((provider) => `provider_missing_${provider}`));
+  }
+
+  const planSatisfied = capability.requiredPlans.some((requirement) =>
+    planSatisfiesRequirement(context.subscription.planTier, requirement, mode)
+  );
+  if (!planSatisfied) {
+    reasonCodes.push("plan_requirement_not_met");
+  }
+
+  if (requiresRuntimeMarket(capability)) {
+    if (!context.market.runtimeEnabled) reasonCodes.push("market_runtime_disabled");
+    if (context.market.marketId !== "global") reasonCodes.push("market_not_shipped_runtime");
+  }
+
+  if (capability.requiredPermissions.length > 0 && !context.identity.actorUserId) {
+    reasonCodes.push("identity_actor_required");
+  }
+
+  if (requireFeatureGate && isCustomerUsableLifecycle(capability.lifecycle, mode)) {
+    if (!context.featureGates.enabledCapabilities.includes(capabilityId)) {
+      reasonCodes.push(`feature_gate_missing_${capabilityId}`);
+    }
+  }
+
+  if (dependencyMode !== "disabled") {
+    if (visited.has(capabilityId)) {
+      reasonCodes.push("dependency_cycle_detected");
+    } else {
+      const nextVisited = new Set(visited);
+      nextVisited.add(capabilityId);
+      for (const dependencyId of capability.dependencies) {
+        const dependencyDecision =
+          dependencyMode === "recursive"
+            ? evaluatePlatformCapabilityRuntime(
+                dependencyId,
+                context,
+                { ...mode, allowInternalCapabilities: true, requireFeatureGate: false },
+                nextVisited
+              )
+            : evaluatePlatformCapabilityRuntime(
+                dependencyId,
+                context,
+                {
+                  ...mode,
+                  dependencyMode: "disabled",
+                  allowInternalCapabilities: true,
+                  requireFeatureGate: false
+                },
+                nextVisited
+              );
+        dependencyDecisions.push(dependencyDecision);
+        if (!dependencyDecision.usable) {
+          reasonCodes.push(`dependency_blocked_${dependencyId}`);
+        }
+      }
+    }
+  }
+
+  const status = statusFromReasonCodes(reasonCodes);
+
+  return {
+    usable: status === "usable",
+    status,
+    reasonCodes,
+    capabilityId,
+    lifecycle: capability.lifecycle,
+    health: capability.health,
+    requiredProviders: capability.requiredProviders,
+    missingProviders,
+    requiredPlans: capability.requiredPlans,
+    requiredPermissions: capability.requiredPermissions,
+    missingFeatureGates:
+      reasonCodes.includes(`feature_gate_missing_${capabilityId}`) ? [capabilityId] : [],
+    dependencyDecisions,
+    customerSafeMessage: messageForStatus(status)
   };
 }
 

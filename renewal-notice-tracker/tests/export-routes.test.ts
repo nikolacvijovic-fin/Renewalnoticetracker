@@ -94,7 +94,22 @@ describe("export routes", () => {
         insert: vi.fn().mockResolvedValue({ error: null })
       }))
     });
-    enforceFeatureAccess.mockResolvedValue({});
+    enforceFeatureAccess.mockResolvedValue({
+      billingSnapshot: {
+        organizationId: "org-1",
+        planTier: "growth",
+        subscriptionStatus: "active",
+        billingProvider: "paddle",
+        trialEndsAt: null,
+        currentPeriodEnd: null
+      },
+      accessResult: {
+        allowed: true,
+        feature: "exports",
+        reason: "allowed",
+        message: "Allowed"
+      }
+    });
     assertCanAccessIntelligenceSurface.mockResolvedValue({});
     assertCanUseShippedAction.mockImplementation(async (context: { role: string } | null) => {
       if (!context) {
@@ -161,7 +176,7 @@ describe("export routes", () => {
         metadata: expect.objectContaining({
           export_preset: "notes_and_decisions_export",
           format: "csv",
-          denied_reason: "role_not_allowed"
+          denied_reason: "forbidden"
         })
       })
     );
@@ -470,7 +485,22 @@ describe("export routes", () => {
       })
     );
     getExportRows.mockResolvedValue([{ contract_title: "MSA" }]);
-    enforceFeatureAccess.mockResolvedValue({});
+    enforceFeatureAccess.mockResolvedValue({
+      billingSnapshot: {
+        organizationId: "org-1",
+        planTier: "growth",
+        subscriptionStatus: "active",
+        billingProvider: "paddle",
+        trialEndsAt: null,
+        currentPeriodEnd: null
+      },
+      accessResult: {
+        allowed: true,
+        feature: "exports",
+        reason: "allowed",
+        message: "Allowed"
+      }
+    });
     assertCanAccessIntelligenceSurface.mockResolvedValue({});
     assertCanUseShippedAction.mockImplementation(async (context: { role: string } | null) => {
       if (!context) {

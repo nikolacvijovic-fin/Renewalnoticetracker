@@ -90,9 +90,12 @@ Current registered capabilities include:
 - `renewals`
 - `contracts`
 - `contract_intelligence`
+- `financial_intelligence`
+- `procurement_analytics`
 - `revenue_intelligence`
 - `billing`
 - `identity`
+- `platform_api_integrations`
 - `providers`
 - `market_profiles`
 - `market_activation`
@@ -120,6 +123,8 @@ Examples:
 
 No circular dependencies are allowed.
 
+Runtime dependency evaluation is bounded and explicit. Callers may evaluate dependencies recursively, shallowly, or disable dependency traversal for focused checks. Recursive evaluation tracks visited capabilities so dependency cycles cannot create infinite recursion.
+
 ## Runtime Context
 
 `PlatformRuntimeContext` is the future shared context shape. It includes:
@@ -135,7 +140,33 @@ No circular dependencies are allowed.
 - audit context
 - monitoring context
 
-Future modules should consume this context instead of reading many unrelated helpers directly. The current implementation validates context shape and consistency only; it does not replace existing runtime helpers.
+Future modules should consume this context instead of reading many unrelated helpers directly. The current implementation validates context shape and consistency and exposes `evaluatePlatformCapabilityRuntime(...)` as the shared capability decision helper.
+
+The runtime evaluator returns:
+
+- `usable`
+- `status`
+- `reasonCodes`
+- missing providers
+- missing feature gates
+- dependency decisions
+- required plans and permissions
+- customer-safe message
+
+The evaluator is intentionally conservative. It checks lifecycle, health, providers, plan policy, market policy, identity context, feature gates, and dependency health before a capability can be considered usable.
+
+This does not replace domain authorization. Routes and services must still enforce their own authenticated user, organization scope, billing, permission, and data-access checks. The orchestration evaluator is the platform-level readiness boundary that prevents future modules from casually treating planned, future-only, disabled, or dependency-blocked capabilities as shipped runtime.
+
+## Current Enforcement Surfaces
+
+The evaluator is now consumed by the first runtime safety seams:
+
+- Contract export preset access in `lib/contracts/export-access.ts` requires the `exports` platform capability after existing role and commercial entitlement checks pass.
+- Intelligence access in `lib/intelligence/access.ts` maps risk, financial, and procurement surfaces to `contract_intelligence`, `financial_intelligence`, and `procurement_analytics` platform capabilities.
+
+These checks are additive. Export routes still enforce active organization, shipped action permissions, preset role rules, commercial feature access, tenant-scoped row assembly, preflight limits, and audit logging. Intelligence routes still enforce role, owner-scope, billing, and surface-specific authorization. Platform evaluation fails closed only when the capability itself is not usable in the current runtime context.
+
+Future modules must pass platform evaluation before route, UI, API, or provider exposure. Passing platform evaluation is necessary but not sufficient: domain authorization remains mandatory.
 
 ## Event Registry
 
@@ -172,6 +203,8 @@ Allowed lifecycle states:
 - `future_only`
 
 This lifecycle is separate from the existing shipped/deferred platform module status. Module status answers product packaging truth; lifecycle answers capability maturity.
+
+Runtime consequence: `future_only`, `planned`, `experimental`, `deprecated`, and `disabled` capabilities are not customer-usable just because a provider, plan, or feature flag is present. `revenue_intelligence`, `identity`, `market_activation`, and `approval_queue` remain non-usable in the current runtime.
 
 ## Future Expansion Philosophy
 

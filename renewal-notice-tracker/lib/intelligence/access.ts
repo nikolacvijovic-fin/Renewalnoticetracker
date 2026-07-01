@@ -8,6 +8,11 @@ import {
   type CommercialAccessResult
 } from "@/lib/billing/entitlements";
 import type { ActiveOrganizationContext, MembershipRole } from "@/lib/auth";
+import {
+  evaluatePlatformCapabilityGate,
+  type PlatformCapabilityGateDecision
+} from "@/lib/product/platform-capability-gates";
+import type { PlatformCapabilityId, PlatformRuntimeContext } from "@/lib/product/platform-orchestration";
 
 export const INTELLIGENCE_PERMISSIONS = [
   "view_financial_intelligence",
@@ -127,6 +132,26 @@ export class IntelligencePlanAccessError extends Error {
   }
 }
 
+export class IntelligencePlatformAccessError extends Error {
+  constructor(
+    public readonly surface: IntelligenceSurface,
+    public readonly capabilityId: PlatformCapabilityId,
+    public readonly decision: PlatformCapabilityGateDecision
+  ) {
+    super(decision.customerSafeMessage);
+    this.name = "IntelligencePlatformAccessError";
+  }
+}
+
+export const INTELLIGENCE_SURFACE_PLATFORM_CAPABILITY: Record<IntelligenceSurface, PlatformCapabilityId> = {
+  financial_dashboard: "financial_intelligence",
+  procurement_dashboard: "procurement_analytics",
+  risk_queue: "contract_intelligence",
+  risk_explanation: "contract_intelligence",
+  risk_badge: "contract_intelligence",
+  manage_intelligence_settings: "contract_intelligence"
+} as const;
+
 export function canUseIntelligencePermission(
   role: MembershipRole,
   permission: IntelligencePermission
@@ -139,6 +164,8 @@ export function getIntelligenceSurfaceAccess(input: {
   billingSnapshot: BillingSnapshot;
   surface: IntelligenceSurface;
   contractOwnerUserId?: string | null;
+  platformRuntimeContext?: PlatformRuntimeContext;
+  platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const rule = INTELLIGENCE_SURFACE_MATRIX[input.surface];
   const roleAllowed = rule.allowedRoles
@@ -149,12 +176,25 @@ export function getIntelligenceSurfaceAccess(input: {
     !rule.ownerScoped ||
     (input.contractOwnerUserId != null && input.contractOwnerUserId === input.context.user.id);
   const featureAccess = getFeatureAccessResult(input.billingSnapshot, rule.feature);
+  const platformGate = evaluatePlatformCapabilityGate({
+    capabilityId: INTELLIGENCE_SURFACE_PLATFORM_CAPABILITY[input.surface],
+    context: input.context,
+    billingSnapshot: input.billingSnapshot,
+    billingDecision: featureAccess,
+    permissionDecision: {
+      allowed: roleAllowed && ownerScopedAllowed,
+      reasonCode: !roleAllowed ? "role_not_allowed" : !ownerScopedAllowed ? "owner_scope_required" : undefined
+    },
+    runtimeContext: input.platformRuntimeContext,
+    runtimeContextOverrides: input.platformRuntimeContextOverrides
+  });
 
   return {
-    allowed: roleAllowed && ownerScopedAllowed && featureAccess.allowed,
+    allowed: roleAllowed && ownerScopedAllowed && featureAccess.allowed && platformGate.allowed,
     roleAllowed,
     ownerScopedAllowed,
     featureAccess,
+    platformGate,
     rule
   };
 }
@@ -164,6 +204,8 @@ export async function getIntelligenceSurfaceAccessState(input: {
   surface: IntelligenceSurface;
   contractOwnerUserId?: string | null;
   billingSnapshot?: BillingSnapshot;
+  platformRuntimeContext?: PlatformRuntimeContext;
+  platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const billingSnapshot =
     input.billingSnapshot ?? (await getBillingSnapshot(input.context.organizationId));
@@ -171,7 +213,9 @@ export async function getIntelligenceSurfaceAccessState(input: {
     context: input.context,
     billingSnapshot,
     surface: input.surface,
-    contractOwnerUserId: input.contractOwnerUserId
+    contractOwnerUserId: input.contractOwnerUserId,
+    platformRuntimeContext: input.platformRuntimeContext,
+    platformRuntimeContextOverrides: input.platformRuntimeContextOverrides
   });
 
   return {
@@ -184,6 +228,7 @@ export async function getIntelligenceSurfaceAccessMap(input: {
   context: ActiveOrganizationContext;
   surfaces: readonly IntelligenceSurface[];
   contractOwnerUserId?: string | null;
+  platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const billingSnapshot = await getBillingSnapshot(input.context.organizationId);
   const accessBySurface = Object.fromEntries(
@@ -193,7 +238,8 @@ export async function getIntelligenceSurfaceAccessMap(input: {
         context: input.context,
         billingSnapshot,
         surface,
-        contractOwnerUserId: input.contractOwnerUserId
+        contractOwnerUserId: input.contractOwnerUserId,
+        platformRuntimeContextOverrides: input.platformRuntimeContextOverrides
       })
     ])
   ) as Record<IntelligenceSurface, ReturnType<typeof getIntelligenceSurfaceAccess>>;
@@ -209,6 +255,8 @@ export async function assertCanAccessIntelligenceSurface(input: {
   surface: IntelligenceSurface;
   contractOwnerUserId?: string | null;
   billingSnapshot?: BillingSnapshot;
+  platformRuntimeContext?: PlatformRuntimeContext;
+  platformRuntimeContextOverrides?: Partial<PlatformRuntimeContext>;
 }) {
   const { billingSnapshot, access } = await getIntelligenceSurfaceAccessState(input);
   if (access.allowed) {
@@ -239,6 +287,30 @@ export async function assertCanAccessIntelligenceSurface(input: {
       access.rule.permission,
       input.context.role,
       reason
+    );
+  }
+
+  if (!access.platformGate.sourceDecisions.platform.usable) {
+    await createAuditLog({
+      organizationId: input.context.organizationId,
+      actorUserId: input.context.user.id,
+      action: "intelligence.access_denied",
+      entityType: "intelligence",
+      details: {
+        surface: input.surface,
+        permission: access.rule.permission,
+        role: input.context.role,
+        reason: "platform_capability_blocked",
+        platform_capability: access.platformGate.capabilityId,
+        platform_status: access.platformGate.internalDiagnostics.platformStatus,
+        reason_codes: access.platformGate.reasonCodes,
+        plan_tier: billingSnapshot.planTier
+      }
+    });
+    throw new IntelligencePlatformAccessError(
+      input.surface,
+      access.platformGate.capabilityId,
+      access.platformGate
     );
   }
 
