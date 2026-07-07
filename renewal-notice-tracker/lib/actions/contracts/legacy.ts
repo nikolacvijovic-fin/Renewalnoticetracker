@@ -14,7 +14,7 @@ import {
   requireOrganization,
   requireShippedRuntimeAction
 } from "@/lib/auth";
-import { createAdminSupabaseClient } from "@/lib/supabase/admin";
+import { createPrivilegedSupabaseClient } from "@/lib/supabase/privileged";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { extractTextFromFile } from "@/lib/extractors/file-text";
 import { extractContractMetadata } from "@/lib/ai/extract-contract";
@@ -381,7 +381,7 @@ async function findOrCreateCounterparty(params: {
   if (!params.name) return null;
   const identity = buildCounterpartyIdentity(params.name);
   if (!identity.rawCounterpartyName || !identity.normalizedCounterpartyName) return null;
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   const [{ data: existingCounterparties, error: counterpartyError }, { data: aliases, error: aliasError }] =
     await Promise.all([
       admin
@@ -497,7 +497,7 @@ async function insertReminders(params: {
     source: "system" | "manual";
   }>;
 }) {
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   if (params.reminders.length === 0) return;
 
   await admin.from("reminders").insert(
@@ -517,7 +517,7 @@ async function replaceEvidenceRows(params: {
   fieldConfidence: Record<string, number>;
   source?: string;
 }) {
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   await admin
     .from("extracted_field_evidence")
     .delete()
@@ -552,7 +552,7 @@ async function regenerateSystemReminders(params: {
   templateKey?: string | null;
   fallbackRecipients: string[];
 }) {
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   const { data: existingReminders, error } = await admin
     .from("reminders")
     .select("id, source, recipient_emails, recipient_email, status")
@@ -692,7 +692,7 @@ export async function createContractAction(formData: FormData) {
     throw error;
   }
 
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
 
   const { data: contract, error: contractError } = await admin
     .from("contracts")
@@ -1093,7 +1093,7 @@ export async function createManualContractAction(formData: FormData) {
     expirationDate: payload.expiration_date
   });
   const finalNoticeDeadline = payload.notice_deadline_date ?? templateNoticeDeadline;
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   let generatedReminderCount = 0;
   let supersededReminderCount = 0;
   let reminderActivationState: ReminderActivationState = getReminderActivationState({
@@ -1973,7 +1973,7 @@ export async function importContractsAction(formData: FormData) {
     context: { source: "import_contracts_action", row_count: parsedRows.length },
     additionalContracts: Math.max(parsedRows.length, 1)
   });
-  const admin = createAdminSupabaseClient();
+  const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   const members = await getOrganizationMembers(organizationId);
   const ownerByEmail = new Map(
     members

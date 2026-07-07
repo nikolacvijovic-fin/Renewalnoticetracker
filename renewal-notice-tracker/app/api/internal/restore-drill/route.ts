@@ -1,4 +1,3 @@
-import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { buildRestoreDrillEvidence } from "@/lib/commercial/privacy-operations";
 import {
   createRouteHandler,
@@ -8,7 +7,7 @@ import {
   routeServerError,
   routeValidationError
 } from "@/lib/http";
-import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
+import { insertBackupReadinessCheck } from "@/lib/internal/repositories/admin-ops-evidence-repository";
 
 export const POST = createRouteHandler(
   {
@@ -50,28 +49,21 @@ export const POST = createRouteHandler(
   },
   async ({ input, json }) => {
     const testedAt = input.tested_at ?? new Date().toISOString();
-    const admin = createAdminSupabaseClient();
 
-    await checkedPrivilegedWrite(
-      admin.from("backup_readiness_checks").insert({
-        environment: "production",
-        status: input.outcome === "passed" ? "healthy" : "failed",
-        summary: input.summary ?? `Restore drill ${input.outcome}.`,
-        restore_tested_at: testedAt,
-        evidence_json: buildRestoreDrillEvidence({
-          trigger: input.trigger ?? "manual",
-          outcome: input.outcome,
-          scope: input.scope ?? "workspace_restore",
-          recoveryTimeMinutes: input.recovery_time_minutes ?? null,
-          failures: input.failures ?? []
-        })
+    await insertBackupReadinessCheck({
+      environment: "production",
+      status: input.outcome === "passed" ? "healthy" : "failed",
+      summary: input.summary ?? `Restore drill ${input.outcome}.`,
+      restoreTestedAt: testedAt,
+      evidence: buildRestoreDrillEvidence({
+        trigger: input.trigger ?? "manual",
+        outcome: input.outcome,
+        scope: input.scope ?? "workspace_restore",
+        recoveryTimeMinutes: input.recovery_time_minutes ?? null,
+        failures: input.failures ?? []
       }),
-      {
-        operation: "insert",
-        table: "backup_readiness_checks",
-        context: "internal_restore_drill"
-      }
-    );
+      context: "internal_restore_drill"
+    });
 
     return json({ ok: true, restore_tested_at: testedAt }, { status: 200 });
   }

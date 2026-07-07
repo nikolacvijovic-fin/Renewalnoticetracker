@@ -1,17 +1,15 @@
 export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
-  "app/api/internal/backup-readiness/route.ts",
-  "app/api/internal/restore-drill/route.ts",
-  "lib/actions/contracts/legacy.ts",
-  "lib/analytics/events.ts",
-  "lib/audit.ts",
+  "lib/analytics/repositories/admin-analytics-repository.ts",
+  "lib/audit/repositories/admin-audit-repository.ts",
   "lib/billing/service.ts",
   "lib/commercial/capacity-snapshot.ts",
   "lib/commercial/readiness-snapshot.ts",
   "lib/contracts/background-exports.ts",
   "lib/contracts/export-route.ts",
-  "lib/contracts/processing-errors.ts",
+  "lib/contracts/repositories/admin-processing-errors-repository.ts",
   "lib/contracts/queries.ts",
   "lib/email/actions.ts",
+  "lib/internal/repositories/admin-ops-evidence-repository.ts",
   "lib/notifications/reminders.ts",
   "lib/ocr/jobs.ts",
   "lib/organization/scoped-admin.ts",
@@ -22,7 +20,7 @@ export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
 export const PRIVILEGED_ACCESS_POLICY = {
   canonicalWrapper: "lib/supabase/privileged.ts",
   directImportPolicy:
-    "Existing direct service-role imports are allowlisted for compatibility. New privileged code must use a scoped repository or createPrivilegedSupabaseClient with an explicit purpose.",
+    "Existing direct service-role imports are allowlisted only as temporary compatibility. New privileged code must use a scoped domain repository; broad action, app, product, deferred, and UI files must not import the admin client directly.",
   futureModulePolicy:
     "Future modules, including Revenue Intelligence and outreach, must not import createAdminSupabaseClient directly."
 } as const;

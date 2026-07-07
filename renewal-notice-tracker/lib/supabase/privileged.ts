@@ -12,5 +12,6 @@ export type PrivilegedSupabasePurpose =
   | "workspace_deletion";
 
 export function createPrivilegedSupabaseClient(_purpose: PrivilegedSupabasePurpose) {
+  void _purpose;
   return createAdminSupabaseClient();
 }

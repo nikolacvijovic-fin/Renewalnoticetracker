@@ -1,5 +1,4 @@
-import { createAdminSupabaseClient } from "@/lib/supabase/admin";
-import type { Json } from "@/lib/supabase/database.types";
+import { insertOrganizationAuditLog } from "@/lib/audit/repositories/admin-audit-repository";
 
 export class AuditLogWriteError extends Error {
   constructor(
@@ -51,16 +50,7 @@ export async function createAuditLog(
   options: { mode: "best_effort" }
 ): Promise<BestEffortAuditResult>;
 export async function createAuditLog(input: AuditLogInput, options: AuditLogOptions = {}) {
-  const admin = createAdminSupabaseClient();
-  const { error } = await admin.from("audit_logs").insert({
-    organization_id: input.organizationId,
-    actor_user_id: input.actorUserId ?? null,
-    contract_id: input.contractId ?? null,
-    action: input.action,
-    entity_type: input.entityType,
-    entity_id: input.entityId ?? input.contractId ?? null,
-    details: (input.details ?? {}) as Json
-  });
+  const { error } = await insertOrganizationAuditLog(input);
 
   if (!error) {
     return { ok: true } as const;

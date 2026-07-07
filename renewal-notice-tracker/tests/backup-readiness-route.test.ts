@@ -7,6 +7,13 @@ vi.mock("@/lib/config", () => ({
   getAppConfig: () => ({
     internal: {
       operationsSecret: "secret"
+    },
+    operations: {
+      monitoringEventSink: "structured_log",
+      monitoringAlertWebhookUrl: null,
+      monitoringAlertWebhookSigningSecret: null,
+      monitoringAlertWebhookTimeoutMs: 2500,
+      monitoringAlertWebhookDeliveryMode: "await"
     }
   })
 }));

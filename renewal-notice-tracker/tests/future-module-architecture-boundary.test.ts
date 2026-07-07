@@ -83,18 +83,49 @@ describe("future module architecture boundary", () => {
   it("blocks new direct service-role imports outside the approved privileged boundary", () => {
     const approved = new Set<string>(APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS);
     const directImportPattern = /from\s+["']@\/lib\/supabase\/admin["']/;
-    const offenders = walkSourceFiles(path.join(projectRoot, "app"))
-      .concat(walkSourceFiles(path.join(projectRoot, "lib")))
+    const scannedFiles = walkSourceFiles(path.join(projectRoot, "app"))
+      .concat(walkSourceFiles(path.join(projectRoot, "components")))
+      .concat(walkSourceFiles(path.join(projectRoot, "deferred")))
+      .concat(walkSourceFiles(path.join(projectRoot, "lib")));
+    const directImporters = scannedFiles
       .map((filePath) => ({
         relativePath: normalizePath(filePath),
         source: fs.readFileSync(filePath, "utf8")
       }))
       .filter(({ source }) => directImportPattern.test(source))
-      .map(({ relativePath }) => relativePath)
+      .map(({ relativePath }) => relativePath);
+    const offenders = directImporters
       .filter((relativePath) => !approved.has(relativePath));
+    const forbiddenRuntimePrefixes = [
+      "app/",
+      "components/",
+      "deferred/",
+      "lib/actions/",
+      "lib/product/"
+    ];
+    const forbiddenRuntimeOffenders = directImporters.filter((relativePath) =>
+      forbiddenRuntimePrefixes.some((prefix) => relativePath.startsWith(prefix))
+    );
 
     expect(PRIVILEGED_ACCESS_POLICY.futureModulePolicy).toContain("must not import createAdminSupabaseClient directly");
     expect(offenders).toEqual([]);
+    expect(forbiddenRuntimeOffenders).toEqual([]);
+  });
+
+  it("routes first-pass privileged writes through scoped repositories", () => {
+    expect(readProjectFile("lib/audit.ts")).not.toContain("@/lib/supabase/admin");
+    expect(readProjectFile("lib/analytics/events.ts")).not.toContain("@/lib/supabase/admin");
+    expect(readProjectFile("lib/contracts/processing-errors.ts")).not.toContain("@/lib/supabase/admin");
+    expect(readProjectFile("app/api/internal/backup-readiness/route.ts")).not.toContain("@/lib/supabase/admin");
+    expect(readProjectFile("app/api/internal/restore-drill/route.ts")).not.toContain("@/lib/supabase/admin");
+    expect(readProjectFile("lib/actions/contracts/legacy.ts")).not.toContain("@/lib/supabase/admin");
+
+    expect(readProjectFile("lib/audit/repositories/admin-audit-repository.ts")).toContain("organization_id");
+    expect(readProjectFile("lib/analytics/repositories/admin-analytics-repository.ts")).toContain("organization_id");
+    expect(readProjectFile("lib/contracts/repositories/admin-processing-errors-repository.ts")).toContain("contract_id");
+    expect(readProjectFile("lib/contracts/repositories/admin-processing-errors-repository.ts")).toContain("organization_id");
+    expect(readProjectFile("lib/internal/repositories/admin-ops-evidence-repository.ts")).toContain("backup_readiness_checks");
+    expect(readProjectFile("lib/internal/repositories/admin-ops-evidence-repository.ts")).toContain("context:");
   });
 
   it("keeps future modules away from the deprecated contract query surface", () => {

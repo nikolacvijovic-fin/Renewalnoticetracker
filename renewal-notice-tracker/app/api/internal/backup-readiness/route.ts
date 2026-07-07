@@ -1,4 +1,3 @@
-import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { buildBackupReadinessEvidence } from "@/lib/commercial/privacy-operations";
 import {
   createRouteHandler,
@@ -8,7 +7,7 @@ import {
   routeServerError,
   routeValidationError
 } from "@/lib/http";
-import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
+import { insertBackupReadinessCheck } from "@/lib/internal/repositories/admin-ops-evidence-repository";
 
 export const POST = createRouteHandler(
   {
@@ -48,24 +47,17 @@ export const POST = createRouteHandler(
         : null
   },
   async ({ input, json }) => {
-    const admin = createAdminSupabaseClient();
-    await checkedPrivilegedWrite(
-      admin.from("backup_readiness_checks").insert({
-        environment: input.environment ?? "production",
-        status: input.status,
-        summary: input.summary ?? null,
-        restore_tested_at: input.restore_tested_at ?? null,
-        evidence_json: buildBackupReadinessEvidence({
-          trigger: input.trigger ?? "manual",
-          failures: input.failures ?? []
-        })
+    await insertBackupReadinessCheck({
+      environment: input.environment ?? "production",
+      status: input.status,
+      summary: input.summary ?? null,
+      restoreTestedAt: input.restore_tested_at ?? null,
+      evidence: buildBackupReadinessEvidence({
+        trigger: input.trigger ?? "manual",
+        failures: input.failures ?? []
       }),
-      {
-        operation: "insert",
-        table: "backup_readiness_checks",
-        context: "internal_backup_readiness"
-      }
-    );
+      context: "internal_backup_readiness"
+    });
 
     return json({ ok: true }, { status: 200 });
   }

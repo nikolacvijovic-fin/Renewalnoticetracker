@@ -1,6 +1,6 @@
-import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import type { Json } from "@/lib/supabase/database.types";
 import type { Phase1AnalyticsEventName } from "@/lib/analytics/phase1-events";
+import { insertServerAnalyticsEvent } from "@/lib/analytics/repositories/admin-analytics-repository";
 
 export async function trackServerAnalyticsEvent(input: {
   organizationId?: string | null;
@@ -10,18 +10,7 @@ export async function trackServerAnalyticsEvent(input: {
   idempotencyKey?: string | null;
   properties?: Json;
 }) {
-  const admin = createAdminSupabaseClient();
-  const payload = {
-    organization_id: input.organizationId ?? null,
-    actor_user_id: input.actorUserId ?? null,
-    event_name: input.eventName,
-    source_kind: "server",
-    source_of_truth: input.sourceOfTruth,
-    idempotency_key: input.idempotencyKey ?? null,
-    properties: input.properties ?? {}
-  };
-
-  const { error } = await admin.from("analytics_events").insert(payload);
+  const { error } = await insertServerAnalyticsEvent(input);
   if (error?.code === "23505") {
     return { inserted: false as const };
   }
