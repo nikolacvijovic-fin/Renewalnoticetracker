@@ -64,7 +64,7 @@ The platform model defines contracts for:
 - `PlatformJob`
 - `PlatformHealth`
 
-The current implementation intentionally keeps these as typed contracts and registries. Business logic remains in domain modules such as `lib/contracts`, `lib/intelligence`, `lib/billing`, `lib/notifications`, `lib/product/enterprise-identity-runtime.ts`, and `lib/product/revenue-intelligence.ts`.
+The current implementation intentionally keeps these as typed contracts and registries. Business logic remains in domain modules such as `lib/contracts`, `lib/intelligence`, `lib/billing`, `lib/notifications`, and `lib/product/enterprise-identity-runtime.ts`. Future Revenue Intelligence contracts are isolated under `deferred/revenue-intelligence` and exposed to existing registries only through a compatibility shim.
 
 ## Platform Capability Registry
 
@@ -257,7 +257,7 @@ Only then should route, UI, provider, or workflow implementation begin.
 
 ## Domain Relationships
 
-Revenue Intelligence is future-only. It depends on compliance, market profiles, AI contracts, approval queue, audit, and monitoring. It must not become a mass email tool or bypass human approval.
+Revenue Intelligence is future-only. It depends on compliance, market profiles, AI contracts, approval queue, audit, and monitoring. It must not become a mass email tool or bypass human approval. Its release blockers are documented in [REVENUE_INTELLIGENCE_RELEASE_GATE.md](REVENUE_INTELLIGENCE_RELEASE_GATE.md).
 
 Market Expansion is infrastructure. `global/default` remains the only shipped market. Planned and restricted profiles are not runtime permission.
 

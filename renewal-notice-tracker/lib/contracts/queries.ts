@@ -1,3 +1,8 @@
+// Legacy/internal-ops compatibility query surface.
+// New shipped runtime and future modules must not import this file. Use
+// lib/contracts/kernel-queries.ts for canonical organization-scoped contract
+// reads, or create a narrow domain repository when a new module needs data.
+
 import type { ContractFilter } from "@/lib/constants";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";

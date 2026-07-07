@@ -1,3 +1,7 @@
+// Canonical shipped-kernel contract query surface.
+// New runtime modules should import organization-scoped contract reads from here,
+// not from the legacy/internal-ops compatibility surface in lib/contracts/queries.ts.
+
 import type { ContractFilter } from "@/lib/constants";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {

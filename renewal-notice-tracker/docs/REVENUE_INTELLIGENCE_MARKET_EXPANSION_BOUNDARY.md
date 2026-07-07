@@ -1,6 +1,6 @@
 # Revenue Intelligence And Market Expansion Boundary
 
-Canonical code sources: `lib/product/revenue-intelligence.ts` and `lib/product/market-profiles.ts`.
+Canonical code sources: `deferred/revenue-intelligence/foundation.ts`, the compatibility shim `lib/product/revenue-intelligence.ts`, and `lib/product/market-profiles.ts`.
 
 This is a future foundation only. NoticeControl does not currently ship a lead database, automated outreach generation, email sending automation, CRM sync, data enrichment, or a customer-facing revenue intelligence product.
 
@@ -21,7 +21,7 @@ No outreach leaves the system from this foundation.
 
 ## Not A Mass Email Tool
 
-This foundation must not be used as a spam system, scraping system, sanctions bypass, or automated campaign sender.
+This foundation must not be used as a spam system, scraping system, sanctions bypass, or automated campaign sender. It is not a mass email tool.
 
 Rules:
 
@@ -98,6 +98,7 @@ Restricted markets require legal/compliance review and cannot self-activate. The
 
 Before revenue intelligence or outreach can become shipped runtime:
 
+- the blockers in [REVENUE_INTELLIGENCE_RELEASE_GATE.md](REVENUE_INTELLIGENCE_RELEASE_GATE.md) must be satisfied
 - source/evidence ingestion must be lawful and documented
 - suppression and opt-out handling must be persistent and tested
 - compliance/legal review must approve market-specific rules

@@ -11,7 +11,7 @@ import {
   evaluateOutreachCompliance,
   explainIcpFit,
   type FutureLeadRecord
-} from "@/lib/product/revenue-intelligence";
+} from "@/deferred/revenue-intelligence/foundation";
 import { MARKET_PROFILES, canSelfServeActivateMarket } from "@/lib/product/market-profiles";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

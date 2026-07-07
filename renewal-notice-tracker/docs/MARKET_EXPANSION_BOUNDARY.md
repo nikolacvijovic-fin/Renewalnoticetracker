@@ -4,7 +4,7 @@ NoticeControl currently ships with the `global/default` market profile. The mark
 
 Canonical registry: `lib/product/market-profiles.ts`.
 
-Revenue intelligence and outreach safety contracts are defined in [REVENUE_INTELLIGENCE_MARKET_EXPANSION_BOUNDARY.md](REVENUE_INTELLIGENCE_MARKET_EXPANSION_BOUNDARY.md) and `lib/product/revenue-intelligence.ts`. These contracts are future foundation only; they do not ship lead generation, campaign automation, or email sending.
+Revenue intelligence and outreach safety contracts are defined in [REVENUE_INTELLIGENCE_MARKET_EXPANSION_BOUNDARY.md](REVENUE_INTELLIGENCE_MARKET_EXPANSION_BOUNDARY.md), [REVENUE_INTELLIGENCE_RELEASE_GATE.md](REVENUE_INTELLIGENCE_RELEASE_GATE.md), and `deferred/revenue-intelligence/foundation.ts`. The `lib/product/revenue-intelligence.ts` file is a compatibility shim only. These contracts are future foundation only; they do not ship lead generation, campaign automation, or email sending.
 
 ## Compatibility Is Not Runtime Permission
 
