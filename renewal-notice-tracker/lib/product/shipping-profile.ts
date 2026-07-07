@@ -59,6 +59,8 @@ export const SHIPPED_FIRST_SCOPE = {
     "critical_action_audit_logging",
     "early_reporting_only",
     "counterparty_normalization_v1",
+    "saas_software_inventory",
+    "cfo_opt_out_clock",
     "paddle_primary_billing",
     "manual_invoice_exceptions",
     "customer_services_onboarding_import_cleanup_renewal_ops"
@@ -103,6 +105,7 @@ export const SHIPPED_FIRST_SCOPE = {
     { href: "/dashboard/risk-queue", label: "Risk Queue" },
     { href: "/dashboard/financial-intelligence", label: "Financial" },
     { href: "/dashboard/procurement-analytics", label: "Procurement" },
+    { href: "/dashboard/saas-opt-out-clock", label: "Opt-Out Clock" },
     { href: "/dashboard/contracts", label: "Contracts" },
     { href: "/dashboard/settings", label: "Settings" },
     { href: "/pricing", label: "Pricing" },

@@ -170,4 +170,72 @@ describe("billing webhook replay integration", () => {
       })
     );
   });
+
+  it("uses Paddle event ids for idempotency even when replay payload bodies differ", async () => {
+    const adminStub = createReplayAwareAdminClient();
+    createAdminSupabaseClient.mockReturnValue(adminStub.client);
+
+    const { handleWebhook } = await import("@/lib/billing/provider");
+    const { persistBillingWebhookUpdate } = await import("@/lib/billing/service");
+
+    function signedHeaders(body: string) {
+      const timestamp = `${Math.floor(Date.now() / 1000)}`;
+      const signature = crypto
+        .createHmac("sha256", process.env.PADDLE_WEBHOOK_SECRET ?? "")
+        .update(`${timestamp}:${body}`)
+        .digest("hex");
+
+      return new Headers({
+        "paddle-signature": `ts=${timestamp};h1=${signature}`
+      });
+    }
+
+    const firstBody = JSON.stringify({
+      event_id: "evt_paddle_same_id",
+      event_type: "subscription.updated",
+      data: {
+        customer_id: "cus_paddle",
+        subscription_id: "sub_paddle",
+        items: [{ price_id: "price_growth" }],
+        status: "active",
+        current_billing_period: { ends_at: "2099-01-01T00:00:00.000Z" },
+        custom_data: { organization_id: null }
+      }
+    });
+    const replayBody = JSON.stringify({
+      event_id: "evt_paddle_same_id",
+      event_type: "subscription.updated",
+      data: {
+        customer_id: "cus_paddle",
+        subscription_id: "sub_paddle",
+        items: [{ price_id: "price_growth" }],
+        status: "active",
+        current_billing_period: { ends_at: "2100-01-01T00:00:00.000Z" },
+        custom_data: { organization_id: null },
+        delivery_attempt: 2
+      }
+    });
+
+    const firstNormalized = await handleWebhook("paddle", {
+      body: firstBody,
+      headers: signedHeaders(firstBody)
+    });
+    const replayNormalized = await handleWebhook("paddle", {
+      body: replayBody,
+      headers: signedHeaders(replayBody)
+    });
+
+    expect(firstNormalized.eventKey).toBe("evt_paddle_same_id");
+    expect(replayNormalized.eventKey).toBe("evt_paddle_same_id");
+
+    const first = await persistBillingWebhookUpdate(firstNormalized);
+    const replay = await persistBillingWebhookUpdate(replayNormalized);
+
+    expect(first).toEqual({ updated: true, organizationId: "org-1" });
+    expect(replay).toEqual({ updated: false, duplicate: true });
+    expect(adminStub.updates.organizations).toHaveLength(1);
+    expect(adminStub.updates.ledger.filter((entry) => "insert" in entry)).toHaveLength(2);
+    expect(createAuditLog).toHaveBeenCalledTimes(1);
+    expect(trackServerAnalyticsEvent).toHaveBeenCalledTimes(1);
+  });
 });

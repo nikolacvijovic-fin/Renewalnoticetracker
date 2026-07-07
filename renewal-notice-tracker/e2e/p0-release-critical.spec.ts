@@ -8,6 +8,8 @@ const secondaryAuthCookieValue = process.env.E2E_SECONDARY_AUTH_COOKIE_VALUE;
 const memberAuthCookieValue = process.env.E2E_MEMBER_AUTH_COOKIE_VALUE;
 const foreignContractPath = process.env.E2E_FOREIGN_CONTRACT_PATH ?? "/dashboard/contracts/foreign";
 const reviewPath = process.env.E2E_REVIEW_CONTRACT_PATH ?? "/dashboard/contracts/review-target";
+const p0ContractTitle =
+  process.env.E2E_P0_CONTRACT_TITLE ?? `P0 Renewal Workflow ${Date.now()}`;
 const requireAuth = process.env.E2E_REQUIRE_AUTH === "1";
 const primaryAuthConfigured = Boolean(authCookieName && authCookieValue);
 
@@ -36,23 +38,57 @@ test.describe("P0 release-critical journeys", () => {
     await authenticate(context, authCookieValue!);
   });
 
-  test("@p0 upload -> review -> owner assignment -> reminder-backed contract", async ({ page }) => {
+  test("@p0 authenticated user reaches the dashboard", async ({ page }) => {
+    await page.goto("/dashboard");
+    await expect(page).toHaveURL(/\/dashboard/);
+    await expect(page.getByRole("heading", { name: /dashboard/i })).toBeVisible();
+    await expect(page.getByText(/reviewed coverage|owner coverage|due-soon exposure/i)).toBeVisible();
+  });
+
+  test("@p0 manual contract -> review -> reminder state -> renewal decision", async ({ page }) => {
     await page.goto("/dashboard/contracts/new");
     await expect(page).toHaveURL(/\/dashboard\/contracts\/new/);
-    await expect(page.getByRole("heading", { name: /new contract/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /upload contract/i })).toBeVisible();
 
-    await page
-      .locator('input[type="file"][name="file"]')
-      .setInputFiles({
-        name: "p0_contract.pdf",
-        mimeType: "application/pdf",
-        buffer: Buffer.from("%PDF-1.4\n% mock contract")
-      });
+    const manualForm = page.locator("form").filter({
+      hasText: /secondary path: manual contract entry/i
+    });
+    await expect(manualForm.getByRole("button", { name: /save manual contract/i })).toBeEnabled();
+    await manualForm.getByLabel(/contract title/i).fill(p0ContractTitle);
+    await manualForm.getByLabel(/counterparty/i).fill("P0 Vendor Ltd");
+    await manualForm.getByLabel(/reminder recipients/i).fill("p0-recipient@example.com");
+    await manualForm.getByLabel(/notice deadline/i).fill("2030-11-15");
+    await manualForm.getByLabel(/renewal date/i).fill("2030-12-15");
+    await manualForm.getByLabel(/expiration date/i).fill("2031-01-15");
+    await manualForm.getByLabel(/auto renewal/i).selectOption("true");
 
-    await page.getByRole("button", { name: /upload contract/i }).click();
+    const ownerSelect = manualForm.locator('select[name="owner_user_id"]');
+    const ownerOptions = await ownerSelect.locator("option").count();
+    if (ownerOptions > 1) {
+      await ownerSelect.selectOption({ index: 1 });
+    }
+
+    await manualForm.getByRole("button", { name: /save manual contract/i }).click();
     await expect(page).toHaveURL(/\/dashboard\/contracts\//);
-    await expect(page.getByText(/needs review/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /save review/i })).toBeVisible();
+
+    await page.getByLabel(/expiration date/i).fill("2031-01-15");
+    await page.getByLabel(/review outcome/i).selectOption("false");
+    await page
+      .getByLabel(/exception review reason/i)
+      .fill("P0 E2E reviewer confirmed renewal-control dates and owner assignment.");
+    await page.getByRole("button", { name: /save review/i }).click();
+
+    await expect(page.getByText(/reminders scheduled|review complete|reviewed/i)).toBeVisible();
+    await page.getByLabel(/status/i).selectOption("renew");
+    await page.getByLabel(/decision date/i).fill("2030-10-01");
+    await page
+      .getByLabel(/summary/i)
+      .fill("P0 E2E decision recorded before the opt-out and renewal window.");
+    await page.getByLabel(/next steps/i).fill("Confirm renewal owner\nReview renewal budget");
+    await page.getByRole("button", { name: /save decision/i }).click();
+
+    await expect(page.getByText(/renew|decision/i)).toBeVisible();
   });
 
   test("@p0 review correction regenerates reminders and updates downstream state", async ({
@@ -62,10 +98,13 @@ test.describe("P0 release-critical journeys", () => {
 
     await expect(page.getByRole("heading", { name: /contract detail|review/i })).toBeVisible();
     await page.getByLabel(/expiration date/i).fill("2031-01-15");
-    await page.getByLabel(/needs review/i).uncheck();
+    await page.getByLabel(/review outcome/i).selectOption("false");
+    await page
+      .getByLabel(/exception review reason/i)
+      .fill("P0 E2E review correction confirms reminder-driving fields.");
     await page.getByRole("button", { name: /save review/i }).click();
 
-    await expect(page.getByText(/reminders scheduled|reviewed/i)).toBeVisible();
+    await expect(page.getByText(/reminders scheduled|review complete|reviewed/i)).toBeVisible();
   });
 
   test("@p0 export path returns a contract export for an authorized workspace admin", async ({

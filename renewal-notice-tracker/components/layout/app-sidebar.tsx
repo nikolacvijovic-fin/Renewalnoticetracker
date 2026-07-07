@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, BarChart3, BriefcaseBusiness, CreditCard, FileText, LayoutDashboard, Settings, Wrench } from "lucide-react";
+import { AlertTriangle, BarChart3, BriefcaseBusiness, CreditCard, FileText, LayoutDashboard, Settings, TimerReset, Wrench } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/layout/sign-out-button";
@@ -13,6 +13,7 @@ const ICONS = {
   "/dashboard/risk-queue": AlertTriangle,
   "/dashboard/financial-intelligence": BarChart3,
   "/dashboard/procurement-analytics": BriefcaseBusiness,
+  "/dashboard/saas-opt-out-clock": TimerReset,
   "/dashboard/contracts": FileText,
   "/dashboard/settings": Settings,
   "/pricing": CreditCard,

@@ -27,3 +27,5 @@ These tests exercise release-critical flows against a live app instance.
 - `npm run release:check` must pass before `e2e:p0:required` counts as release evidence.
 - shipped-first browser proof should target the vendor-side reminder loop, Paddle checkout, export flow, and internal-route denial only.
 - do not add deferred capability expectations to Phase 1 P0 coverage.
+- the main P0 renewal workflow uses manual contract entry so the browser test proves contract creation, P0 review, reminder-backed state, and renewal decision without depending on OCR or extraction fixtures.
+- seeded release/staging accounts for required P0 runs should have manual contract entry available, at least one selectable owner, and permission to record renewal decisions.

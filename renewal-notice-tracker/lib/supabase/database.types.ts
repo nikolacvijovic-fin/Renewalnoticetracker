@@ -183,6 +183,30 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["processing_errors"]["Insert"]>;
         Relationships: [];
       };
+      saas_software_inventory: {
+        Row: { id: string; organization_id: string; name: string; vendor_name: string | null; category: string | null; owner_user_id: string | null; status: string; source_contract_id: string | null; created_by: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; name: string; vendor_name?: string | null; category?: string | null; owner_user_id?: string | null; status?: string; source_contract_id?: string | null; created_by?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_software_inventory"]["Insert"]>;
+        Relationships: [];
+      };
+      saas_contract_terms: {
+        Row: { id: string; organization_id: string; software_id: string; contract_id: string | null; renewal_date: string | null; expiration_date: string | null; auto_renewal: boolean; notice_period_value: number | null; notice_period_unit: string | null; notice_deadline_date: string | null; term_summary: string | null; contract_value_amount: number | null; contract_value_currency: string | null; created_by: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; software_id: string; contract_id?: string | null; renewal_date?: string | null; expiration_date?: string | null; auto_renewal?: boolean; notice_period_value?: number | null; notice_period_unit?: string | null; notice_deadline_date?: string | null; term_summary?: string | null; contract_value_amount?: number | null; contract_value_currency?: string | null; created_by?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_contract_terms"]["Insert"]>;
+        Relationships: [];
+      };
+      saas_opt_out_windows: {
+        Row: { id: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on: string | null; window_closes_on: string | null; status: string; source: string; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on?: string | null; window_closes_on?: string | null; status?: string; source?: string; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_opt_out_windows"]["Insert"]>;
+        Relationships: [];
+      };
+      saas_contract_risk_findings: {
+        Row: { id: string; organization_id: string; software_id: string; contract_term_id: string | null; opt_out_window_id: string | null; finding_type: string; severity: string; status: string; evidence_json: Json; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; software_id: string; contract_term_id?: string | null; opt_out_window_id?: string | null; finding_type: string; severity: string; status?: string; evidence_json?: Json; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_contract_risk_findings"]["Insert"]>;
+        Relationships: [];
+      };
       reminders: {
         Row: { id: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails: Json; status: string; source: string; sent_at: string | null; created_at: string; rule_name: string | null; escalation_level: number; ical_uid: string | null; attempt_count: number; max_attempts: number; next_retry_at: string | null; last_attempt_at: string | null; last_error: string | null; processing_started_at: string | null; processing_token: string | null };
         Insert: { id?: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails?: Json; status?: string; source?: string; sent_at?: string | null; created_at?: string; rule_name?: string | null; escalation_level?: number; ical_uid?: string | null; attempt_count?: number; max_attempts?: number; next_retry_at?: string | null; last_attempt_at?: string | null; last_error?: string | null; processing_started_at?: string | null; processing_token?: string | null };

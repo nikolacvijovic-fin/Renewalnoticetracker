@@ -33,6 +33,7 @@ describe("billing webhooks", () => {
     const { handleWebhook } = await import("@/lib/billing/provider");
 
     const body = JSON.stringify({
+      event_id: "evt_paddle_normalized",
       event_type: "subscription.updated",
       data: {
         customer_id: "cus_paddle",
@@ -57,6 +58,7 @@ describe("billing webhooks", () => {
     const result = await handleWebhook("paddle", { body, headers });
 
     expect(result.provider).toBe("paddle");
+    expect(result.eventKey).toBe("evt_paddle_normalized");
     expect(result.organizationId).toBe("org_1");
     expect(result.customerId).toBe("cus_paddle");
     expect(result.subscriptionId).toBe("sub_paddle");

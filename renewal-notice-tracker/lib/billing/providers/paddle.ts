@@ -155,12 +155,15 @@ async function handlePaddleWebhook(params: BillingWebhookParams): Promise<Billin
   verifyPaddleSignature(params.body, signature, config.webhookSecret);
 
   const payload = JSON.parse(params.body) as {
+    event_id?: string;
+    id?: string;
     event_type?: string;
     eventType?: string;
     data?: Record<string, unknown>;
   };
 
   const eventType = payload.event_type ?? payload.eventType ?? "unknown";
+  const eventKey = payload.event_id ?? payload.id ?? crypto.createHash("sha256").update(params.body).digest("hex");
   const data = (payload.data ?? {}) as Record<string, unknown>;
 
   const customerId =
@@ -218,7 +221,7 @@ async function handlePaddleWebhook(params: BillingWebhookParams): Promise<Billin
   return {
     provider: "paddle",
     eventType,
-    eventKey: crypto.createHash("sha256").update(params.body).digest("hex"),
+    eventKey,
     organizationId,
     customerId,
     subscriptionId,
