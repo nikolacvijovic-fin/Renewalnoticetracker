@@ -1,7 +1,6 @@
 import type { InternalRole } from "@/lib/product/shipping-profile";
 import {
   buildAuditDisplaySummary,
-  summarizeAuditDetails,
   type AuditDisplayView
 } from "@/lib/audit-display";
 

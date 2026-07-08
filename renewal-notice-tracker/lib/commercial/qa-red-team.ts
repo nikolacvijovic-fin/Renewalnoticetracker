@@ -9,14 +9,14 @@ export const qaRedTeamReview = {
     "The QA strategy is much stronger on documented intent than on proven execution. There is now a lot of testing architecture in the repo, but the product could still ship with false confidence if the team mistakes strategy artifacts and targeted content tests for coverage of the real trust-sensitive runtime paths.",
   topWeaknesses: [
     "Too much strategy-surface coverage can create the illusion that quality improved more than runtime confidence actually did.",
-    "Reminder reliability still has a known flaky route-level area, which is exactly the kind of trust-sensitive path that should be boring and stable.",
+    "Reminder reliability now has deterministic route-level coverage, but it remains a trust-sensitive path that should stay boring and release-gated.",
     "E2E coverage is still blueprint-heavy and implementation-light for the highest-risk user journeys.",
     "Permission strategy is strong on paper, but direct action-level abuse cases remain easy to miss unless backed by concrete negative tests.",
     "Extraction/review trust depends on subtle state transitions and confidence handling that are more fragile than the current executed suite suggests.",
     "Import and export correctness are still vulnerable to real-world dirty data and large-file edge cases that strategy docs alone do not catch.",
     "Commercial QA can still miss drift between pricing copy, entitlement helpers, and route-level gating.",
     "Analytics QA is at risk of validating event catalogs more than validating the actual runtime correctness of emitted events.",
-    "Release quality is still too exposed to one flaky or under-owned trust-sensitive test path.",
+    "Release quality is still exposed if trust-sensitive tests are allowed to drift out of the release gate.",
     "The current safety model is better at describing what should block release than automatically proving those release blockers are actually covered."
   ],
   topMissingTests: [
@@ -32,7 +32,7 @@ export const qaRedTeamReview = {
     "Staging or smoke automation for the production-like release-critical path instead of relying mostly on manual intent."
   ],
   whatMustChangeImmediately: [
-    "Stabilize or replace the flaky reminder-route coverage with a deterministic trust-sensitive integration suite.",
+    "Keep deterministic reminder-route and processor coverage in the trust-sensitive release gate.",
     "Convert the top P0 E2E journeys from strategy-only into executable Playwright coverage.",
     "Add backend-direct negative authorization tests for every high-power admin, billing, export, and rescue action.",
     "Tie release blockers to concrete named tests rather than only to checklist language.",
@@ -55,9 +55,9 @@ export const qaRedTeamRisks: QaRedTeamRisk[] = [
     severity: "P0"
   },
   {
-    title: "Reminder trust is still exposed to flakiness",
+    title: "Reminder trust must remain deterministically tested",
     whyItIsDangerous:
-      "A flaky or timing-sensitive reminder test is not a minor nuisance here; it is a warning that the core trust loop still lacks a deterministic safety net.",
+      "Reminder dispatch is central to the trust loop; any return of timing-sensitive or under-owned route coverage should block release.",
     severity: "P0"
   },
   {
@@ -79,4 +79,3 @@ export const qaRedTeamRisks: QaRedTeamRisk[] = [
     severity: "P1"
   }
 ];
-

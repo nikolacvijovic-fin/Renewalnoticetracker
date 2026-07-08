@@ -100,7 +100,8 @@ const REQUIRED_SCRIPT_TEST_FILES = {
   "test:deployment-readiness": [
     "tests/config.test.ts",
     "tests/deployment-readiness-gates.test.ts",
-    "tests/release-script-boundary.test.ts"
+    "tests/release-script-boundary.test.ts",
+    "tests/p0-e2e-fixtures.test.ts"
   ],
   "test:scope-freeze": [
     "tests/deployment-readiness-gates.test.ts",
@@ -134,33 +135,42 @@ export function isProductionEnvironment(env = process.env) {
 function validateProductionUrl(env, key) {
   const value = env[key];
   if (!value) {
-    return issue("ERR_DEPLOY_CONFIG_MISSING_URL", `${key} is required for production deployment.`, {
-      key
-    });
+    return [
+      issue("ERR_DEPLOY_CONFIG_MISSING_URL", `${key} is required for production deployment.`, {
+        key
+      })
+    ];
   }
 
   let parsed;
   try {
     parsed = new URL(value);
   } catch {
-    return issue("ERR_DEPLOY_CONFIG_INVALID_URL", `${key} must be a valid production URL.`, {
-      key
-    });
+    return [
+      issue("ERR_DEPLOY_CONFIG_INVALID_URL", `${key} must be a valid production URL.`, {
+        key
+      })
+    ];
   }
 
+  const issues = [];
   if (parsed.protocol !== "https:") {
-    return issue("ERR_DEPLOY_CONFIG_INSECURE_URL", `${key} must use https in production.`, {
-      key
-    });
+    issues.push(
+      issue("ERR_DEPLOY_CONFIG_INSECURE_URL", `${key} must use https in production.`, {
+        key
+      })
+    );
   }
 
   if (unsafeProductionHostPattern.test(parsed.hostname) || parsed.hostname.endsWith(".local")) {
-    return issue("ERR_DEPLOY_CONFIG_LOCAL_URL", `${key} must not point to a local host in production.`, {
-      key
-    });
+    issues.push(
+      issue("ERR_DEPLOY_CONFIG_LOCAL_URL", `${key} must not point to a local host in production.`, {
+        key
+      })
+    );
   }
 
-  return null;
+  return issues;
 }
 
 function validateProductionSecret(env, key) {
@@ -190,7 +200,11 @@ function validateProductionBucket(env, key) {
     });
   }
 
-  if (unsafeSecretPattern.test(value) || unsafeSecretValuePattern.test(value)) {
+  if (
+    unsafeSecretPattern.test(value) ||
+    unsafeSecretValuePattern.test(value) ||
+    !/(noticecontrol|prod|production)/i.test(value)
+  ) {
     return issue(
       "ERR_DEPLOY_CONFIG_PLACEHOLDER_BUCKET",
       `${key} must be an explicit production storage bucket name.`,
@@ -229,8 +243,8 @@ export function getProductionConfigSafetyIssues(env = process.env) {
   }
 
   const checks = [
-    validateProductionUrl(env, "NEXT_PUBLIC_APP_URL"),
-    validateProductionUrl(env, "NEXT_PUBLIC_SUPABASE_URL"),
+    ...validateProductionUrl(env, "NEXT_PUBLIC_APP_URL"),
+    ...validateProductionUrl(env, "NEXT_PUBLIC_SUPABASE_URL"),
     ...productionSecrets.map((key) => validateProductionSecret(env, key)),
     ...productionBuckets.map((key) => validateProductionBucket(env, key))
   ];
@@ -255,7 +269,7 @@ export function getProductionConfigSafetyIssues(env = process.env) {
   }
 
   if (env.MONITORING_EVENT_SINK === "structured_log_and_webhook") {
-    checks.push(validateProductionUrl(env, "MONITORING_ALERT_WEBHOOK_URL"));
+    checks.push(...validateProductionUrl(env, "MONITORING_ALERT_WEBHOOK_URL"));
     checks.push(validateProductionSecret(env, "MONITORING_ALERT_WEBHOOK_SIGNING_SECRET"));
   }
 
@@ -458,7 +472,7 @@ export function getFutureFeatureTruthIssues(repoRoot) {
   ];
 
   for (const moduleId of futureModules) {
-    const modulePattern = new RegExp(`${moduleId}:[\\s\\S]*?status: "(deferred|experimental)"`);
+    const modulePattern = new RegExp(`${moduleId}\\s*:\\s*\\{[^}]*status:\\s*"(deferred|experimental)"`);
     if (!modulePattern.test(platformModules)) {
       issues.push(
         issue("ERR_DEPLOY_FUTURE_MODULE_MARKED_SHIPPED", `${moduleId} must remain deferred/experimental until promoted by release gate.`, {
@@ -468,7 +482,7 @@ export function getFutureFeatureTruthIssues(repoRoot) {
     }
   }
 
-  if (!/full_clm_expansion:[\s\S]*?status: "excluded"/.test(platformModules)) {
+  if (!/full_clm_expansion\s*:\s*\{[^}]*status:\s*"excluded"/.test(platformModules)) {
     issues.push(issue("ERR_DEPLOY_EXCLUDED_MODULE_DRIFT", "full_clm_expansion must remain excluded."));
   }
 

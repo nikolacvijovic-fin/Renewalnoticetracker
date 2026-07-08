@@ -172,6 +172,7 @@ describe("billing webhook replay integration", () => {
   });
 
   it("uses Paddle event ids for idempotency even when replay payload bodies differ", async () => {
+    const sensitiveMarker = "RAW_PADDLE_REPLAY_PAYLOAD_SHOULD_NOT_LEAK";
     const adminStub = createReplayAwareAdminClient();
     createAdminSupabaseClient.mockReturnValue(adminStub.client);
 
@@ -212,7 +213,8 @@ describe("billing webhook replay integration", () => {
         status: "active",
         current_billing_period: { ends_at: "2100-01-01T00:00:00.000Z" },
         custom_data: { organization_id: null },
-        delivery_attempt: 2
+        delivery_attempt: 2,
+        provider_payload: sensitiveMarker
       }
     });
 
@@ -237,5 +239,7 @@ describe("billing webhook replay integration", () => {
     expect(adminStub.updates.ledger.filter((entry) => "insert" in entry)).toHaveLength(2);
     expect(createAuditLog).toHaveBeenCalledTimes(1);
     expect(trackServerAnalyticsEvent).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain(sensitiveMarker);
+    expect(JSON.stringify(trackServerAnalyticsEvent.mock.calls)).not.toContain(sensitiveMarker);
   });
 });

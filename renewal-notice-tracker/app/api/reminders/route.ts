@@ -7,9 +7,15 @@ import {
 } from "@/lib/http";
 import { generateReminderRecommendations } from "@/lib/contracts/reminders";
 import { splitEmails } from "@/lib/utils";
-import { extractedFieldSchema } from "@/lib/validation/contract";
+import { extractedFieldSchema, type ExtractedContractFields } from "@/lib/validation/contract";
+import type { ActiveOrganizationContext } from "@/lib/auth";
 
-export const POST = createRouteHandler(
+type ReminderPreviewInput = {
+  metadata: ExtractedContractFields;
+  recipientEmails: string[];
+};
+
+export const POST = createRouteHandler<ActiveOrganizationContext, ReminderPreviewInput>(
   {
     auth: requireShippedActionRouteAuth("preview_reminders", {
       deniedAuditAction: "reminders.preview_denied",

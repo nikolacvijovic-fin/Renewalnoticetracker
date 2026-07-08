@@ -36,7 +36,6 @@ export async function buildReadinessSnapshotSummary(organizationId?: string | nu
   const admin = createAdminSupabaseClient();
   const scopeFilter = organizationId ? { organization_id: organizationId } : null;
   const now = new Date().toISOString();
-  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const last7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const last30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -124,7 +123,6 @@ export async function buildReadinessSnapshotSummary(organizationId?: string | nu
 
   const tenantAlerts = alerts.filter((alert) => alert.metric_key.includes("tenant") || alert.metric_key.includes("permission"));
   const billingAlerts = alerts.filter((alert) => alert.metric_key.includes("billing") || alert.metric_key.includes("webhook"));
-  const reliabilityAlerts = alerts.filter((alert) => alert.metric_key.includes("reminder") || alert.metric_key.includes("retry"));
   const adminAlerts = alerts.filter((alert) => alert.metric_key.includes("admin") || alert.metric_key.includes("internal"));
 
   const subscores: Array<ScoreSubsection<ReadinessKey>> = [

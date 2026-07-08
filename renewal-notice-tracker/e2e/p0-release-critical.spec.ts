@@ -8,6 +8,8 @@ const secondaryAuthCookieValue = process.env.E2E_SECONDARY_AUTH_COOKIE_VALUE;
 const memberAuthCookieValue = process.env.E2E_MEMBER_AUTH_COOKIE_VALUE;
 const foreignContractPath = process.env.E2E_FOREIGN_CONTRACT_PATH ?? "/dashboard/contracts/foreign";
 const reviewPath = process.env.E2E_REVIEW_CONTRACT_PATH ?? "/dashboard/contracts/review-target";
+const seededForeignContractPathConfigured = Boolean(process.env.E2E_FOREIGN_CONTRACT_PATH);
+const seededReviewPathConfigured = Boolean(process.env.E2E_REVIEW_CONTRACT_PATH);
 const p0ContractTitle =
   process.env.E2E_P0_CONTRACT_TITLE ?? `P0 Renewal Workflow ${Date.now()}`;
 const requireAuth = process.env.E2E_REQUIRE_AUTH === "1";
@@ -15,6 +17,16 @@ const primaryAuthConfigured = Boolean(authCookieName && authCookieValue);
 
 if (requireAuth && !primaryAuthConfigured) {
   throw new Error("P0 E2E auth is required, but the primary auth cookie is not configured.");
+}
+
+if (requireAuth && !secondaryAuthCookieValue) {
+  throw new Error("P0 E2E auth is required, but the secondary auth cookie is not configured.");
+}
+
+if (requireAuth && (!seededForeignContractPathConfigured || !seededReviewPathConfigured)) {
+  throw new Error(
+    "P0 E2E required mode needs E2E_REVIEW_CONTRACT_PATH and E2E_FOREIGN_CONTRACT_PATH seeded fixtures."
+  );
 }
 
 async function authenticate(

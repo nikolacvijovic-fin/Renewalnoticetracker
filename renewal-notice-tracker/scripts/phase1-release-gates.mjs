@@ -68,7 +68,9 @@ export function getMissingP0BrowserInputs(env) {
     ["E2E_BASE_URL", "P0 base URL"],
     ["E2E_AUTH_COOKIE_NAME", "P0 auth cookie name"],
     ["E2E_AUTH_COOKIE_VALUE", "P0 auth cookie value"],
-    ["E2E_SECONDARY_AUTH_COOKIE_VALUE", "P0 secondary auth cookie value"]
+    ["E2E_SECONDARY_AUTH_COOKIE_VALUE", "P0 secondary auth cookie value"],
+    ["E2E_REVIEW_CONTRACT_PATH", "P0 seeded review contract path"],
+    ["E2E_FOREIGN_CONTRACT_PATH", "P0 seeded foreign contract path"]
   ];
 
   return required.filter(([key]) => !env[key]).map(([, label]) => label);

@@ -51,7 +51,6 @@ import {
 } from "@/lib/contracts/kernel-queries";
 import {
   counterpartySchema,
-  renewalDecisionSchema,
   templateSchema
 } from "@/lib/validation/contract";
 import {
@@ -90,7 +89,7 @@ import {
   sanitizeInternalError,
   sanitizeSensitiveProcessingError
 } from "@/lib/errors";
-import { REMINDER_RETRY_POLICY, RENEWAL_CYCLE_STATUSES } from "@/lib/constants";
+import { REMINDER_RETRY_POLICY } from "@/lib/constants";
 import {
   type BillingSnapshot,
   CommercialAccessError,
@@ -880,7 +879,7 @@ export async function createContractAction(formData: FormData) {
         });
       }
       finalStatus = "needs_review";
-    } catch (error) {
+    } catch {
       metadata = fallbackMetadata(contractTitle, sanitizeSensitiveProcessingError("extraction"));
       finalStatus = "extraction_failed";
       await recordProcessingError({

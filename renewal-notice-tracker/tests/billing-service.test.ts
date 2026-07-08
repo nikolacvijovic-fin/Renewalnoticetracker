@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createAuditLog = vi.fn();
@@ -172,6 +174,20 @@ describe("billing service webhook persistence", () => {
     expect(createAuditLog).not.toHaveBeenCalled();
   });
 
+  it("keeps Paddle webhook idempotency enforced by a DB-level provider/event-key unique index", () => {
+    const migrationDir = path.join(process.cwd(), "supabase", "migrations");
+    const migrationSql = fs
+      .readdirSync(migrationDir)
+      .filter((file) => file.endsWith(".sql"))
+      .map((file) => fs.readFileSync(path.join(migrationDir, file), "utf8"))
+      .join("\n");
+
+    expect(migrationSql).toContain("create table if not exists public.billing_webhook_events");
+    expect(migrationSql).toMatch(
+      /create unique index if not exists billing_webhook_events_provider_event_key_idx\s+on public\.billing_webhook_events\(provider,\s*event_key\)/i
+    );
+  });
+
   it("ignores out-of-order regressions from cancelled to active", async () => {
     const adminStub = createAdminClientStub({
       organizationState: {
@@ -214,6 +230,7 @@ describe("billing service webhook persistence", () => {
   });
 
   it("records checkout completion as a reconciled analytics event when webhook sync succeeds", async () => {
+    const sensitiveMarker = "RAW_PADDLE_PROVIDER_PAYLOAD_SHOULD_NOT_LEAK";
     const adminStub = createAdminClientStub({
       organizationState: {
         id: "org-1",
@@ -230,7 +247,7 @@ describe("billing service webhook persistence", () => {
       provider: "paddle",
       eventType: "subscription.created",
       eventKey: "evt_checkout_completed",
-      raw: { id: "evt_checkout_completed" },
+      raw: { id: "evt_checkout_completed", provider_payload: sensitiveMarker },
       organizationId: "org-1",
       customerId: "cus_1",
       subscriptionId: "sub_1",
@@ -248,5 +265,8 @@ describe("billing service webhook persistence", () => {
         sourceOfTruth: "event_and_state"
       })
     );
+    expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain(sensitiveMarker);
+    expect(JSON.stringify(trackServerAnalyticsEvent.mock.calls)).not.toContain(sensitiveMarker);
+    expect(JSON.stringify(adminStub.updates.ledger)).not.toContain(sensitiveMarker);
   });
 });

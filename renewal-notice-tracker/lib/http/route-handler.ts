@@ -426,8 +426,8 @@ export function requireCronSecretRouteAuth<TRouteContext>(
 }
 
 export function createRouteHandler<
-  TAuth = any,
-  TInput = any,
+  TAuth = unknown,
+  TInput = unknown,
   TRouteContext = void
 >(
   options: {

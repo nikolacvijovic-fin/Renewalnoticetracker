@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  redactP0FixtureMessage,
+  verifyP0E2EFixtures
+} from "./verify-p0-e2e-fixtures.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,27 +18,40 @@ const cookieName = process.env.E2E_AUTH_COOKIE_NAME ?? "";
 const cookieValue = process.env.E2E_AUTH_COOKIE_VALUE ?? "";
 const secondaryCookieValue = process.env.E2E_SECONDARY_AUTH_COOKIE_VALUE ?? "";
 
-if (!baseURL) {
-  if (requireAuth) {
-    console.error("Missing E2E_BASE_URL or NEXT_PUBLIC_APP_URL for P0 browser tests.");
+async function verifyFixturesOrExit() {
+  try {
+    const fixtureResult = await verifyP0E2EFixtures({ required: requireAuth });
+    for (const warning of fixtureResult.warnings) {
+      console.warn(warning);
+    }
+    if (fixtureResult.skipped) {
+      process.exit(0);
+    }
+  } catch (error) {
+    console.error(
+      redactP0FixtureMessage(
+        error instanceof Error ? error.message : "P0 staging fixture verification failed."
+      )
+    );
     process.exit(1);
   }
+}
 
+if (requireAuth) {
+  await verifyFixturesOrExit();
+}
+
+if (!baseURL) {
   console.warn("Skipping optional P0 browser tests because no E2E base URL is configured.");
   process.exit(0);
 }
 
 if (!cookieName || !cookieValue) {
-  if (requireAuth) {
-    console.error(
-      "Missing E2E_AUTH_COOKIE_NAME or E2E_AUTH_COOKIE_VALUE for required P0 browser tests."
-    );
-    process.exit(1);
-  }
-
   console.warn("Skipping optional P0 browser tests because auth cookie configuration is missing.");
   process.exit(0);
 }
+
+await verifyFixturesOrExit();
 
 const storageStatePath =
   process.env.E2E_STORAGE_STATE_PATH ??

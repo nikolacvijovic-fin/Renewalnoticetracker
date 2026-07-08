@@ -1,9 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const processDueRemindersMock = vi.fn();
 const logServerError = vi.fn();
 const logServerWarn = vi.fn();
 const emitOperationalEvent = vi.fn();
+const frozenNow = new Date("2030-01-01T12:00:00.000Z");
+let POST: (request: Request) => Promise<Response>;
 
 vi.mock("@/lib/notifications/reminders", () => ({
   processDueReminders: processDueRemindersMock
@@ -36,14 +38,22 @@ vi.mock("@/lib/config", () => ({
 }));
 
 describe("send reminders cron route", () => {
+  beforeAll(async () => {
+    ({ POST } = await import("@/app/api/cron/send-reminders/route"));
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.resetModules();
+    processDueRemindersMock.mockReset();
+    emitOperationalEvent.mockReset();
     emitOperationalEvent.mockResolvedValue({});
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("rejects requests without the cron secret header", async () => {
-    const { POST } = await import("@/app/api/cron/send-reminders/route");
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST"
@@ -55,7 +65,6 @@ describe("send reminders cron route", () => {
   });
 
   it("rejects unauthorized requests", async () => {
-    const { POST } = await import("@/app/api/cron/send-reminders/route");
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST",
@@ -69,12 +78,31 @@ describe("send reminders cron route", () => {
     expect(processDueRemindersMock).not.toHaveBeenCalled();
   });
 
-  it("delegates to the reminder processor for authorized requests", async () => {
+  it("returns an empty result for authorized requests when no reminders are due", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(frozenNow);
+    processDueRemindersMock.mockResolvedValue([]);
+    const response = await POST(
+      new Request("http://localhost/api/cron/send-reminders", {
+        method: "POST",
+        headers: {
+          "x-cron-secret": "test-secret"
+        }
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(processDueRemindersMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
+    expect(payload.results).toEqual([]);
+  });
+
+  it("delegates to the reminder processor for authorized successful requests", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(frozenNow);
     processDueRemindersMock.mockResolvedValue([
-      { id: "r1", status: "sent", deliveryCount: 1 },
-      { id: "r2", status: "sent", duplicateSuppressedCount: 1, deliveryCount: 0 }
+      { id: "r1", status: "sent", deliveryCount: 1 }
     ]);
-    const { POST } = await import("@/app/api/cron/send-reminders/route");
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST",
@@ -87,15 +115,60 @@ describe("send reminders cron route", () => {
 
     expect(response.status).toBe(200);
     expect(processDueRemindersMock).toHaveBeenCalledTimes(1);
+    expect(processDueRemindersMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
+    expect(payload.results).toEqual([
+      { id: "r1", status: "sent", deliveryCount: 1 }
+    ]);
+  });
+
+  it("returns mixed success and failure results without hiding processor state", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(frozenNow);
+    processDueRemindersMock.mockResolvedValue([
+      { id: "r1", status: "sent", deliveryCount: 1 },
+      { id: "r2", status: "failed", error: "email_provider_unavailable" }
+    ]);
+    const response = await POST(
+      new Request("http://localhost/api/cron/send-reminders", {
+        method: "POST",
+        headers: {
+          "x-cron-secret": "test-secret"
+        }
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
     expect(payload.results).toEqual([
       { id: "r1", status: "sent", deliveryCount: 1 },
+      { id: "r2", status: "failed", error: "email_provider_unavailable" }
+    ]);
+  });
+
+  it("surfaces duplicate suppression results from the processor", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(frozenNow);
+    processDueRemindersMock.mockResolvedValue([
+      { id: "r2", status: "sent", duplicateSuppressedCount: 1, deliveryCount: 0 }
+    ]);
+    const response = await POST(
+      new Request("http://localhost/api/cron/send-reminders", {
+        method: "POST",
+        headers: {
+          "x-cron-secret": "test-secret"
+        }
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.results).toEqual([
       { id: "r2", status: "sent", duplicateSuppressedCount: 1, deliveryCount: 0 }
     ]);
   });
 
   it("returns a generic error when reminder processing fails", async () => {
     processDueRemindersMock.mockRejectedValue(new Error("db failure"));
-    const { POST } = await import("@/app/api/cron/send-reminders/route");
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST",

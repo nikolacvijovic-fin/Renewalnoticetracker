@@ -52,12 +52,6 @@ export function describeAuditObject(log: AuditLogDisplayRecord, view: AuditDispl
   return objectType;
 }
 
-function pushIfPresent(summary: string[], value: string | null | undefined) {
-  if (value && value.trim().length > 0) {
-    summary.push(value.trim());
-  }
-}
-
 function summarizeProcessingStatus(summary: string[], value: string) {
   if (value === "blocked_by_review") {
     summary.push("Trusted reminders blocked by review");

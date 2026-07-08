@@ -1,8 +1,7 @@
 import { differenceInCalendarDays, parseISO, startOfDay } from "date-fns";
-import type { CounterpartyRecord } from "@/lib/contracts/kernel-queries";
 import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 import { getPhase1TrustState } from "@/lib/contracts/phase1-pilot";
-import { calculateRiskScore, type RiskScoreResult } from "@/lib/intelligence/risk/risk-score";
+import { calculateRiskScore } from "@/lib/intelligence/risk/risk-score";
 import type { RiskBand, RiskConfidenceLevel, RiskMissingDataWarning, RiskReason } from "@/lib/intelligence/risk/risk-factors";
 import type { IntelligenceExplainabilityMetadata } from "@/lib/intelligence/shared/types";
 

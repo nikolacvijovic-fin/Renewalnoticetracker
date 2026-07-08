@@ -45,13 +45,9 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Verify release ownership metadata
-        run: npm run release:check
-      - name: Run release-critical automated gates
-        run: npm run test:release-critical
+      - name: Run strict release gate
+        run: npm run release:strict
       - name: Run intelligence release gate
         run: npm run test:intelligence-release-gate
-      - name: Run required P0 browser release journeys
-        run: npm run e2e:p0:required
       - name: Run production-like staging smoke
         run: npm run smoke:staging

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { APP_NAME, LEGAL_DISCLAIMER } from "@/lib/constants";
+import { LEGAL_DISCLAIMER } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { SHIPPED_FIRST_SCOPE } from "@/lib/product/shipping-profile";
 

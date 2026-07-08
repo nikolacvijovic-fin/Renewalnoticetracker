@@ -1,4 +1,4 @@
-import { getContractTrackingLimitResult, normalizeBillingSnapshot, type BillingSnapshot } from "@/lib/billing/entitlements";
+import { getContractTrackingLimitResult, normalizeBillingSnapshot } from "@/lib/billing/entitlements";
 import { ACTIVATION_POLICY, getActivationStatus } from "@/lib/commercial/activation";
 
 export type OnboardingChecklistItem = {

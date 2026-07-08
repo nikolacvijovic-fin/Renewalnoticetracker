@@ -57,7 +57,7 @@ export const testingCurrentStateReview = {
     "Commercial and analytics definitions are covered by strategy-structure tests."
   ],
   partiallyCovered: [
-    "Reminder processing and cron authorization are covered, but one reminder-route test is currently flaky or timing out.",
+    "Reminder processing and cron authorization are covered by deterministic route and processor tests, but the path should remain release-gated.",
     "Permissions are partially covered through auth guards and permission tests, but deeper tenant-isolation scenarios are still thin.",
     "Review and extraction validation are covered in parts, but full extraction-to-review correctness is not deeply exercised."
   ],
@@ -86,7 +86,7 @@ export const testingCurrentStateReview = {
   assumptions: [
     "Playwright exists in dependencies but there is little or no committed e2e coverage yet.",
     "The current test suite is mostly unit/integration and is run in Vitest.",
-    "The known send-reminders timeout is a real release-confidence warning because it hits a trust-sensitive path.",
+    "The former send-reminders timeout warning is now covered by deterministic route tests, but reminder regressions remain release-critical.",
     "Staging/production monitoring is not yet encoded as a strict release gate."
   ]
 };
@@ -125,8 +125,8 @@ export const testingMaturityScores: TestingMaturityScore[] = [
   {
     area: "reminder_reliability_testing",
     label: "Reminder/reliability testing maturity",
-    score: 5,
-    rationale: "Core reminder logic is covered, but flaky route coverage and deeper system behaviors still weaken trust."
+    score: 7,
+    rationale: "Core reminder logic, cron authorization, empty results, mixed outcomes, and duplicate suppression are now covered deterministically, with deeper end-to-end delivery evidence still needed."
   },
   {
     area: "extraction_review_testing",
@@ -143,8 +143,8 @@ export const testingMaturityScores: TestingMaturityScore[] = [
   {
     area: "release_confidence",
     label: "Release confidence",
-    score: 4,
-    rationale: "The suite is useful, but no serious e2e gate and a flaky reminder-route test make release trust weaker than it looks."
+    score: 5,
+    rationale: "The suite is stronger after deterministic reminder coverage and required P0 fixture validation, but release trust still depends on seeded browser evidence in staging."
   },
   {
     area: "overall_qa_maturity",
@@ -626,7 +626,7 @@ export const testingFinalRecommendation = {
     "Treat flaky tests in trust-sensitive paths as product risk, not test noise"
   ],
   topNextActions: [
-    "Stabilize and fix the flaky send-reminders route test",
+    "Keep send-reminders route and processor coverage deterministic in the release-critical suite",
     "Add first-value e2e flow",
     "Add cross-tenant isolation integration tests",
     "Add reminder retry/idempotency integration coverage",

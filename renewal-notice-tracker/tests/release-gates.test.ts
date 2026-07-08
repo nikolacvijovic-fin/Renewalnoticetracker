@@ -44,7 +44,9 @@ describe("phase-1 release gates", () => {
       "P0 base URL",
       "P0 auth cookie name",
       "P0 auth cookie value",
-      "P0 secondary auth cookie value"
+      "P0 secondary auth cookie value",
+      "P0 seeded review contract path",
+      "P0 seeded foreign contract path"
     ]);
     expect(getMissingEmailReleaseInputs({})).toEqual(
       PHASE1_EMAIL_RELEASE_REQUIREMENTS.map(([, label]) => label)

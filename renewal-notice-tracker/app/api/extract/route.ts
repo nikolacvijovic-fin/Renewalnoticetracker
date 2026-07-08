@@ -6,8 +6,13 @@ import {
   routeServerError
 } from "@/lib/http";
 import { extractContractMetadata } from "@/lib/ai/extract-contract";
+import type { ActiveOrganizationContext } from "@/lib/auth";
 
-export const POST = createRouteHandler(
+type ExtractionPreviewInput = {
+  documentText: string;
+};
+
+export const POST = createRouteHandler<ActiveOrganizationContext, ExtractionPreviewInput>(
   {
     auth: requireShippedActionRouteAuth("preview_extraction", {
       deniedAuditAction: "contracts.extraction_preview_denied",

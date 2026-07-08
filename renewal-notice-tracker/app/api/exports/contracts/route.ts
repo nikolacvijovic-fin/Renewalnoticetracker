@@ -2,7 +2,8 @@ import { z } from "zod";
 import {
   ActiveOrganizationRequiredError,
   OrganizationAuthorizationError,
-  assertCanUseShippedAction
+  assertCanUseShippedAction,
+  type ActiveOrganizationContext
 } from "@/lib/auth";
 import { CommercialAccessError } from "@/lib/billing/entitlements";
 import { createBackgroundContractExportRequest } from "@/lib/contracts/background-exports";
@@ -32,6 +33,7 @@ const backgroundExportSchema = z.object({
   preset: z.string().optional(),
   format: z.enum(EXPORT_FORMATS).default("csv")
 });
+type BackgroundExportInput = z.infer<typeof backgroundExportSchema>;
 
 function mapBackgroundExportError(error: unknown) {
   if (error instanceof ExportPresetSelectionError) {
@@ -58,7 +60,7 @@ function mapBackgroundExportError(error: unknown) {
   return null;
 }
 
-export const POST = createRouteHandler(
+export const POST = createRouteHandler<ActiveOrganizationContext, BackgroundExportInput>(
   {
     auth: requireOrganizationRouteAuth(),
     parse: ({ request }) =>
