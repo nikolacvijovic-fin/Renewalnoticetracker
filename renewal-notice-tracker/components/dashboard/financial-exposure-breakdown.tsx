@@ -3,10 +3,10 @@ import type { FinancialExposureBreakdownRow } from "@/lib/intelligence/financial
 import { cn } from "@/lib/utils";
 
 const TRUST_STYLES = {
-  high: "text-emerald-700",
-  medium: "text-amber-700",
-  low: "text-orange-700",
-  blocked: "text-rose-700"
+  high: "text-success",
+  medium: "text-amber-800",
+  low: "text-urgent",
+  blocked: "text-critical"
 } as const;
 
 export function FinancialExposureBreakdown({
@@ -24,7 +24,7 @@ export function FinancialExposureBreakdown({
     <section className="panel p-5">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
-        <p className="mt-2 text-sm text-slate-500">{description}</p>
+        <p className="mt-2 text-sm text-muted">{description}</p>
       </div>
       {rows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600">
@@ -44,9 +44,9 @@ export function FinancialExposureBreakdown({
                   {row.trustLabel}
                 </p>
                 {row.warnings[0] ? (
-                  <p className="mt-1 text-xs text-amber-700">{row.warnings[0].message}</p>
+                  <p className="mt-1 text-xs text-amber-800">{row.warnings[0].message}</p>
                 ) : (
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-muted">
                     {row.includedContractCount} contract{row.includedContractCount === 1 ? "" : "s"}
                   </p>
                 )}

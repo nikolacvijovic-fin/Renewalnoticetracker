@@ -3,10 +3,10 @@ import type { FinancialExposureCardData } from "@/lib/intelligence/financial/das
 import { cn } from "@/lib/utils";
 
 const TRUST_STYLES = {
-  high: "bg-emerald-100 text-emerald-800",
-  medium: "bg-amber-100 text-amber-800",
-  low: "bg-orange-100 text-orange-800",
-  blocked: "bg-rose-100 text-rose-800"
+  high: "bg-success/10 text-success",
+  medium: "bg-warning/15 text-amber-800",
+  low: "bg-urgent/10 text-urgent",
+  blocked: "bg-critical/10 text-critical"
 } as const;
 
 export function FinancialExposureCard({ card }: { card: FinancialExposureCardData }) {
@@ -18,7 +18,7 @@ export function FinancialExposureCard({ card }: { card: FinancialExposureCardDat
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-slate-900">{card.title}</p>
-          <p className="mt-2 text-xs leading-5 text-slate-500">{card.description}</p>
+          <p className="mt-2 text-xs leading-5 text-muted">{card.description}</p>
         </div>
         <span
           className={cn(
@@ -31,7 +31,7 @@ export function FinancialExposureCard({ card }: { card: FinancialExposureCardDat
       </div>
       <div>
         <p className="text-3xl font-semibold text-slate-900">{card.valueLabel}</p>
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-muted">
           {card.includedContractCount} included, {card.excludedContractCount} excluded
         </p>
       </div>
@@ -41,13 +41,13 @@ export function FinancialExposureCard({ card }: { card: FinancialExposureCardDat
         </div>
       ) : null}
       {card.warnings.length > 0 ? (
-        <ul className="space-y-1 text-xs text-amber-700">
+        <ul className="space-y-1 text-xs text-amber-800">
           {card.warnings.slice(0, 2).map((warning) => (
             <li key={`${card.slug}-${warning.code}`}>{warning.message}</li>
           ))}
         </ul>
       ) : (
-        <p className="text-xs text-slate-500">Open the underlying contracts</p>
+        <p className="text-xs text-muted">Open the underlying contracts</p>
       )}
     </Link>
   );

@@ -54,7 +54,7 @@ test.describe("P0 release-critical journeys", () => {
     await page.goto("/dashboard");
     await expect(page).toHaveURL(/\/dashboard/);
     await expect(page.getByRole("heading", { name: /dashboard/i })).toBeVisible();
-    await expect(page.getByText(/reviewed coverage|owner coverage|due-soon exposure/i)).toBeVisible();
+    await expect(page.getByText(/defense file reviewed|owner accountability|opt-out clock exposure/i)).toBeVisible();
   });
 
   test("@p0 manual contract -> review -> reminder state -> renewal decision", async ({ page }) => {

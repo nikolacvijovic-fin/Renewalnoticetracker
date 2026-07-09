@@ -9,35 +9,35 @@ describe("OperationalPriorityPanel", () => {
         firstValueSummary="First value happens when one contract is reviewed and owned."
         items={[
           {
-            label: "Needs Review",
+            label: "Evidence weak",
             count: 3,
             description: "Contracts still waiting for reviewed truth.",
             href: "/dashboard/contracts?filter=needs_review",
             tone: "warning"
           },
           {
-            label: "Owner Missing",
+            label: "Owner gap",
             count: 2,
             description: "Contracts without owners block trusted reminders.",
             href: "/dashboard/contracts",
             tone: "warning"
           },
           {
-            label: "Due Soon",
+            label: "Clock exposed",
             count: 2,
             description: "Obligations already entering the working queue.",
             href: "/dashboard/contracts?filter=active",
-            tone: "danger"
+            tone: "critical"
           },
           {
-            label: "Decision Needed",
+            label: "Decision risk",
             count: 1,
             description: "Reviewed contracts still missing a decision.",
             href: "/dashboard/contracts",
-            tone: "danger"
+            tone: "urgent"
           },
           {
-            label: "Awaiting Acknowledgment",
+            label: "Acknowledgment gap",
             count: 1,
             description: "High-risk reminders still need acknowledgment.",
             href: "/dashboard/contracts",
@@ -47,12 +47,12 @@ describe("OperationalPriorityPanel", () => {
       />
     );
 
-    expect(screen.getByText("Needs action now")).toBeInTheDocument();
-    expect(screen.getByText("Needs Review")).toBeInTheDocument();
-    expect(screen.getByText("Owner Missing")).toBeInTheDocument();
-    expect(screen.getByText("Due Soon")).toBeInTheDocument();
-    expect(screen.getByText("Decision Needed")).toBeInTheDocument();
-    expect(screen.getByText("Awaiting Acknowledgment")).toBeInTheDocument();
+    expect(screen.getByText("CFO risk queue")).toBeInTheDocument();
+    expect(screen.getByText("Evidence weak")).toBeInTheDocument();
+    expect(screen.getByText("Owner gap")).toBeInTheDocument();
+    expect(screen.getByText("Clock exposed")).toBeInTheDocument();
+    expect(screen.getByText("Decision risk")).toBeInTheDocument();
+    expect(screen.getByText("Acknowledgment gap")).toBeInTheDocument();
     expect(screen.getByText("First value happens when one contract is reviewed and owned.")).toBeInTheDocument();
   });
 });

@@ -12,7 +12,7 @@ export function DashboardShell({
       <AppSidebar />
       <main className="space-y-6">
         {children}
-        <div className="rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-900">
+        <div className="rounded-2xl border border-line bg-white px-4 py-3 text-sm text-muted shadow-sm">
           {LEGAL_DISCLAIMER}
         </div>
       </main>

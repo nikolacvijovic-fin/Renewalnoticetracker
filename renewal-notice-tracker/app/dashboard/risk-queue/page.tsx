@@ -61,7 +61,7 @@ export default async function RiskQueuePage({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Risk Queue</h1>
-          <p className="mt-2 max-w-3xl text-slate-500">
+          <p className="mt-2 max-w-3xl text-muted">
             Work the contracts that need attention first. The score stays narrow: it only points back into review, owner assignment, acknowledgment, and decision work.
           </p>
         </div>
@@ -71,10 +71,10 @@ export default async function RiskQueuePage({
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Contracts in queue" value={dashboard.summary.total} accent="bg-slate-400" />
-        <MetricCard label="Critical risk" value={dashboard.summary.critical} accent="bg-rose-400" />
-        <MetricCard label="High risk" value={dashboard.summary.high} accent="bg-orange-400" />
-        <MetricCard label="Low confidence" value={dashboard.summary.lowConfidence} accent="bg-amber-400" />
+        <MetricCard label="Contracts in queue" value={dashboard.summary.total} accent="bg-locked" />
+        <MetricCard label="Critical risk" value={dashboard.summary.critical} accent="bg-critical" />
+        <MetricCard label="High risk" value={dashboard.summary.high} accent="bg-urgent" />
+        <MetricCard label="Low confidence" value={dashboard.summary.lowConfidence} accent="bg-warning" />
       </section>
 
       <RiskQueueFilters options={dashboard.filterOptions} current={dashboard.filters} />

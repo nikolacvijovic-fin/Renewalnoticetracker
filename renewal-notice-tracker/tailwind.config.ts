@@ -5,28 +5,36 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#132238",
+        ink: "#0F172A",
+        surface: "#FFFFFF",
         brand: {
-          50: "#f2f7f5",
-          100: "#dbe8e2",
-          200: "#b8d0c3",
-          300: "#8db09e",
-          400: "#66917c",
-          500: "#497462",
-          600: "#385c4e",
-          700: "#2f493f",
-          800: "#273b33",
-          900: "#1f3029"
+          50: "#EFF6FF",
+          100: "#DBEAFE",
+          200: "#BFDBFE",
+          300: "#93C5FD",
+          400: "#60A5FA",
+          500: "#3B82F6",
+          600: "#2563EB",
+          700: "#1D4ED8",
+          800: "#1E40AF",
+          900: "#1E3A8A"
         },
-        sand: "#f8f6ef",
-        warning: "#f59e0b",
-        danger: "#dc2626"
+        slatepaper: "#F8FAFC",
+        muted: "#475569",
+        line: "#E2E8F0",
+        success: "#16A34A",
+        warning: "#F59E0B",
+        urgent: "#EA580C",
+        critical: "#DC2626",
+        locked: "#334155",
+        automation: "#0D9488",
+        danger: "#DC2626"
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui"]
       },
       boxShadow: {
-        panel: "0 18px 50px rgba(19, 34, 56, 0.08)"
+        panel: "0 18px 50px rgba(15, 23, 42, 0.07)"
       }
     }
   },

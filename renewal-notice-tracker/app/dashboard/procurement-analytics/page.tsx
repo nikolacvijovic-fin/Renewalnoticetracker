@@ -46,7 +46,7 @@ export default async function ProcurementAnalyticsPage({
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Procurement Analytics</h1>
-          <p className="mt-2 max-w-3xl text-slate-500">
+          <p className="mt-2 max-w-3xl text-muted">
             Run the renewal portfolio from reviewed workflow truth: see which vendors, owners, and departments need action before renewal dates slip.
           </p>
         </div>
@@ -74,22 +74,22 @@ export default async function ProcurementAnalyticsPage({
         <MetricCard
           label="Contracts in scope"
           value={dashboard.totalContractsInScope}
-          accent="bg-brand-400"
+          accent="bg-brand-600"
         />
         <MetricCard
           label="Low-confidence contracts"
           value={dashboard.lowConfidenceContractCount}
-          accent="bg-amber-400"
+          accent="bg-warning"
         />
         <MetricCard
           label="Decision gaps"
           value={pageModel.summary.decisionGapCount}
-          accent="bg-rose-400"
+          accent="bg-urgent"
         />
         <MetricCard
           label="Duplicate cleanup"
           value={pageModel.summary.duplicateCleanupCount}
-          accent="bg-sky-400"
+          accent="bg-automation"
         />
       </section>
 

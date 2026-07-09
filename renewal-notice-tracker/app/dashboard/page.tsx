@@ -119,53 +119,54 @@ export default async function DashboardPage() {
     <>
       <section className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">Dashboard</h1>
-          <p className="mt-2 text-slate-500">
-            Run renewal operations: review uncertain contracts, assign owners, surface live obligations, and close decision gaps before deadlines slip.
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">Ex Umbris Renewal Defense</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">CFO Opt-Out Clock Dashboard</h1>
+          <p className="mt-2 max-w-3xl text-muted">
+            See which SaaS renewals can still be defended, where opt-out evidence is weak, and which owner or decision gap could turn into unwanted spend.
           </p>
         </div>
         <Button asChild>
-          <Link href="/dashboard/contracts/new">Upload contract</Link>
+          <Link href="/dashboard/contracts/new">Add renewal evidence</Link>
         </Button>
       </section>
       <OperationalPriorityPanel
-        firstValueSummary="First value happens when one contract is reviewed, one owner is assigned, and one live obligation is visible on the dashboard."
+        firstValueSummary="Defense starts when every live renewal has reviewed dates, an accountable owner, and a visible opt-out or renewal decision path."
         items={[
           {
-            label: "Needs Review",
+            label: "Evidence weak",
             count: guardrails.dueSoonNeedsReviewCount || metrics.needsReview,
-            description: "Contracts still waiting for reviewed P0 truth before reminders can be trusted.",
+            description: "Renewals still waiting for reviewed notice and expiration truth before the clock can be trusted.",
             href: "/dashboard/contracts?filter=needs_review",
-            tone: metrics.needsReview > 0 ? "warning" : "success"
+            tone: metrics.needsReview > 0 ? "warning" : "safe"
           },
           {
-            label: "Owner Missing",
+            label: "Owner gap",
             count: ownerMissingCount,
-            description: "Reviewed contracts without an owner cannot enter the trusted reminder loop.",
+            description: "Renewals without an accountable owner cannot enter a defensible opt-out loop.",
             href: "/dashboard/contracts",
-            tone: ownerMissingCount > 0 ? "warning" : "success"
+            tone: ownerMissingCount > 0 ? "warning" : "safe"
           },
           {
-            label: "Due Soon",
+            label: "Clock exposed",
             count: guardrails.dueSoonQueueCount || metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
-            description: "Notice, renewal, and expiration obligations that already belong in the weekly working queue.",
+            description: "Notice, renewal, and expiration obligations already inside the CFO working window.",
             href: "/dashboard/contracts?filter=active",
             tone:
-              metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon > 0 ? "danger" : "success"
+              metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon > 0 ? "critical" : "safe"
           },
           {
-            label: "Decision Needed",
+            label: "Decision risk",
             count: guardrails.decisionNeededCount || decisionMissingCount,
-            description: "Reviewed, owned contracts approaching a live obligation but still missing an explicit decision.",
+            description: "Reviewed, owned renewals approaching live obligation without a recorded CFO-safe decision.",
             href: "/dashboard/contracts",
-            tone: decisionMissingCount > 0 ? "danger" : "success"
+            tone: decisionMissingCount > 0 ? "urgent" : "safe"
           },
           {
-            label: "Awaiting Acknowledgment",
+            label: "Acknowledgment gap",
             count: guardrails.awaitingAcknowledgmentCount,
-            description: "High-risk reminder acknowledgments still waiting on a secure user confirmation.",
+            description: "High-risk reminder acknowledgments still waiting on secure confirmation.",
             href: "/dashboard/contracts",
-            tone: guardrails.awaitingAcknowledgmentCount > 0 ? "warning" : "success"
+            tone: guardrails.awaitingAcknowledgmentCount > 0 ? "warning" : "safe"
           }
         ]}
       />
@@ -180,14 +181,37 @@ export default async function DashboardPage() {
         firstPaidValueMilestone={conversionAnalysis.firstPaidValueMilestone}
       />
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Reviewed coverage" value={`${reviewedContracts}/${metrics.totalContracts}`} accent="bg-brand-400" />
-        <MetricCard label="Owner coverage" value={`${ownerAssignedContracts}/${metrics.totalContracts}`} accent="bg-amber-400" />
-        <MetricCard label="Due-soon exposure" value={metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon} accent="bg-sky-400" />
-        <MetricCard label="Decision gaps" value={decisionMissingCount} accent="bg-rose-400" />
+        <MetricCard
+          label="Defense file reviewed"
+          value={`${reviewedContracts}/${metrics.totalContracts}`}
+          accent="bg-brand-600"
+          description="Contracts with CFO-trustworthy renewal dates."
+        />
+        <MetricCard
+          label="Owner accountability"
+          value={`${ownerAssignedContracts}/${metrics.totalContracts}`}
+          accent="bg-warning"
+          description="Renewals assigned to someone who can act."
+        />
+        <MetricCard
+          label="Opt-out clock exposure"
+          value={metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon}
+          accent="bg-critical"
+          description="Live notice, renewal, or expiration obligations."
+        />
+        <MetricCard
+          label="Decision exposure"
+          value={decisionMissingCount}
+          accent="bg-urgent"
+          description="Reviewed renewals still missing a decision."
+        />
       </section>
       <section>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Recent contracts</h2>
+          <div>
+            <h2 className="text-lg font-semibold">Renewal defense ledger</h2>
+            <p className="mt-1 text-sm text-muted">Existing contract data, reframed around opt-out risk and decision readiness.</p>
+          </div>
           <Button asChild variant="secondary">
             <Link href="/dashboard/contracts">View all</Link>
           </Button>

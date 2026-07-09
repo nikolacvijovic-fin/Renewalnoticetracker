@@ -25,9 +25,10 @@ export function AppSidebar() {
 
   return (
     <aside className="panel subtle-grid h-fit p-4">
-      <div className="mb-6 rounded-2xl bg-brand-900 p-4 text-white">
-        <p className="text-xs uppercase tracking-[0.2em] text-brand-100">Renewal Ops</p>
+      <div className="mb-6 rounded-2xl bg-ink p-4 text-white shadow-sm">
+        <p className="text-xs uppercase tracking-[0.2em] text-brand-200">Ex Umbris</p>
         <h1 className="mt-2 text-lg font-semibold">{APP_NAME}</h1>
+        <p className="mt-1 text-xs text-slate-300">CFO Opt-Out Clock</p>
       </div>
       <nav className="space-y-1">
         {SHIPPED_FIRST_SCOPE.customerNavigation.map((item) => {
@@ -39,7 +40,7 @@ export function AppSidebar() {
               href={item.href}
               className={cn(
                 "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-                active ? "bg-brand-100 text-brand-900" : "text-slate-600 hover:bg-slate-100"
+                active ? "bg-brand-50 text-brand-700 ring-1 ring-brand-100" : "text-muted hover:bg-slate-100"
               )}
             >
               <Icon className="h-4 w-4" />

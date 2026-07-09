@@ -48,22 +48,22 @@ export function ContractsTable({
   return (
     <div className="panel overflow-hidden">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">
+        <thead className="bg-slatepaper">
           <tr>
             <th className="px-4 py-3 text-left font-medium text-slate-500">Contract</th>
-            <th className="px-4 py-3 text-left font-medium text-slate-500">Counterparty</th>
+            <th className="px-4 py-3 text-left font-medium text-slate-500">Vendor / Counterparty</th>
             <th className="px-4 py-3 text-left font-medium text-slate-500">Owner</th>
             <th className="px-4 py-3 text-left font-medium text-slate-500">Department</th>
-            <th className="px-4 py-3 text-left font-medium text-slate-500">Expiration</th>
-            <th className="px-4 py-3 text-left font-medium text-slate-500">Notice Deadline</th>
-            <th className="px-4 py-3 text-left font-medium text-slate-500">Status</th>
+            <th className="px-4 py-3 text-left font-medium text-slate-500">Renewal / Expiration</th>
+            <th className="px-4 py-3 text-left font-medium text-slate-500">Opt-out deadline</th>
+            <th className="px-4 py-3 text-left font-medium text-slate-500">Defense status</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {contracts.map((contract) => (
-            <tr key={contract.id} className="bg-white">
+            <tr key={contract.id} className="bg-white transition hover:bg-slate-50/70">
               <td className="px-4 py-4">
-                <Link href={`/dashboard/contracts/${contract.id}`} className="font-medium text-brand-800">
+                <Link href={`/dashboard/contracts/${contract.id}`} className="font-medium text-brand-700 hover:text-brand-800">
                   {contract.contract_metadata?.contract_title ?? "Untitled contract"}
                 </Link>
               </td>
@@ -73,7 +73,7 @@ export function ContractsTable({
               <td className="px-4 py-4 text-slate-600">{contract.owner_name ?? "Unassigned"}</td>
               <td className="px-4 py-4 text-slate-600">{contract.department ?? "Not set"}</td>
               <td className="px-4 py-4 text-slate-600">
-                {formatDate(contract.contract_metadata?.expiration_date)}
+                {formatDate(contract.contract_metadata?.renewal_date ?? contract.contract_metadata?.expiration_date)}
               </td>
               <td className="px-4 py-4 text-slate-600">
                 {formatDate(contract.contract_metadata?.notice_deadline_date)}

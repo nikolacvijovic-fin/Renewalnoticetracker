@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
   title: APP_NAME,
-  description: "Track contract renewals, notice periods, and reminder emails."
+  description: "CFO Opt-Out Clock and SaaS Renewal Defense for contract renewal risk."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

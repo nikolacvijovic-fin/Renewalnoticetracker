@@ -8,17 +8,17 @@ import { Button } from "@/components/ui/button";
 function urgencyTone(item: SaasOptOutClockItem) {
   switch (item.urgency) {
     case "expired":
-      return "bg-red-100 text-red-800";
+      return "bg-critical/10 text-critical";
     case "critical":
-      return "bg-rose-100 text-rose-800";
+      return "bg-critical/10 text-critical";
     case "high":
-      return "bg-amber-100 text-amber-800";
+      return "bg-urgent/10 text-urgent";
     case "medium":
-      return "bg-sky-100 text-sky-800";
+      return "bg-warning/15 text-amber-800";
     case "low":
-      return "bg-emerald-100 text-emerald-800";
+      return "bg-success/10 text-success";
     default:
-      return "bg-slate-100 text-slate-700";
+      return "bg-locked/10 text-locked";
   }
 }
 
@@ -40,9 +40,10 @@ export default async function SaasOptOutClockPage() {
     <section className="space-y-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold">CFO Opt-Out Clock</h1>
-          <p className="mt-2 max-w-3xl text-slate-500">
-            Track SaaS renewal-defense dates: software inventory, contract terms, opt-out windows, and risk findings. This slice records deadlines and risk only; it does not send notices or run external integrations.
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">SaaS Renewal Defense</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">CFO Opt-Out Clock</h1>
+          <p className="mt-2 max-w-3xl text-muted">
+            Track defendable SaaS renewal windows: inventory, contract terms, opt-out deadlines, and risk findings. This slice records deadlines and risk only; it does not send notices or run external integrations.
           </p>
         </div>
         <Button asChild variant="secondary">
@@ -51,10 +52,10 @@ export default async function SaasOptOutClockPage() {
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="SaaS products" value={clock.metrics.softwareCount} accent="bg-slate-400" />
-        <MetricCard label="Open opt-out windows" value={clock.metrics.openWindowCount} accent="bg-sky-400" />
-        <MetricCard label="Critical or expired" value={clock.metrics.criticalCount + clock.metrics.expiredCount} accent="bg-rose-400" />
-        <MetricCard label="Missing notice dates" value={clock.metrics.missingNoticeDeadlineCount} accent="bg-amber-400" />
+        <MetricCard label="SaaS products" value={clock.metrics.softwareCount} accent="bg-locked" />
+        <MetricCard label="Open opt-out windows" value={clock.metrics.openWindowCount} accent="bg-brand-600" />
+        <MetricCard label="Critical or expired" value={clock.metrics.criticalCount + clock.metrics.expiredCount} accent="bg-critical" />
+        <MetricCard label="Missing notice dates" value={clock.metrics.missingNoticeDeadlineCount} accent="bg-warning" />
       </section>
 
       {canWrite ? (
@@ -152,7 +153,7 @@ export default async function SaasOptOutClockPage() {
           </form>
         </div>
       ) : (
-        <div className="panel rounded-3xl border border-slate-200 p-5 text-sm text-slate-600">
+        <div className="panel rounded-3xl border border-line p-5 text-sm text-muted">
           SaaS renewal-defense records are visible here. Ask an admin or operator to add or update software and terms.
         </div>
       )}
@@ -160,7 +161,7 @@ export default async function SaasOptOutClockPage() {
       <section className="panel overflow-hidden p-0">
         <div className="border-b border-slate-200 p-5">
           <h2 className="text-lg font-semibold text-slate-900">Opt-out clock</h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-muted">
             Sorted by the closest active opt-out deadline for the active organization.
           </p>
         </div>

@@ -8,7 +8,7 @@ export function RiskQueueTable({ rows }: { rows: RiskQueueRow[] }) {
   return (
     <div className="panel overflow-hidden">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">
+        <thead className="bg-slatepaper">
           <tr>
             <th className="px-4 py-3 text-left font-medium text-slate-500">Contract</th>
             <th className="px-4 py-3 text-left font-medium text-slate-500">Risk</th>
@@ -19,9 +19,9 @@ export function RiskQueueTable({ rows }: { rows: RiskQueueRow[] }) {
         </thead>
         <tbody className="divide-y divide-slate-100">
           {rows.map((row) => (
-            <tr key={row.contractId} className="bg-white align-top">
+            <tr key={row.contractId} className="bg-white align-top transition hover:bg-slate-50/70">
               <td className="px-4 py-4">
-                <Link href={`/dashboard/contracts/${row.contractId}`} className="font-medium text-brand-800">
+                <Link href={`/dashboard/contracts/${row.contractId}`} className="font-medium text-brand-700 hover:text-brand-800">
                   {row.contractTitle}
                 </Link>
                 <p className="mt-1 text-sm text-slate-600">{row.counterpartyName}</p>
