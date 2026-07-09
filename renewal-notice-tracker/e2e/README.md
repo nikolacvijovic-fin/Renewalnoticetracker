@@ -2,7 +2,7 @@
 
 These tests exercise release-critical flows against a live app instance.
 
-For the exact staging fixture contract, see [P0 E2E staging setup](../docs/P0_E2E_STAGING_SETUP.md).
+For the exact staging fixture contract, see [P0 E2E staging setup](../docs/P0_E2E_STAGING_SETUP.md). A short fixture pointer also lives at [P0 E2E staging fixtures](../docs/P0_E2E_STAGING_FIXTURES.md).
 
 ## Required environment
 

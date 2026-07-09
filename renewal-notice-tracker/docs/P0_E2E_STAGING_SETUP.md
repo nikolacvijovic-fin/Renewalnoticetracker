@@ -2,6 +2,8 @@
 
 This is the release fixture contract for `npm run e2e:p0:required`. The suite proves the shipped renewal-control loop against a live staging app. It must not depend on deferred modules, manual fixture guessing, or production customer data.
 
+For a short fixture-contract pointer, see [P0_E2E_STAGING_FIXTURES.md](P0_E2E_STAGING_FIXTURES.md). This setup document remains the canonical source of truth.
+
 ## Required Staging Users
 
 - Primary owner/admin user: belongs to the primary test organization and can access dashboard, create manual contracts, review P0 fields, export contracts, open pricing/billing, and record renewal decisions.
@@ -69,7 +71,7 @@ The verifier is read-only. It sends authenticated `GET` requests to the staging 
 - secondary cookie is denied or protected at `E2E_FOREIGN_CONTRACT_PATH`
 - member cookie is denied from `/dashboard/admin` when configured
 
-Cookie values are never printed. Error messages redact configured cookie values before they reach stdout/stderr.
+The verifier rejects malformed cookie names, unsafe cookie values, non-HTTP base URLs, and cross-origin fixture paths before Playwright starts. Cookie values are never printed. Error messages redact configured cookie values before they reach stdout/stderr.
 
 ## Running In CI
 

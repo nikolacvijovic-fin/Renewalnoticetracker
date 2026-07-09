@@ -45,6 +45,83 @@ describe("P0 E2E staging fixture verifier", () => {
     ).toBe("Failure included [REDACTED] and [REDACTED].");
   });
 
+  it("rejects malformed cookie names before making staging requests", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      verifyP0E2EFixtures({
+        required: true,
+        env: { ...completeEnv, E2E_AUTH_COOKIE_NAME: "bad cookie" },
+        fetchImpl
+      })
+    ).rejects.toMatchObject({
+      issues: ["invalid_cookie_config"],
+      message: expect.stringContaining("E2E_AUTH_COOKIE_NAME must be a valid HTTP cookie name")
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsafe cookie values without printing the raw cookie", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      verifyP0E2EFixtures({
+        required: true,
+        env: { ...completeEnv, E2E_AUTH_COOKIE_VALUE: "primary-secret-cookie;Injected=1" },
+        fetchImpl
+      })
+    ).rejects.toMatchObject({
+      issues: ["invalid_cookie_config"],
+      message: expect.stringContaining("primary auth cookie value contains characters")
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+
+    try {
+      await verifyP0E2EFixtures({
+        required: true,
+        env: { ...completeEnv, E2E_AUTH_COOKIE_VALUE: "primary-secret-cookie;Injected=1" },
+        fetchImpl
+      });
+      throw new Error("Expected unsafe cookie value to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(P0FixtureVerificationError);
+      expect((error as Error).message).not.toContain("primary-secret-cookie");
+      expect((error as Error).message).not.toContain("Injected=1");
+    }
+  });
+
+  it("rejects non-http staging base URLs before network checks", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      verifyP0E2EFixtures({
+        required: true,
+        env: { ...completeEnv, E2E_BASE_URL: "file:///tmp/noticecontrol" },
+        fetchImpl
+      })
+    ).rejects.toMatchObject({
+      issues: ["invalid_base_url_protocol"],
+      message: "P0 E2E base URL must use http or https; received file:."
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects cross-origin fixture paths before network checks", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(
+      verifyP0E2EFixtures({
+        required: true,
+        env: { ...completeEnv, E2E_REVIEW_CONTRACT_PATH: "https://evil.example/contracts/1" },
+        fetchImpl
+      })
+    ).rejects.toMatchObject({
+      issues: ["cross_origin_fixture_path"],
+      message: "P0 fixture path must stay on the staging origin: https://evil.example."
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("fails clearly when staging base URL returns a server error", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(response(503));
 

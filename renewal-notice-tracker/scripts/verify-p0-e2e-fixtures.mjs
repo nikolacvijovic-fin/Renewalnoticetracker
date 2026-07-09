@@ -8,6 +8,8 @@ const SENSITIVE_ENV_KEYS = [
 ];
 
 const DENIAL_TEXT_PATTERN = /not found|forbidden|unauthorized|access denied|sign in|log in/i;
+const COOKIE_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const UNSAFE_COOKIE_VALUE_PATTERN = /[\u0000-\u001F\u007F;]/;
 
 export class P0FixtureVerificationError extends Error {
   constructor(message, issues = []) {
@@ -48,8 +50,47 @@ function cookieHeader(cookieName, cookieValue) {
   return `${cookieName}=${cookieValue}`;
 }
 
+function validateCookieConfig(config) {
+  if (!config.cookieName || !config.primaryCookieValue) {
+    return [];
+  }
+
+  const issues = [];
+  const cookieValues = [
+    ["primary", config.primaryCookieValue],
+    ["secondary", config.secondaryCookieValue],
+    ["member", config.memberCookieValue]
+  ].filter(([, value]) => value);
+
+  if (!COOKIE_NAME_PATTERN.test(config.cookieName)) {
+    issues.push("E2E_AUTH_COOKIE_NAME must be a valid HTTP cookie name.");
+  }
+
+  for (const [label, value] of cookieValues) {
+    if (UNSAFE_COOKIE_VALUE_PATTERN.test(value)) {
+      issues.push(`The ${label} auth cookie value contains characters that cannot be sent safely in a Cookie header.`);
+    }
+  }
+
+  if (issues.length > 0) {
+    throw new P0FixtureVerificationError(
+      `Invalid P0 auth cookie configuration: ${issues.join(" ")}`,
+      ["invalid_cookie_config"]
+    );
+  }
+
+  return issues;
+}
+
 function resolveStagingUrl(baseURL, pathOrUrl) {
   const base = new URL(baseURL);
+  if (!["http:", "https:"].includes(base.protocol)) {
+    throw new P0FixtureVerificationError(
+      `P0 E2E base URL must use http or https; received ${base.protocol}.`,
+      ["invalid_base_url_protocol"]
+    );
+  }
+
   const target = new URL(pathOrUrl || "/", base);
   if (target.origin !== base.origin) {
     throw new P0FixtureVerificationError(
@@ -162,6 +203,8 @@ export async function verifyP0E2EFixtures(options = {}) {
     }
     return { ok: false, skipped: true, warnings, checks };
   }
+
+  validateCookieConfig(config);
 
   let baseUrl;
   let dashboardUrl;

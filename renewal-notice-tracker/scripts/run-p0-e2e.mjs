@@ -17,9 +17,13 @@ const baseURL = process.env.E2E_BASE_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "
 const cookieName = process.env.E2E_AUTH_COOKIE_NAME ?? "";
 const cookieValue = process.env.E2E_AUTH_COOKIE_VALUE ?? "";
 const secondaryCookieValue = process.env.E2E_SECONDARY_AUTH_COOKIE_VALUE ?? "";
+let fixturesVerified = false;
 
 async function verifyFixturesOrExit() {
   try {
+    if (fixturesVerified) {
+      return;
+    }
     const fixtureResult = await verifyP0E2EFixtures({ required: requireAuth });
     for (const warning of fixtureResult.warnings) {
       console.warn(warning);
@@ -27,6 +31,7 @@ async function verifyFixturesOrExit() {
     if (fixtureResult.skipped) {
       process.exit(0);
     }
+    fixturesVerified = true;
   } catch (error) {
     console.error(
       redactP0FixtureMessage(
