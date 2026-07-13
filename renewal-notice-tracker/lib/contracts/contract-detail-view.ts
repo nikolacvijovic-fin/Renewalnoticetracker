@@ -8,8 +8,22 @@ import {
   formatReminderRuntimeStatusLabel,
   formatReminderTypeLabel,
   getReminderActivationState,
+  SHIPPED_REMINDER_DAY_OFFSETS,
   type ReminderActivationState
 } from "@/lib/contracts/shipped-reminder-policy";
+import {
+  calculateRenewalReadiness,
+  getDaysUntilDate,
+  type RenewalReadinessScore
+} from "@/lib/contracts/readiness-score";
+import {
+  evaluateTrustedReminderGate,
+  type TrustedReminderGateResult
+} from "@/lib/contracts/trusted-reminder-gate";
+import {
+  deriveRenewalDecisionLoop,
+  type RenewalDecisionLoop
+} from "@/lib/contracts/decision-loop";
 import type {
   CounterpartyRecord,
   OrganizationMember
@@ -100,6 +114,9 @@ export type ContractDetailViewModel = {
     reminderStatus: string;
     reminderHelp: string;
   };
+  readinessScore: RenewalReadinessScore;
+  trustedReminderGate: TrustedReminderGateResult;
+  decisionLoop: RenewalDecisionLoop;
   riskExplanation: RiskQueueRow;
   intelligenceAccess: Awaited<ReturnType<typeof getIntelligenceSurfaceAccessMap>>;
 };
@@ -234,6 +251,22 @@ export function getContractDetailReminderBlockedReason(
     : reminderActivationState;
 }
 
+export function getContractDetailEvidenceConfidence(metadata: ContractPageMetadata) {
+  const values = Object.values(metadata.field_confidence)
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+    .map((value) => Math.max(0, Math.min(1, value)));
+
+  if (values.length === 0) {
+    return metadata.needs_review || metadata.has_weak_evidence ? 0 : 1;
+  }
+
+  return Math.min(...values);
+}
+
+export function isContractDetailDecisionRecorded(value: string | null | undefined) {
+  return normalizeDecisionStatus(value) !== "undecided";
+}
+
 export async function buildContractDetailViewModel(input: {
   context: ActiveOrganizationContext;
   contract: ContractDetailRecord;
@@ -297,6 +330,46 @@ export async function buildContractDetailViewModel(input: {
   const nextReminder = getContractDetailNextReminder(
     (input.contract.reminders ?? []) as ContractDetailReminder[]
   );
+  const evidenceConfidence = getContractDetailEvidenceConfidence(metadata);
+  const p0FieldsReviewed = !reviewBlocked;
+  const autoRenewReviewed = !reviewBlocked && metadata.auto_renewal !== null;
+  const renewalDateReviewed = !reviewBlocked && Boolean(metadata.renewal_date);
+  const noticeDeadlineReviewed = !reviewBlocked && Boolean(metadata.notice_deadline_date);
+  const trustedReminderActive = reminderActivationState === "scheduled";
+  const decisionRecorded = isContractDetailDecisionRecorded(input.contract.renewal_decision_status);
+  const trustedReminderGate = evaluateTrustedReminderGate({
+    contractId: input.contract.id,
+    ownerUserId: input.contract.owner_user_id ?? null,
+    renewalDate: metadata.renewal_date,
+    noticeDeadline: metadata.notice_deadline_date,
+    autoRenewReviewed,
+    p0FieldsReviewed,
+    evidenceConfidence,
+    leadDays: [
+      ...SHIPPED_REMINDER_DAY_OFFSETS.notice_deadline,
+      ...SHIPPED_REMINDER_DAY_OFFSETS.renewal,
+      ...SHIPPED_REMINDER_DAY_OFFSETS.expiration
+    ],
+    humanReviewOverride: Boolean(metadata.accepted_unverified_risk_requested)
+  });
+  const readinessScore = calculateRenewalReadiness({
+    ownerAssigned: !ownerBlocked,
+    renewalDateReviewed,
+    noticeDeadlineReviewed,
+    autoRenewReviewed,
+    evidenceConfidence,
+    trustedReminderActive,
+    decisionRecorded,
+    daysToNotice: getDaysUntilDate(metadata.notice_deadline_date)
+  });
+  const decisionLoop = deriveRenewalDecisionLoop({
+    contractDetected: true,
+    p0Reviewed: !reviewBlocked,
+    ownerAssigned: !ownerBlocked,
+    trustedReminderActive,
+    decisionRecorded,
+    cycleClosed: (input.contract.cycle_status ?? "open") === "closed"
+  });
   const nextAction = deriveContractDetailNextAction({
     trustState,
     reviewBlocked,
@@ -388,6 +461,9 @@ export async function buildContractDetailViewModel(input: {
       reminderBlockedReason,
       nextReminder
     }),
+    readinessScore,
+    trustedReminderGate,
+    decisionLoop,
     riskExplanation,
     intelligenceAccess
   } satisfies ContractDetailViewModel;

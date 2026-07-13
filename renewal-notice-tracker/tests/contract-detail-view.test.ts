@@ -293,6 +293,27 @@ describe("buildContractDetailViewModel", () => {
         reminderStatus: "Trusted schedule active"
       })
     );
+    expect(viewModel.readinessScore).toEqual(
+      expect.objectContaining({
+        score: 80,
+        label: "mostly_ready",
+        nextAction: "Resolve low-confidence extracted evidence before trusting the clock."
+      })
+    );
+    expect(viewModel.trustedReminderGate).toEqual(
+      expect.objectContaining({
+        canActivate: false
+      })
+    );
+    expect(viewModel.trustedReminderGate.failures.map((failure) => failure.code)).toContain(
+      "low_confidence"
+    );
+    expect(viewModel.decisionLoop).toEqual(
+      expect.objectContaining({
+        stage: "decision_needed",
+        nextAction: "Record the renewal decision."
+      })
+    );
     expect(viewModel.memberLabels).toEqual([
       { user_id: "owner-1", label: "Owner One" }
     ]);
@@ -344,5 +365,10 @@ describe("buildContractDetailViewModel", () => {
     expect(viewModel.reminderBlockedReason).toBe("blocked_by_review");
     expect(viewModel.nextAction.label).toBe("Complete P0 review");
     expect(viewModel.ownerReadiness.reminderStatus).toBe("Blocked by review");
+    expect(viewModel.readinessScore.label).toBe("not_ready");
+    expect(viewModel.trustedReminderGate.failures.map((failure) => failure.code)).toEqual(
+      expect.arrayContaining(["missing_owner", "p0_unreviewed"])
+    );
+    expect(viewModel.decisionLoop.stage).toBe("review_needed");
   });
 });

@@ -19,6 +19,9 @@ import { ContractDetailShell } from "@/components/contracts/contract-detail-shel
 import { getRiskConfidenceLabel } from "@/lib/intelligence/risk/dashboard";
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
 import { RiskBadge } from "@/components/contracts/risk-badge";
+import { ReadinessScoreCard } from "@/components/contracts/readiness-score-card";
+import { TrustedReminderBlockers } from "@/components/contracts/trusted-reminder-blockers";
+import { DecisionLoopLedger } from "@/components/contracts/decision-loop-ledger";
 import {
   auditRiskBadgeViewed
 } from "@/lib/intelligence/audit";
@@ -109,30 +112,37 @@ export default async function ContractDetailPage({
         />
       }
       ownerReminderPanel={
-        <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-          <div className="panel p-6">
-            <h2 className="text-lg font-semibold">Owner and reminder readiness</h2>
-            <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Current owner
-                </p>
-                <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.ownerStatus}</p>
-                <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.ownerHelp}</p>
-              </div>
-              <div className="rounded-2xl border border-slate-200 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Reminder readiness
-                </p>
-                <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.reminderStatus}</p>
-                <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.reminderHelp}</p>
+        <div className="space-y-6">
+          <div className="grid gap-4 xl:grid-cols-3">
+            <ReadinessScoreCard score={viewModel.readinessScore} />
+            <TrustedReminderBlockers gate={viewModel.trustedReminderGate} />
+            <DecisionLoopLedger loop={viewModel.decisionLoop} />
+          </div>
+          <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
+            <div className="panel p-6">
+              <h2 className="text-lg font-semibold">Owner and reminder readiness</h2>
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Current owner
+                  </p>
+                  <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.ownerStatus}</p>
+                  <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.ownerHelp}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Reminder readiness
+                  </p>
+                  <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.reminderStatus}</p>
+                  <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.reminderHelp}</p>
+                </div>
               </div>
             </div>
+            <ReminderTimeline
+              reminders={((contract.reminders ?? []) as never[])}
+              blockedReason={viewModel.reminderBlockedReason}
+            />
           </div>
-          <ReminderTimeline
-            reminders={((contract.reminders ?? []) as never[])}
-            blockedReason={viewModel.reminderBlockedReason}
-          />
         </div>
       }
       decisionCyclePanel={
