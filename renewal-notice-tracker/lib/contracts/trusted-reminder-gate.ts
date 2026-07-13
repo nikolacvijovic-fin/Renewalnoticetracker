@@ -19,8 +19,18 @@ export type TrustedReminderGateInput = {
   p0FieldsReviewed: boolean;
   evidenceConfidence: number;
   leadDays: readonly number[];
-  approvedUnverifiedRiskOverride?: boolean;
   unverifiedRiskApprovalRequested?: boolean;
+  trustExceptionApproval?: TrustedReminderGateApprovalEvidence | null;
+};
+
+export type TrustedReminderGateApprovalEvidence = {
+  id: string;
+  approvalType: string;
+  approvedByUserId: string;
+  approvalReason: string;
+  evidenceConfidenceAtApproval: number;
+  sourceFieldKeys: string[];
+  activeAtEvaluation: boolean;
 };
 
 export type TrustedReminderGateFailure = {
@@ -39,6 +49,13 @@ export type TrustedReminderGateResult = {
     approvedUnverifiedRiskOverride: boolean;
     unverifiedRiskApprovalRequested: boolean;
     lowConfidenceAllowedByApprovedOverride: boolean;
+    trustExceptionApprovalId: string | null;
+    approvalType: string | null;
+    approvedByUserId: string | null;
+    approvalReason: string | null;
+    evidenceConfidenceAtApproval: number | null;
+    sourceFieldKeys: string[];
+    approvalActiveAtEvaluation: boolean;
   };
 };
 
@@ -47,9 +64,12 @@ export function evaluateTrustedReminderGate(
 ): TrustedReminderGateResult {
   const failures: TrustedReminderGateFailure[] = [];
   const evidenceConfidence = clampConfidence(input.evidenceConfidence);
+  const activeApproval = input.trustExceptionApproval?.activeAtEvaluation
+    ? input.trustExceptionApproval
+    : null;
   const lowConfidenceAllowedByApprovedOverride =
     evidenceConfidence < RENEWAL_READINESS_CONFIDENCE_THRESHOLD &&
-    Boolean(input.approvedUnverifiedRiskOverride);
+    Boolean(activeApproval);
 
   if (!input.ownerUserId) {
     failures.push({
@@ -93,7 +113,7 @@ export function evaluateTrustedReminderGate(
 
   if (
     evidenceConfidence < RENEWAL_READINESS_CONFIDENCE_THRESHOLD &&
-    !input.approvedUnverifiedRiskOverride
+    !activeApproval
   ) {
     failures.push({
       code: input.unverifiedRiskApprovalRequested
@@ -123,9 +143,16 @@ export function evaluateTrustedReminderGate(
       contractId: input.contractId,
       failureCount: failures.length,
       evidenceConfidence,
-      approvedUnverifiedRiskOverride: Boolean(input.approvedUnverifiedRiskOverride),
+      approvedUnverifiedRiskOverride: Boolean(activeApproval),
       unverifiedRiskApprovalRequested: Boolean(input.unverifiedRiskApprovalRequested),
-      lowConfidenceAllowedByApprovedOverride
+      lowConfidenceAllowedByApprovedOverride,
+      trustExceptionApprovalId: activeApproval?.id ?? null,
+      approvalType: activeApproval?.approvalType ?? null,
+      approvedByUserId: activeApproval?.approvedByUserId ?? null,
+      approvalReason: activeApproval?.approvalReason ?? null,
+      evidenceConfidenceAtApproval: activeApproval?.evidenceConfidenceAtApproval ?? null,
+      sourceFieldKeys: activeApproval?.sourceFieldKeys ?? [],
+      approvalActiveAtEvaluation: Boolean(activeApproval)
     }
   };
 }

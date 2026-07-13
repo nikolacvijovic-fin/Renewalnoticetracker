@@ -135,8 +135,8 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
     status: "shipped",
     ownerSurface: "renewal decision workflow",
     evidence: {
-      shippedEvidenceEvents: ["renewal_decision.created", "renewal_decision_recorded"],
-      futureEvidenceEvents: [],
+      shippedEvidenceEvents: ["renewal_decision_recorded"],
+      futureEvidenceEvents: ["renewal_decision.created"],
       stateOrQueryFallbacks: ["renewal_decision_status_query", "latest_decision_by_contract_query"]
     },
     privacySensitivity: "medium",
@@ -222,7 +222,6 @@ export const CUSTOMER_ONBOARDING_MILESTONES: Record<
         "contract.acknowledged",
         "contract.acknowledged_from_email",
         "acknowledgment_recorded",
-        "renewal_decision.created",
         "renewal_decision_recorded",
         "renewal_cycle.updated"
       ],

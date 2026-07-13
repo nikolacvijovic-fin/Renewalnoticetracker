@@ -63,6 +63,7 @@ type AuditLogRow = Database["public"]["Tables"]["audit_logs"]["Row"];
 type RenewalDecisionRow = Database["public"]["Tables"]["renewal_decisions"]["Row"];
 type ExtractedFieldEvidenceRow = Database["public"]["Tables"]["extracted_field_evidence"]["Row"];
 type ProcessingErrorRow = Database["public"]["Tables"]["processing_errors"]["Row"];
+type TrustExceptionApprovalRow = Database["public"]["Tables"]["contract_trust_exception_approvals"]["Row"];
 
 type ContractDetailRecord = ContractRow & {
   contract_files: ContractFileRow[];
@@ -71,6 +72,7 @@ type ContractDetailRecord = ContractRow & {
   notes: NoteRow[];
   audit_logs: AuditLogRow[];
   renewal_decisions: RenewalDecisionRow[];
+  contract_trust_exception_approvals?: TrustExceptionApprovalRow[] | null;
 };
 
 type ExportContractRow = DashboardContractRow & {
@@ -394,7 +396,8 @@ export async function getContractById(contractId: string, organizationId: string
       reminders (*),
       notes (*),
       audit_logs (*),
-      renewal_decisions (*)
+      renewal_decisions (*),
+      contract_trust_exception_approvals (*)
     `
     )
     .eq("id", contractId)

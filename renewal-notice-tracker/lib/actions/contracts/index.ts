@@ -8,3 +8,4 @@ export * from "@/lib/actions/contracts/decisions";
 export * from "@/lib/actions/contracts/counterparties";
 export * from "@/lib/actions/contracts/imports";
 export * from "@/lib/actions/contracts/templates";
+export * from "@/lib/actions/contracts/trust-exceptions";

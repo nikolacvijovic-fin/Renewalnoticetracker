@@ -8,7 +8,6 @@ import {
   formatReminderRuntimeStatusLabel,
   formatReminderTypeLabel,
   getReminderActivationState,
-  SHIPPED_REMINDER_DAY_OFFSETS,
   type ReminderActivationState
 } from "@/lib/contracts/shipped-reminder-policy";
 import {
@@ -24,6 +23,11 @@ import {
   deriveRenewalDecisionLoop,
   type RenewalDecisionLoop
 } from "@/lib/contracts/decision-loop";
+import {
+  buildTrustExceptionApprovalGateEvidence,
+  isTrustExceptionApprovalActive,
+  type TrustExceptionApproval
+} from "@/lib/contracts/trust-exception-approvals";
 import type {
   CounterpartyRecord,
   OrganizationMember
@@ -38,6 +42,8 @@ import { formatDate } from "@/lib/utils";
 type ContractDetailRecord = NonNullable<
   Awaited<ReturnType<(typeof import("@/lib/contracts/kernel-queries"))["getContractById"]>>
 >;
+
+const TRUSTED_REMINDER_GATE_LEAD_DAYS = [90, 60, 30] as const;
 
 export type ContractPageMetadata = Record<string, unknown> & {
   contract_title: string | null;
@@ -119,9 +125,23 @@ export type ContractDetailViewModel = {
   };
   readinessScore: RenewalReadinessScore;
   trustedReminderGate: TrustedReminderGateResult;
+  trustExceptionApproval: TrustExceptionApproval | null;
+  trustExceptionApprovalState: ContractDetailTrustExceptionApprovalState;
   decisionLoop: RenewalDecisionLoop;
   riskExplanation: RiskQueueRow;
   intelligenceAccess: Awaited<ReturnType<typeof getIntelligenceSurfaceAccessMap>>;
+};
+
+export type ContractDetailTrustExceptionApprovalState = {
+  status: "none" | "requested" | "active" | "expired" | "revoked";
+  approval: TrustExceptionApproval | null;
+  legacyApproval: {
+    approvedAt: string | null;
+    approvedBy: string | null;
+    approvalReason: string | null;
+  } | null;
+  label: string;
+  help: string;
 };
 
 function firstValue<T>(value: T | T[] | null | undefined): T | null {
@@ -130,6 +150,74 @@ function firstValue<T>(value: T | T[] | null | undefined): T | null {
   }
 
   return value ?? null;
+}
+
+function deriveContractDetailTrustExceptionApprovalState(input: {
+  approvals: TrustExceptionApproval[];
+  activeApproval: TrustExceptionApproval | null;
+  metadata: ContractPageMetadata;
+}): ContractDetailTrustExceptionApprovalState {
+  const legacyApproval = hasApprovedUnverifiedRiskOverride(input.metadata)
+    ? {
+        approvedAt: input.metadata.accepted_unverified_risk_approved_at ?? null,
+        approvedBy: input.metadata.accepted_unverified_risk_approved_by ?? null,
+        approvalReason: input.metadata.accepted_unverified_risk_approval_reason ?? null
+      }
+    : null;
+
+  if (input.activeApproval) {
+    return {
+      status: "active",
+      approval: input.activeApproval,
+      legacyApproval,
+      label: `Low-confidence evidence approved by ${input.activeApproval.approved_by_user_id} on ${formatDate(input.activeApproval.created_at)}`,
+      help: "Trusted reminders may proceed because a durable trust exception approval is active. Evidence confidence itself is unchanged."
+    };
+  }
+
+  const latestApproval = [...input.approvals].sort((left, right) =>
+    right.created_at.localeCompare(left.created_at)
+  )[0] ?? null;
+
+  if (latestApproval?.revoked_at) {
+    return {
+      status: "revoked",
+      approval: latestApproval,
+      legacyApproval,
+      label: `Approval revoked on ${formatDate(latestApproval.revoked_at)}`,
+      help: "Revoked approvals do not unlock trusted reminders."
+    };
+  }
+
+  if (latestApproval?.expires_at) {
+    return {
+      status: "expired",
+      approval: latestApproval,
+      legacyApproval,
+      label: `Approval expired on ${formatDate(latestApproval.expires_at)}`,
+      help: "Expired approvals do not unlock trusted reminders."
+    };
+  }
+
+  if (input.metadata.accepted_unverified_risk_requested) {
+    return {
+      status: "requested",
+      approval: null,
+      legacyApproval,
+      label: "Approval requested, not yet approved",
+      help: "Trusted reminders stay blocked until a durable approval record is granted or evidence improves."
+    };
+  }
+
+  return {
+    status: "none",
+    approval: null,
+    legacyApproval,
+    label: legacyApproval ? "Legacy approval metadata present" : "No trust exception approval",
+    help: legacyApproval
+      ? "Legacy metadata is shown as historical context only. It does not unlock trusted reminders."
+      : "Low-confidence evidence requires a durable human approval before trusted reminders can proceed."
+  };
 }
 
 export function normalizeContractDetailMetadata(
@@ -296,6 +384,7 @@ export async function buildContractDetailViewModel(input: {
   contract: ContractDetailRecord;
   members: OrganizationMember[];
   counterparties: CounterpartyRecord[];
+  trustExceptionApproval?: TrustExceptionApproval | null;
 }) {
   const metadataRow = firstValue(input.contract.contract_metadata);
   if (!metadataRow) {
@@ -354,7 +443,23 @@ export async function buildContractDetailViewModel(input: {
   const nextReminder = getContractDetailNextReminder(
     (input.contract.reminders ?? []) as ContractDetailReminder[]
   );
-  const approvedUnverifiedRiskOverride = hasApprovedUnverifiedRiskOverride(metadata);
+  const approvalRows =
+    (input.contract as { contract_trust_exception_approvals?: TrustExceptionApproval[] | null })
+      .contract_trust_exception_approvals ?? [];
+  const trustExceptionApproval =
+    input.trustExceptionApproval === undefined
+      ? [...approvalRows]
+          .sort((left, right) => right.created_at.localeCompare(left.created_at))
+          .find((approval) => isTrustExceptionApprovalActive(approval)) ?? null
+      : isTrustExceptionApprovalActive(input.trustExceptionApproval)
+        ? input.trustExceptionApproval
+        : null;
+  const trustExceptionApprovalState = deriveContractDetailTrustExceptionApprovalState({
+    approvals: approvalRows,
+    activeApproval: trustExceptionApproval,
+    metadata
+  });
+  const approvedUnverifiedRiskOverride = Boolean(trustExceptionApproval);
   const evidenceConfidence = getContractDetailEvidenceConfidence(metadata);
   const p0FieldsReviewed = !reviewBlocked;
   const autoRenewReviewed = !reviewBlocked && metadata.auto_renewal !== null;
@@ -370,13 +475,11 @@ export async function buildContractDetailViewModel(input: {
     autoRenewReviewed,
     p0FieldsReviewed,
     evidenceConfidence,
-    leadDays: [
-      ...SHIPPED_REMINDER_DAY_OFFSETS.notice_deadline,
-      ...SHIPPED_REMINDER_DAY_OFFSETS.renewal,
-      ...SHIPPED_REMINDER_DAY_OFFSETS.expiration
-    ],
-    approvedUnverifiedRiskOverride,
-    unverifiedRiskApprovalRequested: Boolean(metadata.accepted_unverified_risk_requested)
+    leadDays: TRUSTED_REMINDER_GATE_LEAD_DAYS,
+    unverifiedRiskApprovalRequested: Boolean(metadata.accepted_unverified_risk_requested),
+    trustExceptionApproval: trustExceptionApproval
+      ? buildTrustExceptionApprovalGateEvidence(trustExceptionApproval)
+      : null
   });
   const readinessScore = calculateRenewalReadiness({
     ownerAssigned: !ownerBlocked,
@@ -491,6 +594,8 @@ export async function buildContractDetailViewModel(input: {
     }),
     readinessScore,
     trustedReminderGate,
+    trustExceptionApproval,
+    trustExceptionApprovalState,
     decisionLoop,
     riskExplanation,
     intelligenceAccess

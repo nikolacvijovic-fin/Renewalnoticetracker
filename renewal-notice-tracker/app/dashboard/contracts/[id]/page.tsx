@@ -21,6 +21,7 @@ import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-d
 import { RiskBadge } from "@/components/contracts/risk-badge";
 import { ReadinessScoreCard } from "@/components/contracts/readiness-score-card";
 import { TrustedReminderBlockers } from "@/components/contracts/trusted-reminder-blockers";
+import { ContractOnboardingPanel } from "@/components/contracts/contract-onboarding-panel";
 import { DecisionLoopLedger } from "@/components/contracts/decision-loop-ledger";
 import {
   auditRiskBadgeViewed
@@ -115,9 +116,18 @@ export default async function ContractDetailPage({
         <div className="space-y-6">
           <div className="grid gap-4 xl:grid-cols-3">
             <ReadinessScoreCard score={viewModel.readinessScore} />
-            <TrustedReminderBlockers gate={viewModel.trustedReminderGate} />
+            <TrustedReminderBlockers
+              gate={viewModel.trustedReminderGate}
+              approvalState={viewModel.trustExceptionApprovalState}
+            />
             <DecisionLoopLedger loop={viewModel.decisionLoop} />
           </div>
+          <ContractOnboardingPanel
+            contractId={contract.id}
+            readinessScore={viewModel.readinessScore}
+            trustedReminderGate={viewModel.trustedReminderGate}
+            approvalState={viewModel.trustExceptionApprovalState}
+          />
           <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
             <div className="panel p-6">
               <h2 className="text-lg font-semibold">Owner and reminder readiness</h2>

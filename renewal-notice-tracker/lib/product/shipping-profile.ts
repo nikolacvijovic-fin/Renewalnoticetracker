@@ -101,6 +101,7 @@ export const SHIPPED_FIRST_SCOPE = {
     "customer_facing_strategy_dashboards"
   ],
   customerNavigation: [
+    { href: "/onboarding", label: "Activation" },
     { href: "/dashboard", label: "Overview" },
     { href: "/dashboard/risk-queue", label: "Risk Queue" },
     { href: "/dashboard/financial-intelligence", label: "Financial" },

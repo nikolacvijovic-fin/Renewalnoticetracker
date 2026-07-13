@@ -341,9 +341,9 @@ export const CUSTOMER_HEALTH_SIGNALS: Record<CustomerHealthSignalId, CustomerHea
     safeMetadata: ["organization_id", "undecided_count", "due_window", "owner_user_id"],
     severity: "P2",
     triggerSource: "renewal decision summary",
-    eventEvidence: ["renewal_decision_recorded", "renewal_decision.created"],
+    eventEvidence: ["renewal_decision_recorded"],
+    futureEventEvidence: ["renewal_decision.created"],
     stateOrQuerySources: ["renewal_decision_status_query", "undecided_contract_count_query"],
-    futureEventEvidence: [],
     recommendedSupportAction: "Route accountable users to record decisions without recommending legal outcomes."
   }),
   export_failed_repeatedly: healthSignal({

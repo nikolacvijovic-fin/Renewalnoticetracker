@@ -1,222 +1,275 @@
 import Link from "next/link";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { MetricCard } from "@/components/dashboard/metric-card";
 import { requireOrganization } from "@/lib/auth";
 import {
-  getContracts,
-  getDashboardMetrics,
-  getCustomerOnboardingQueryEvidence,
-  getOrganizationBilling
-} from "@/lib/contracts/kernel-queries";
-import {
-  ACTIVATION_POLICY,
-  conversionAnalysis,
-  getUpgradePrompts
-} from "@/lib/commercial/conversion";
-import { getActivationStatus } from "@/lib/commercial/activation";
-import { buildCustomerOnboardingProgress } from "@/lib/product/customer-onboarding-progress";
-import { summarizeWorkflowGuardrails } from "@/lib/contracts/workflow-guardrails";
-import { MetricCard } from "@/components/dashboard/metric-card";
-import { OnboardingChecklist } from "@/components/dashboard/onboarding-checklist";
-import { UpgradePrompts } from "@/components/dashboard/upgrade-prompts";
-import { OperationalPriorityPanel } from "@/components/dashboard/operational-priority-panel";
-import { ContractsTable } from "@/components/contracts/contracts-table";
-import { Button } from "@/components/ui/button";
+  buildRenewalCommandCenter,
+  getRenewalCommandCenterContracts,
+  type RenewalCommandSeverity,
+  type RenewalRiskSegmentId
+} from "@/lib/dashboard/renewal-command-center";
 
-export default async function DashboardPage() {
+const SEVERITY_TONE: Record<RenewalCommandSeverity, "critical" | "urgent" | "warning" | "success"> = {
+  critical: "critical",
+  high: "urgent",
+  medium: "warning",
+  low: "success"
+};
+
+function money(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
+function formatDue(days: number | null) {
+  if (days === null) return "No deadline";
+  if (days < 0) return `${Math.abs(days)} days past`;
+  if (days === 0) return "Today";
+  return `${days} days`;
+}
+
+export default async function DashboardPage({
+  searchParams
+}: {
+  searchParams?: { segment?: string };
+}) {
   const { organizationId } = await requireOrganization();
-  const [metrics, contracts, billing, onboardingEvidence] = await Promise.all([
-    getDashboardMetrics(organizationId),
-    getContracts(organizationId, "all"),
-    getOrganizationBilling(organizationId),
-    getCustomerOnboardingQueryEvidence(organizationId)
-  ]);
-  const reviewedContracts = contracts.filter(
-    (contract) => contract.contract_metadata?.needs_review === false
-  ).length;
-  const ownerAssignedContracts = contracts.filter(
-    (contract) => contract.owner_name && contract.owner_name !== "Unassigned"
-  ).length;
-  const decisionCount = contracts.filter(
-    (contract) => (contract.renewal_decision_status ?? "undecided") !== "undecided"
-  ).length;
-  const acknowledgedContractCount = contracts.filter((contract) => contract.last_acknowledged_at).length;
-  const closedOrReopenedCycleCount = contracts.filter((contract) =>
-    ["closed", "reopened"].includes(contract.cycle_status ?? "")
-  ).length;
-  const activationStatus = getActivationStatus({
-    organizationCreatedAt: billing.created_at ?? billing.trial_started_at ?? null,
-    totalContracts: metrics.totalContracts,
-    reviewedContracts,
-    ownerAssignedContracts,
-    liveObligationCount: metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
-    reminderCount: onboardingEvidence.trustedReminderCount,
-    decisionCount,
-    completedImportCount30d: onboardingEvidence.completedImportCount30d
-  });
-  const onboardingProgress = buildCustomerOnboardingProgress({
+  const contracts = await getRenewalCommandCenterContracts(organizationId);
+  const commandCenter = buildRenewalCommandCenter({
     organizationId,
-    organizationCreatedAt: billing.created_at ?? billing.trial_started_at ?? null,
-    planTier: billing.plan_tier,
-    subscriptionStatus: billing.subscription_status,
-    billingProvider: billing.billing_provider,
-    trialEndsAt: billing.trial_ends_at,
-    subscriptionCurrentPeriodEnd: billing.subscription_current_period_end,
-    hasActiveOrganizationMembership: onboardingEvidence.hasActiveOrganizationMembership,
-    totalContracts: metrics.totalContracts,
-    reviewedContracts,
-    ownerAssignedContracts,
-    trustedReminderCount: onboardingEvidence.trustedReminderCount,
-    liveObligationCount: metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
-    decisionCount,
-    completedExportCount: onboardingEvidence.completedExportCount,
-    intelligenceViewCount: onboardingEvidence.intelligenceViewCount,
-    acknowledgedContractCount,
-    closedOrReopenedCycleCount
+    contracts,
+    segment: (searchParams?.segment as RenewalRiskSegmentId | undefined) ?? null
   });
-  const upgradePrompts = getUpgradePrompts({
-    organizationId,
-    planTier: billing.plan_tier,
-    subscriptionStatus: billing.subscription_status,
-    billingProvider: billing.billing_provider,
-    trialEndsAt: billing.trial_ends_at,
-    totalContracts: metrics.totalContracts,
-    needsReview: metrics.needsReview,
-    renewalsDueSoon: metrics.renewalsDueSoon,
-    noticeDeadlinesDueSoon: metrics.noticeDeadlinesDueSoon,
-    reviewedContracts,
-    ownerAssignedContracts
-  });
-  const ownerMissingCount = contracts.filter((contract) => contract.owner_name === "Unassigned").length;
-  const decisionMissingCount = contracts.filter(
-    (contract) =>
-      (contract.renewal_decision_status ?? "undecided") === "undecided" &&
-      !contract.contract_metadata?.needs_review
-  ).length;
-  const guardrails = summarizeWorkflowGuardrails(
-    contracts.map((contract) => ({
-      id: contract.id ?? "",
-      created_at: contract.created_at ?? new Date(0).toISOString(),
-      owner_user_id: contract.owner_user_id ?? null,
-      renewal_decision_status: contract.renewal_decision_status ?? "undecided",
-      cycle_status: contract.cycle_status ?? "open",
-      contract_metadata: contract.contract_metadata
-        ? {
-            expiration_date: contract.contract_metadata.expiration_date,
-            notice_deadline_date: contract.contract_metadata.notice_deadline_date,
-            renewal_date: (contract.contract_metadata as { renewal_date?: string | null }).renewal_date ?? null,
-            needs_review: contract.contract_metadata.needs_review,
-            field_confidence:
-              typeof contract.contract_metadata.field_confidence === "object" &&
-              contract.contract_metadata.field_confidence !== null
-                ? (contract.contract_metadata.field_confidence as Record<string, number>)
-                : {},
-            field_source_snippets: {}
-          }
-        : null
-    }))
-  );
+  const topAction = commandCenter.recommendedActions[0] ?? null;
+  const filteredContracts = commandCenter.filteredSegment?.contracts ?? commandCenter.topRisks;
 
-  return (
-    <>
-      <section className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">Ex Umbris Renewal Defense</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">CFO Opt-Out Clock Dashboard</h1>
-          <p className="mt-2 max-w-3xl text-muted">
-            See which SaaS renewals can still be defended, where opt-out evidence is weak, and which owner or decision gap could turn into unwanted spend.
-          </p>
-        </div>
-        <Button asChild>
+  if (commandCenter.totalContracts === 0) {
+    return (
+      <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">
+          Renewal Command Center
+        </p>
+        <h1 className="mt-3 text-3xl font-semibold tracking-tight">Start with one renewal contract</h1>
+        <p className="mx-auto mt-3 max-w-2xl text-muted">
+          This dashboard becomes useful when it can evaluate real owner, evidence, deadline, and
+          trusted-reminder state. Add one contract to build the first operating view.
+        </p>
+        <Button asChild className="mt-6">
           <Link href="/dashboard/contracts/new">Add renewal evidence</Link>
         </Button>
       </section>
-      <OperationalPriorityPanel
-        firstValueSummary="Defense starts when every live renewal has reviewed dates, an accountable owner, and a visible opt-out or renewal decision path."
-        items={[
-          {
-            label: "Evidence weak",
-            count: guardrails.dueSoonNeedsReviewCount || metrics.needsReview,
-            description: "Renewals still waiting for reviewed notice and expiration truth before the clock can be trusted.",
-            href: "/dashboard/contracts?filter=needs_review",
-            tone: metrics.needsReview > 0 ? "warning" : "safe"
-          },
-          {
-            label: "Owner gap",
-            count: ownerMissingCount,
-            description: "Renewals without an accountable owner cannot enter a defensible opt-out loop.",
-            href: "/dashboard/contracts",
-            tone: ownerMissingCount > 0 ? "warning" : "safe"
-          },
-          {
-            label: "Clock exposed",
-            count: guardrails.dueSoonQueueCount || metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon,
-            description: "Notice, renewal, and expiration obligations already inside the CFO working window.",
-            href: "/dashboard/contracts?filter=active",
-            tone:
-              metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon > 0 ? "critical" : "safe"
-          },
-          {
-            label: "Decision risk",
-            count: guardrails.decisionNeededCount || decisionMissingCount,
-            description: "Reviewed, owned renewals approaching live obligation without a recorded CFO-safe decision.",
-            href: "/dashboard/contracts",
-            tone: decisionMissingCount > 0 ? "urgent" : "safe"
-          },
-          {
-            label: "Acknowledgment gap",
-            count: guardrails.awaitingAcknowledgmentCount,
-            description: "High-risk reminder acknowledgments still waiting on secure confirmation.",
-            href: "/dashboard/contracts",
-            tone: guardrails.awaitingAcknowledgmentCount > 0 ? "warning" : "safe"
-          }
-        ]}
-      />
-      <OnboardingChecklist
-        items={onboardingProgress.milestones}
-        firstValueMilestone={onboardingProgress.customerSafeSummary}
-        activationStatus={activationStatus}
-        activationWindowLabel={`Activation window: ${ACTIVATION_POLICY.activationWindowDays} days`}
-      />
-      <UpgradePrompts
-        prompts={upgradePrompts}
-        firstPaidValueMilestone={conversionAnalysis.firstPaidValueMilestone}
-      />
+    );
+  }
+
+  const allSafe =
+    commandCenter.contractsBlockedFromTrustedReminder === 0 &&
+    commandCenter.contractsPastNoticeDeadline === 0 &&
+    commandCenter.contractsWithUpcomingNoticeDeadline === 0;
+
+  return (
+    <>
+      <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">
+            Renewal Command Center
+          </p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">This week&apos;s renewal risk</h1>
+          <p className="mt-2 max-w-3xl text-muted">
+            One operating view for trusted reminders, owner accountability, notice deadlines, and
+            commercial exposure.
+          </p>
+        </div>
+        <Button asChild variant="secondary">
+          <Link href="/onboarding">View activation path</Link>
+        </Button>
+      </section>
+
+      {allSafe ? (
+        <section className="rounded-3xl border border-success/20 bg-success/10 p-5 text-success">
+          <p className="font-semibold">All active contracts are currently safe.</p>
+          <p className="mt-1 text-sm">
+            Trusted reminder coverage is healthy and no notice deadlines are inside the urgent window.
+          </p>
+        </section>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
-          label="Defense file reviewed"
-          value={`${reviewedContracts}/${metrics.totalContracts}`}
+          label="Readiness score"
+          value={commandCenter.overallReadinessScore}
           accent="bg-brand-600"
-          description="Contracts with CFO-trustworthy renewal dates."
+          description="Average readiness across active renewal records."
         />
         <MetricCard
-          label="Owner accountability"
-          value={`${ownerAssignedContracts}/${metrics.totalContracts}`}
-          accent="bg-warning"
-          description="Renewals assigned to someone who can act."
+          label="Trusted reminder coverage"
+          value={`${commandCenter.trustedReminderCoverage}%`}
+          accent="bg-success"
+          description={`${commandCenter.contractsWithTrustedReminder}/${commandCenter.activeContracts} contracts have an active clock.`}
         />
         <MetricCard
-          label="Opt-out clock exposure"
-          value={metrics.renewalsDueSoon + metrics.noticeDeadlinesDueSoon}
+          label="Notice deadline risk"
+          value={commandCenter.contractsPastNoticeDeadline + commandCenter.contractsWithUpcomingNoticeDeadline}
           accent="bg-critical"
-          description="Live notice, renewal, or expiration obligations."
+          description="Past or upcoming opt-out windows needing attention."
         />
         <MetricCard
-          label="Decision exposure"
-          value={decisionMissingCount}
+          label="Spend at risk"
+          value={money(commandCenter.estimatedSpendAtRisk)}
           accent="bg-urgent"
-          description="Reviewed renewals still missing a decision."
+          description="Estimated value tied to blocked, urgent, or high-risk contracts."
         />
       </section>
-      <section>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Renewal defense ledger</h2>
-            <p className="mt-1 text-sm text-muted">Existing contract data, reframed around opt-out risk and decision readiness.</p>
+
+      {topAction ? (
+        <section className="rounded-3xl border border-brand-100 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <Badge tone={SEVERITY_TONE[topAction.severity]}>{topAction.severity}</Badge>
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                  Top recommended action
+                </span>
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold">{topAction.label}</h2>
+              <p className="mt-2 max-w-3xl text-sm text-muted">{topAction.description}</p>
+              <p className="mt-2 text-sm text-slate-700">
+                {topAction.reason} Affects {topAction.affectedCount} contract
+                {topAction.affectedCount === 1 ? "" : "s"} and {money(topAction.estimatedSpendAtRisk)}.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href={topAction.targetHref}>Open action queue</Link>
+            </Button>
           </div>
-          <Button asChild variant="secondary">
-            <Link href="/dashboard/contracts">View all</Link>
-          </Button>
+        </section>
+      ) : null}
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        {commandCenter.riskSegments.map((segment) => (
+          <Link
+            key={segment.id}
+            href={segment.targetHref}
+            className="rounded-2xl border border-line bg-white p-4 shadow-sm transition hover:border-brand-200 hover:bg-brand-50/30"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <p className="text-sm font-semibold text-ink">{segment.label}</p>
+              <Badge tone={SEVERITY_TONE[segment.severity]}>{segment.count}</Badge>
+            </div>
+            <p className="mt-2 text-xs text-muted">{segment.recommendedAction}</p>
+          </Link>
+        ))}
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">
+                {commandCenter.filteredSegment
+                  ? commandCenter.filteredSegment.label
+                  : "Top renewal risks"}
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Query-param drilldowns keep the command center focused without adding another page.
+              </p>
+            </div>
+            {commandCenter.filteredSegment ? (
+              <Button asChild variant="ghost">
+                <Link href="/dashboard">Clear filter</Link>
+              </Button>
+            ) : null}
+          </div>
+          <div className="mt-5 space-y-3">
+            {filteredContracts.length === 0 ? (
+              <p className="rounded-2xl border border-slate-200 p-4 text-sm text-muted">
+                No contracts in this segment.
+              </p>
+            ) : (
+              filteredContracts.map((contract) => (
+                <Link
+                  key={contract.id}
+                  href={`/dashboard/contracts/${contract.id}`}
+                  className="block rounded-2xl border border-slate-200 p-4 transition hover:bg-slate-50"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-ink">{contract.title}</p>
+                      <p className="mt-1 text-sm text-muted">
+                        Owner: {contract.ownerName} | Notice: {formatDue(contract.daysToNoticeDeadline)}
+                      </p>
+                    </div>
+                    <Badge tone={SEVERITY_TONE[contract.severity]}>{contract.severity}</Badge>
+                  </div>
+                  <p className="mt-2 text-sm text-muted">
+                    Spend: {money(contract.contractValueAmount)} | Evidence:{" "}
+                    {Math.round(contract.evidenceConfidence * 100)}% | Blockers:{" "}
+                    {contract.blockerCodes.length || "none"}
+                  </p>
+                </Link>
+              ))
+            )}
+          </div>
         </div>
-        <ContractsTable contracts={contracts as never[]} />
+
+        <div className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-semibold">Upcoming notice deadlines</h2>
+          <p className="mt-1 text-sm text-muted">Closest opt-out windows across active contracts.</p>
+          <div className="mt-5 space-y-3">
+            {commandCenter.upcomingDeadlines.slice(0, 8).map((contract) => (
+              <Link
+                key={contract.id}
+                href={`/dashboard/contracts/${contract.id}`}
+                className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 p-3 text-sm hover:bg-slate-50"
+              >
+                <span className="font-semibold text-ink">{contract.title}</span>
+                <span className={contract.pastNoticeDeadline ? "text-critical" : "text-muted"}>
+                  {formatDue(contract.daysToNoticeDeadline)}
+                </span>
+              </Link>
+            ))}
+            {commandCenter.upcomingDeadlines.length === 0 ? (
+              <p className="rounded-2xl border border-slate-200 p-4 text-sm text-muted">
+                No reviewed notice deadlines available yet.
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-semibold">Owner accountability</h2>
+        <div className="mt-5 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-[0.16em] text-muted">
+              <tr>
+                <th className="py-2 pr-4">Owner</th>
+                <th className="py-2 pr-4">Assigned</th>
+                <th className="py-2 pr-4">Ready</th>
+                <th className="py-2 pr-4">Blocked</th>
+                <th className="py-2 pr-4">Urgent</th>
+                <th className="py-2 pr-4">Spend at risk</th>
+                <th className="py-2 pr-4">Top blocker</th>
+              </tr>
+            </thead>
+            <tbody>
+              {commandCenter.ownerWorkload.map((owner) => (
+                <tr key={owner.ownerUserId ?? "unassigned"} className="border-t border-slate-200">
+                  <td className="py-3 pr-4 font-semibold text-ink">{owner.ownerName}</td>
+                  <td className="py-3 pr-4">{owner.totalAssignedContracts}</td>
+                  <td className="py-3 pr-4">{owner.trustedReminderReadyCount}</td>
+                  <td className="py-3 pr-4">{owner.blockedCount}</td>
+                  <td className="py-3 pr-4">{owner.urgentCount}</td>
+                  <td className="py-3 pr-4">{money(owner.estimatedSpendAtRisk)}</td>
+                  <td className="py-3 pr-4">{owner.topBlocker ?? "None"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
     </>
   );

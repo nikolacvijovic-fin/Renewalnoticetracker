@@ -10,6 +10,7 @@ import { SHIPPED_FIRST_SCOPE } from "@/lib/product/shipping-profile";
 
 const ICONS = {
   "/dashboard": LayoutDashboard,
+  "/onboarding": TimerReset,
   "/dashboard/risk-queue": AlertTriangle,
   "/dashboard/financial-intelligence": BarChart3,
   "/dashboard/procurement-analytics": BriefcaseBusiness,

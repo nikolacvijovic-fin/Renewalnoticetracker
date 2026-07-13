@@ -24,7 +24,14 @@ describe("trusted reminder gate", () => {
       evidenceConfidence: 0.9,
       approvedUnverifiedRiskOverride: false,
       unverifiedRiskApprovalRequested: false,
-      lowConfidenceAllowedByApprovedOverride: false
+      lowConfidenceAllowedByApprovedOverride: false,
+      trustExceptionApprovalId: null,
+      approvalType: null,
+      approvedByUserId: null,
+      approvalReason: null,
+      evidenceConfidenceAtApproval: null,
+      sourceFieldKeys: [],
+      approvalActiveAtEvaluation: false
     });
   });
 
@@ -71,7 +78,7 @@ describe("trusted reminder gate", () => {
     );
   });
 
-  it("requires high-confidence evidence unless human review has approved the risk", () => {
+  it("requires high-confidence evidence unless a durable active approval has approved the risk", () => {
     expect(
       evaluateTrustedReminderGate({
         ...baseInput,
@@ -82,12 +89,51 @@ describe("trusted reminder gate", () => {
     const accepted = evaluateTrustedReminderGate({
       ...baseInput,
       evidenceConfidence: 0.4,
-      approvedUnverifiedRiskOverride: true
+      trustExceptionApproval: {
+        id: "approval-1",
+        approvalType: "low_confidence_evidence",
+        approvedByUserId: "reviewer-1",
+        approvalReason: "Finance reviewer accepted weak notice evidence.",
+        evidenceConfidenceAtApproval: 0.4,
+        sourceFieldKeys: ["notice_deadline_date"],
+        activeAtEvaluation: true
+      }
     });
 
     expect(accepted.canActivate).toBe(true);
     expect(accepted.auditMetadata.approvedUnverifiedRiskOverride).toBe(true);
     expect(accepted.auditMetadata.evidenceConfidence).toBe(0.4);
     expect(accepted.auditMetadata.lowConfidenceAllowedByApprovedOverride).toBe(true);
+    expect(accepted.auditMetadata).toEqual(
+      expect.objectContaining({
+        trustExceptionApprovalId: "approval-1",
+        approvalType: "low_confidence_evidence",
+        approvedByUserId: "reviewer-1",
+        approvalReason: "Finance reviewer accepted weak notice evidence.",
+        evidenceConfidenceAtApproval: 0.4,
+        sourceFieldKeys: ["notice_deadline_date"],
+        approvalActiveAtEvaluation: true
+      })
+    );
+  });
+
+  it("does not let inactive approval evidence bypass low-confidence evidence", () => {
+    const result = evaluateTrustedReminderGate({
+      ...baseInput,
+      evidenceConfidence: 0.4,
+      trustExceptionApproval: {
+        id: "approval-revoked",
+        approvalType: "low_confidence_evidence",
+        approvedByUserId: "reviewer-1",
+        approvalReason: "Was approved, now revoked.",
+        evidenceConfidenceAtApproval: 0.4,
+        sourceFieldKeys: ["notice_deadline_date"],
+        activeAtEvaluation: false
+      }
+    });
+
+    expect(result.canActivate).toBe(false);
+    expect(result.failures.map((failure) => failure.code)).toContain("low_confidence");
+    expect(result.auditMetadata.trustExceptionApprovalId).toBeNull();
   });
 });

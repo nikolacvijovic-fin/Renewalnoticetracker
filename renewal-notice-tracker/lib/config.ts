@@ -153,6 +153,9 @@ const rawEnvBaseSchema = z.object({
     emptyStringToUndefined,
     z.enum(["await", "fire_and_forget"]).default("await")
   ),
+  PYTHON_INTELLIGENCE_URL: optionalUrl,
+  GO_WORKER_URL: optionalUrl,
+  JAVA_ENTERPRISE_CONNECTORS_URL: optionalUrl,
   BACKGROUND_EXPORT_PAGE_SIZE: operationalInt({ min: 100, max: 5000, fallback: 1000 }),
   BACKGROUND_EXPORT_JOB_LIMIT: operationalInt({ min: 1, max: 10, fallback: 3 }),
   REMINDER_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 15 }),
@@ -313,6 +316,11 @@ export type AppConfig = {
     reminderProcessingLeaseMinutes: number;
     ocrProcessingLeaseMinutes: number;
   };
+  addOns: {
+    pythonIntelligenceUrl: string | null;
+    goWorkerUrl: string | null;
+    javaEnterpriseConnectorsUrl: string | null;
+  };
   raw: RawConfig;
 };
 
@@ -401,6 +409,11 @@ export function parseAppConfig(
       backgroundExportJobLimit: raw.BACKGROUND_EXPORT_JOB_LIMIT,
       reminderProcessingLeaseMinutes: raw.REMINDER_PROCESSING_LEASE_MINUTES,
       ocrProcessingLeaseMinutes: raw.OCR_PROCESSING_LEASE_MINUTES
+    },
+    addOns: {
+      pythonIntelligenceUrl: nullable(raw.PYTHON_INTELLIGENCE_URL),
+      goWorkerUrl: nullable(raw.GO_WORKER_URL),
+      javaEnterpriseConnectorsUrl: nullable(raw.JAVA_ENTERPRISE_CONNECTORS_URL)
     },
     raw
   };

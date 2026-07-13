@@ -134,7 +134,7 @@ function isBillingConfiguredForOnboarding(input: CustomerOnboardingProgressInput
 
 function hasRenewalLoopEventEvidence(shippedEventNames: ReadonlySet<string>) {
   const acknowledgmentEvents = ["contract.acknowledged", "contract.acknowledged_from_email", "acknowledgment_recorded"];
-  const decisionEvents = ["renewal_decision.created", "renewal_decision_recorded"];
+  const decisionEvents = ["renewal_decision_recorded"];
   const cycleEvents = ["renewal_cycle.updated"];
 
   return (

@@ -42,7 +42,6 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `reminder_terminal_failed`
 - `reminder_stale_rescued`
 - `reminder_dispatch_failed`
-- `renewal_decision.created`
 - `renewal_decision_recorded`
 - `contract.acknowledged`
 - `contract.acknowledged_from_email`
@@ -108,6 +107,7 @@ These events are registry contracts only. They must not be counted as live evide
 
 - `organization.created`
 - `organization.member_created`
+- `renewal_decision.created`
 - `reminder.trusted`
 - `reminder.activated`
 - `cycle.closed`
@@ -170,7 +170,7 @@ The `identity.*` event family is the newer canonical runtime policy/audit contra
 - `first_contract_reviewed` uses `contract_review_completed`, `contract.review_updated`, and reviewed-contract state.
 - `first_owner_assigned` uses `contract_owner_assigned` and owner coverage queries.
 - `first_reminder_trusted` uses reminder creation/scheduling/dispatch evidence, future explicit trust events, and reminder trusted-state queries.
-- `first_decision_recorded` uses `renewal_decision_recorded`, `renewal_decision.created`, and decision state queries.
+- `first_decision_recorded` uses `renewal_decision_recorded` and decision state queries. `renewal_decision.created` is future audit vocabulary only.
 - `first_export_completed` uses sync/background export completion evidence and export request state.
 - `billing_configured` uses billing checkout/webhook evidence plus the canonical billing snapshot.
 - `first_intelligence_viewed` uses actual intelligence view audit events plus shared access-map state.

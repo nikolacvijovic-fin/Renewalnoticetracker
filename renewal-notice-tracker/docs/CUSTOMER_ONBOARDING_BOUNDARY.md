@@ -54,7 +54,7 @@ The following milestones are measurable today through shipped event evidence, st
 | `first_contract_reviewed` | `contract_review_completed`, `contract.review_updated` | reviewed contract count and metadata review state |
 | `first_owner_assigned` | `contract_owner_assigned` | owner coverage and missing-owner queries |
 | `first_reminder_trusted` | `reminder.created`, `reminder_scheduled`, `reminder_sent` | trusted reminder count and blocked-state summary |
-| `first_decision_recorded` | `renewal_decision_recorded`, `renewal_decision.created` | renewal decision status queries |
+| `first_decision_recorded` | `renewal_decision_recorded` | renewal decision status queries |
 | `first_export_completed` | `contracts.exported`, `export_sync_completed`, `export_background_completed` | export request and artifact status queries |
 | `billing_configured` | `billing.checkout_started`, `billing.webhook_synced`, `checkout_completed`, `billing_webhook_succeeded` | canonical billing snapshot |
 | `first_intelligence_viewed` | `intelligence.risk_badge_viewed`, `intelligence.risk_explanation_viewed`, `intelligence.risk_queue_viewed`, `intelligence.financial_viewed`, `intelligence.procurement_viewed` | shared intelligence access map and billing snapshot |

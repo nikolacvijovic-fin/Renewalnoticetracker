@@ -124,6 +124,26 @@ function makeContract(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
+function makeTrustExceptionApproval(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: "approval-1",
+    organization_id: "org-1",
+    contract_id: "contract-1",
+    approved_by_user_id: "reviewer-1",
+    approval_type: "manual_without_evidence",
+    approval_reason: "Manual review accepted weak evidence risk.",
+    source_field_keys: ["notice_deadline_date"],
+    evidence_confidence_at_approval: 0,
+    expires_at: null,
+    revoked_at: null,
+    revoked_by_user_id: null,
+    revocation_reason: null,
+    created_at: "2026-05-25T00:00:00.000Z",
+    updated_at: "2026-05-25T00:00:00.000Z",
+    ...overrides
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   getPhase1TrustState.mockReturnValue("Decision Needed");
@@ -287,6 +307,7 @@ describe("buildContractDetailViewModel", () => {
       } as never,
       contract: makeContract() as never,
       members: makeMembers(),
+      trustExceptionApproval: null,
       counterparties: [
         {
           id: "counterparty-1",
@@ -389,6 +410,7 @@ describe("buildContractDetailViewModel", () => {
         }
       }) as never,
       members: makeMembers(),
+      trustExceptionApproval: null,
       counterparties: []
     });
 
@@ -402,7 +424,44 @@ describe("buildContractDetailViewModel", () => {
         unverifiedRiskApprovalRequested: true
       })
     );
+    expect(viewModel.trustExceptionApprovalState.status).toBe("requested");
     expect(viewModel.readinessScore.label).toBe("needs_review");
+  });
+
+  it("does not let legacy approved metadata unlock trusted reminders without a durable approval", async () => {
+    const viewModel = await contractDetailView.buildContractDetailViewModel({
+      context: {
+        user: { id: "reviewer-1" },
+        organizationId: "org-1",
+        role: "reviewer"
+      } as never,
+      contract: makeContract({
+        contract_metadata: {
+          ...makeContract().contract_metadata,
+          has_weak_evidence: true,
+          accepted_unverified_risk_requested: true,
+          accepted_unverified_risk_approved_at: "2026-05-25T00:00:00.000Z",
+          accepted_unverified_risk_approved_by: "reviewer-1",
+          accepted_unverified_risk_approval_reason: "Legacy approval marker."
+        }
+      }) as never,
+      members: makeMembers(),
+      trustExceptionApproval: null,
+      counterparties: []
+    });
+
+    expect(viewModel.trustedReminderGate.canActivate).toBe(false);
+    expect(viewModel.trustedReminderGate.auditMetadata.approvedUnverifiedRiskOverride).toBe(false);
+    expect(viewModel.trustedReminderGate.failures.map((failure) => failure.code)).toContain(
+      "unverified_risk_approval_pending"
+    );
+    expect(viewModel.trustExceptionApprovalState.status).toBe("requested");
+    expect(viewModel.trustExceptionApprovalState.legacyApproval).toEqual(
+      expect.objectContaining({
+        approvedBy: "reviewer-1",
+        approvalReason: "Legacy approval marker."
+      })
+    );
   });
 
   it("allows low-confidence evidence only when an approved unverified-risk override is recorded", async () => {
@@ -417,19 +476,27 @@ describe("buildContractDetailViewModel", () => {
         contract_metadata: {
           ...makeContract().contract_metadata,
           has_weak_evidence: true,
-          accepted_unverified_risk_requested: true,
-          accepted_unverified_risk_approved_at: "2026-05-25T00:00:00.000Z",
-          accepted_unverified_risk_approved_by: "reviewer-1",
-          accepted_unverified_risk_approval_reason: "Manual legal review approved."
+          accepted_unverified_risk_requested: true
         }
       }) as never,
       members: makeMembers(),
+      trustExceptionApproval: makeTrustExceptionApproval() as never,
       counterparties: []
     });
 
     expect(viewModel.trustedReminderGate.canActivate).toBe(true);
     expect(viewModel.trustedReminderGate.failures).toEqual([]);
     expect(viewModel.trustedReminderGate.auditMetadata.approvedUnverifiedRiskOverride).toBe(true);
+    expect(viewModel.trustedReminderGate.auditMetadata.trustExceptionApprovalId).toBe("approval-1");
+    expect(viewModel.trustedReminderGate.auditMetadata.approvalType).toBe("manual_without_evidence");
+    expect(viewModel.trustedReminderGate.auditMetadata.approvedByUserId).toBe("reviewer-1");
+    expect(viewModel.trustedReminderGate.auditMetadata.approvalReason).toBe(
+      "Manual review accepted weak evidence risk."
+    );
+    expect(viewModel.trustedReminderGate.auditMetadata.evidenceConfidenceAtApproval).toBe(0);
+    expect(viewModel.trustedReminderGate.auditMetadata.sourceFieldKeys).toEqual([
+      "notice_deadline_date"
+    ]);
     expect(viewModel.trustedReminderGate.auditMetadata.evidenceConfidence).toBe(0);
     expect(
       viewModel.trustedReminderGate.auditMetadata.lowConfidenceAllowedByApprovedOverride
@@ -437,10 +504,48 @@ describe("buildContractDetailViewModel", () => {
     expect(viewModel.readinessScore.components.find((component) => component.key === "evidence")).toEqual(
       expect.objectContaining({
         passed: true,
-        exception: "Low-confidence evidence accepted by approved human override."
+        exception: "Low-confidence evidence accepted by approved human trust exception."
       })
     );
+    expect(viewModel.trustExceptionApprovalState.status).toBe("active");
+    expect(viewModel.trustExceptionApprovalState.approval?.id).toBe("approval-1");
     expect(viewModel.readinessScore.label).toBe("ready");
+  });
+
+  it("surfaces revoked and expired approvals without unlocking trusted reminders", async () => {
+    for (const approval of [
+      makeTrustExceptionApproval({
+        id: "revoked-approval",
+        revoked_at: "2026-05-26T00:00:00.000Z",
+        revoked_by_user_id: "reviewer-1",
+        revocation_reason: "Evidence changed."
+      }),
+      makeTrustExceptionApproval({
+        id: "expired-approval",
+        expires_at: "2026-05-24T00:00:00.000Z"
+      })
+    ]) {
+      const viewModel = await contractDetailView.buildContractDetailViewModel({
+        context: {
+          user: { id: "reviewer-1" },
+          organizationId: "org-1",
+          role: "reviewer"
+        } as never,
+        contract: makeContract({
+          contract_trust_exception_approvals: [approval],
+          contract_metadata: {
+            ...makeContract().contract_metadata,
+            has_weak_evidence: true
+          }
+        }) as never,
+        members: makeMembers(),
+        counterparties: []
+      });
+
+      expect(viewModel.trustedReminderGate.canActivate).toBe(false);
+      expect(viewModel.trustedReminderGate.auditMetadata.trustExceptionApprovalId).toBeNull();
+      expect(["revoked", "expired"]).toContain(viewModel.trustExceptionApprovalState.status);
+    }
   });
 
   it("surfaces blocked reminder readiness when review or owner state is missing", async () => {
@@ -458,6 +563,7 @@ describe("buildContractDetailViewModel", () => {
         }
       }) as never,
       members: makeMembers(),
+      trustExceptionApproval: null,
       counterparties: []
     });
 

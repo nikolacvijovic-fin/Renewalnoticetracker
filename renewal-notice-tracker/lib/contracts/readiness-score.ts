@@ -103,7 +103,7 @@ export function calculateRenewalReadiness(
         ? "Approved unverified-risk override is recorded."
         : "Resolve low-confidence extracted evidence before trusting the clock.",
       exception: evidenceAllowedByOverride
-        ? "Low-confidence evidence accepted by approved human override."
+        ? "Low-confidence evidence accepted by approved human trust exception."
         : null
     },
     {

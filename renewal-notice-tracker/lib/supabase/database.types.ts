@@ -21,6 +21,12 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["analytics_events"]["Insert"]>;
         Relationships: [];
       };
+      organization_activation_events: {
+        Row: { id: string; organization_id: string; actor_user_id: string | null; event_type: string; contract_id: string | null; metadata: Json; created_at: string };
+        Insert: { id?: string; organization_id: string; actor_user_id?: string | null; event_type: string; contract_id?: string | null; metadata?: Json; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["organization_activation_events"]["Insert"]>;
+        Relationships: [];
+      };
       contract_files: {
         Row: { id: string; contract_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; extracted_text: string | null; extraction_error: string | null; extraction_source: string; ocr_provider: string | null; ocr_status: string | null; ocr_confidence: number | null; ocr_detected_needed: boolean; uploaded_at: string; uploaded_by: string };
         Insert: { id?: string; contract_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; extracted_text?: string | null; extraction_error?: string | null; extraction_source?: string; ocr_provider?: string | null; ocr_status?: string | null; ocr_confidence?: number | null; ocr_detected_needed?: boolean; uploaded_at?: string; uploaded_by: string };
@@ -49,6 +55,12 @@ export type Database = {
         Row: { id: string; organization_id: string; template_key: string; name: string; contract_type: string | null; default_notice_period_value: number | null; default_notice_period_unit: string | null; default_reminder_offsets: Json; checklist: Json; created_at: string };
         Insert: { id?: string; organization_id: string; template_key: string; name: string; contract_type?: string | null; default_notice_period_value?: number | null; default_notice_period_unit?: string | null; default_reminder_offsets?: Json; checklist?: Json; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["contract_templates"]["Insert"]>;
+        Relationships: [];
+      };
+      contract_trust_exception_approvals: {
+        Row: { id: string; organization_id: string; contract_id: string; approved_by_user_id: string; approval_type: string; approval_reason: string; source_field_keys: string[]; evidence_confidence_at_approval: number; expires_at: string | null; revoked_at: string | null; revoked_by_user_id: string | null; revocation_reason: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; contract_id: string; approved_by_user_id: string; approval_type: string; approval_reason: string; source_field_keys?: string[]; evidence_confidence_at_approval: number; expires_at?: string | null; revoked_at?: string | null; revoked_by_user_id?: string | null; revocation_reason?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["contract_trust_exception_approvals"]["Insert"]>;
         Relationships: [];
       };
       counterparties: {

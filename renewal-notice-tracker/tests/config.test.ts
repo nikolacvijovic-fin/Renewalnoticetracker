@@ -18,6 +18,9 @@ function makeValidEnv(
     MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "",
     MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "2500",
     MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "await",
+    PYTHON_INTELLIGENCE_URL: "",
+    GO_WORKER_URL: "",
+    JAVA_ENTERPRISE_CONNECTORS_URL: "",
     REMINDER_PROCESSING_LEASE_MINUTES: "15",
     OCR_PROCESSING_LEASE_MINUTES: "30",
     OPENAI_API_KEY: "test-openai-key",
@@ -77,6 +80,37 @@ describe("runtime configuration", () => {
       reminderProcessingLeaseMinutes: 15,
       ocrProcessingLeaseMinutes: 30
     });
+    expect(config.addOns).toEqual({
+      pythonIntelligenceUrl: null,
+      goWorkerUrl: null,
+      javaEnterpriseConnectorsUrl: null
+    });
+  });
+
+  it("loads optional add-on service URLs when configured", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        PYTHON_INTELLIGENCE_URL: "https://python.example.com",
+        GO_WORKER_URL: "https://worker.example.com",
+        JAVA_ENTERPRISE_CONNECTORS_URL: "https://java.example.com"
+      })
+    );
+
+    expect(config.addOns).toEqual({
+      pythonIntelligenceUrl: "https://python.example.com",
+      goWorkerUrl: "https://worker.example.com",
+      javaEnterpriseConnectorsUrl: "https://java.example.com"
+    });
+  });
+
+  it("rejects malformed add-on service URLs", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          PYTHON_INTELLIGENCE_URL: "not-a-url"
+        })
+      )
+    ).toThrow(/PYTHON_INTELLIGENCE_URL/i);
   });
 
   it("fails clearly when required secrets are missing", () => {

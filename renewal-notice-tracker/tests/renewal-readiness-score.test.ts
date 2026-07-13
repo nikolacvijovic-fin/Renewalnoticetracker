@@ -82,7 +82,7 @@ describe("renewal readiness score", () => {
         label: "Evidence or approved override",
         passed: true,
         points: 15,
-        exception: "Low-confidence evidence accepted by approved human override."
+        exception: "Low-confidence evidence accepted by approved human trust exception."
       })
     );
     expect(score.blockers).not.toContain(
