@@ -55,6 +55,9 @@ export type ContractPageMetadata = Record<string, unknown> & {
   is_manual_without_evidence?: boolean | null;
   changes_previously_verified_p0?: boolean | null;
   accepted_unverified_risk_requested?: boolean | null;
+  accepted_unverified_risk_approved_at?: string | null;
+  accepted_unverified_risk_approved_by?: string | null;
+  accepted_unverified_risk_approval_reason?: string | null;
   contract_template_key?: string | null;
   price_change_trigger?: string | null;
   contract_value_amount?: number | null;
@@ -152,6 +155,12 @@ export function normalizeContractDetailMetadata(
       (metadata.changes_previously_verified_p0 as boolean | null | undefined) ?? false,
     accepted_unverified_risk_requested:
       (metadata.accepted_unverified_risk_requested as boolean | null | undefined) ?? false,
+    accepted_unverified_risk_approved_at:
+      (metadata.accepted_unverified_risk_approved_at as string | null | undefined) ?? null,
+    accepted_unverified_risk_approved_by:
+      (metadata.accepted_unverified_risk_approved_by as string | null | undefined) ?? null,
+    accepted_unverified_risk_approval_reason:
+      (metadata.accepted_unverified_risk_approval_reason as string | null | undefined) ?? null,
     contract_template_key:
       (metadata.contract_template_key as string | null | undefined) ?? null,
     price_change_trigger:
@@ -257,10 +266,29 @@ export function getContractDetailEvidenceConfidence(metadata: ContractPageMetada
     .map((value) => Math.max(0, Math.min(1, value)));
 
   if (values.length === 0) {
-    return metadata.needs_review || metadata.has_weak_evidence ? 0 : 1;
+    if (hasApprovedUnverifiedRiskOverride(metadata)) {
+      return 1;
+    }
+
+    if (
+      metadata.needs_review ||
+      metadata.has_weak_evidence ||
+      metadata.is_manual_without_evidence
+    ) {
+      return 0;
+    }
+
+    return 0.5;
   }
 
   return Math.min(...values);
+}
+
+export function hasApprovedUnverifiedRiskOverride(metadata: ContractPageMetadata) {
+  return Boolean(
+    metadata.accepted_unverified_risk_approved_at &&
+      metadata.accepted_unverified_risk_approved_by
+  );
 }
 
 export function isContractDetailDecisionRecorded(value: string | null | undefined) {
@@ -330,6 +358,7 @@ export async function buildContractDetailViewModel(input: {
   const nextReminder = getContractDetailNextReminder(
     (input.contract.reminders ?? []) as ContractDetailReminder[]
   );
+  const approvedUnverifiedRiskOverride = hasApprovedUnverifiedRiskOverride(metadata);
   const evidenceConfidence = getContractDetailEvidenceConfidence(metadata);
   const p0FieldsReviewed = !reviewBlocked;
   const autoRenewReviewed = !reviewBlocked && metadata.auto_renewal !== null;
@@ -350,7 +379,8 @@ export async function buildContractDetailViewModel(input: {
       ...SHIPPED_REMINDER_DAY_OFFSETS.renewal,
       ...SHIPPED_REMINDER_DAY_OFFSETS.expiration
     ],
-    humanReviewOverride: Boolean(metadata.accepted_unverified_risk_requested)
+    approvedUnverifiedRiskOverride,
+    unverifiedRiskApprovalRequested: Boolean(metadata.accepted_unverified_risk_requested)
   });
   const readinessScore = calculateRenewalReadiness({
     ownerAssigned: !ownerBlocked,
@@ -358,7 +388,9 @@ export async function buildContractDetailViewModel(input: {
     noticeDeadlineReviewed,
     autoRenewReviewed,
     evidenceConfidence,
+    approvedUnverifiedRiskOverride,
     trustedReminderActive,
+    trustedReminderGateBlocked: !trustedReminderGate.canActivate,
     decisionRecorded,
     daysToNotice: getDaysUntilDate(metadata.notice_deadline_date)
   });
@@ -404,7 +436,7 @@ export async function buildContractDetailViewModel(input: {
     reminderAcknowledged: (input.contract.cycle_status ?? "open") !== "awaiting_acknowledgment",
     weakEvidence: Boolean(metadata.has_weak_evidence),
     reviewCompleted: !metadata.needs_review,
-    acceptedRiskOverride: Boolean(metadata.accepted_unverified_risk_requested),
+    acceptedRiskOverride: approvedUnverifiedRiskOverride,
     priceChangeTrigger: metadata.price_change_trigger ?? null,
     previousDeferWatchlist: input.contract.renewal_decision_status === "defer",
     reminderDeliveryFailures: (input.contract.reminders ?? []).filter((reminder) =>

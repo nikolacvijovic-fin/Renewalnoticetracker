@@ -243,6 +243,38 @@ describe("contract detail view helpers", () => {
     );
     expect(contractDetailView.getContractDetailReminderBlockedReason("scheduled")).toBeNull();
   });
+
+  it("does not treat missing evidence confidence as fully trusted", () => {
+    const metadata = contractDetailView.normalizeContractDetailMetadata({
+      contract_title: "Manual MSA",
+      needs_review: false,
+      field_confidence: {},
+      field_source_snippets: {}
+    });
+
+    expect(contractDetailView.getContractDetailEvidenceConfidence(metadata)).toBe(0.5);
+  });
+
+  it("keeps manual-without-evidence metadata low confidence unless risk is approved", () => {
+    const manualMetadata = contractDetailView.normalizeContractDetailMetadata({
+      contract_title: "Manual MSA",
+      needs_review: false,
+      is_manual_without_evidence: true,
+      field_confidence: {},
+      field_source_snippets: {}
+    });
+    const approvedMetadata = contractDetailView.normalizeContractDetailMetadata({
+      ...manualMetadata,
+      accepted_unverified_risk_requested: true,
+      accepted_unverified_risk_approved_at: "2026-05-25T00:00:00.000Z",
+      accepted_unverified_risk_approved_by: "reviewer-1"
+    });
+
+    expect(contractDetailView.hasApprovedUnverifiedRiskOverride(manualMetadata)).toBe(false);
+    expect(contractDetailView.getContractDetailEvidenceConfidence(manualMetadata)).toBe(0);
+    expect(contractDetailView.hasApprovedUnverifiedRiskOverride(approvedMetadata)).toBe(true);
+    expect(contractDetailView.getContractDetailEvidenceConfidence(approvedMetadata)).toBe(1);
+  });
 });
 
 describe("buildContractDetailViewModel", () => {
@@ -295,8 +327,8 @@ describe("buildContractDetailViewModel", () => {
     );
     expect(viewModel.readinessScore).toEqual(
       expect.objectContaining({
-        score: 80,
-        label: "mostly_ready",
+        score: 65,
+        label: "needs_review",
         nextAction: "Resolve low-confidence extracted evidence before trusting the clock."
       })
     );
@@ -340,6 +372,65 @@ describe("buildContractDetailViewModel", () => {
         reminderDeliveryFailures: 1
       })
     );
+  });
+
+  it("does not let requested unverified-risk acceptance bypass the trusted gate", async () => {
+    const viewModel = await contractDetailView.buildContractDetailViewModel({
+      context: {
+        user: { id: "reviewer-1" },
+        organizationId: "org-1",
+        role: "reviewer"
+      } as never,
+      contract: makeContract({
+        contract_metadata: {
+          ...makeContract().contract_metadata,
+          has_weak_evidence: true,
+          accepted_unverified_risk_requested: true
+        }
+      }) as never,
+      members: makeMembers(),
+      counterparties: []
+    });
+
+    expect(viewModel.trustedReminderGate.canActivate).toBe(false);
+    expect(viewModel.trustedReminderGate.failures.map((failure) => failure.code)).toContain(
+      "unverified_risk_approval_pending"
+    );
+    expect(viewModel.trustedReminderGate.auditMetadata).toEqual(
+      expect.objectContaining({
+        approvedUnverifiedRiskOverride: false,
+        unverifiedRiskApprovalRequested: true
+      })
+    );
+    expect(viewModel.readinessScore.label).toBe("needs_review");
+  });
+
+  it("allows low-confidence evidence only when an approved unverified-risk override is recorded", async () => {
+    const viewModel = await contractDetailView.buildContractDetailViewModel({
+      context: {
+        user: { id: "reviewer-1" },
+        organizationId: "org-1",
+        role: "reviewer"
+      } as never,
+      contract: makeContract({
+        renewal_decision_status: "renew",
+        contract_metadata: {
+          ...makeContract().contract_metadata,
+          has_weak_evidence: true,
+          accepted_unverified_risk_requested: true,
+          accepted_unverified_risk_approved_at: "2026-05-25T00:00:00.000Z",
+          accepted_unverified_risk_approved_by: "reviewer-1",
+          accepted_unverified_risk_approval_reason: "Manual legal review approved."
+        }
+      }) as never,
+      members: makeMembers(),
+      counterparties: []
+    });
+
+    expect(viewModel.trustedReminderGate.canActivate).toBe(true);
+    expect(viewModel.trustedReminderGate.failures).toEqual([]);
+    expect(viewModel.trustedReminderGate.auditMetadata.approvedUnverifiedRiskOverride).toBe(true);
+    expect(viewModel.readinessScore.label).toBe("ready");
   });
 
   it("surfaces blocked reminder readiness when review or owner state is missing", async () => {

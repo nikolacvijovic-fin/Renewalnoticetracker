@@ -21,7 +21,9 @@ export type RenewalReadinessInput = {
   noticeDeadlineReviewed: boolean;
   autoRenewReviewed: boolean;
   evidenceConfidence: number;
+  approvedUnverifiedRiskOverride?: boolean;
   trustedReminderActive: boolean;
+  trustedReminderGateBlocked?: boolean;
   decisionRecorded: boolean;
   daysToNotice: number | null;
 };
@@ -47,6 +49,9 @@ export function calculateRenewalReadiness(
   input: RenewalReadinessInput
 ): RenewalReadinessScore {
   const evidenceConfidence = clampConfidence(input.evidenceConfidence);
+  const evidenceTrusted =
+    evidenceConfidence >= RENEWAL_READINESS_CONFIDENCE_THRESHOLD ||
+    Boolean(input.approvedUnverifiedRiskOverride);
   const components: RenewalReadinessComponent[] = [
     {
       key: "owner",
@@ -83,18 +88,22 @@ export function calculateRenewalReadiness(
     {
       key: "evidence",
       label: "Evidence confidence",
-      points: evidenceConfidence >= RENEWAL_READINESS_CONFIDENCE_THRESHOLD ? 15 : 0,
+      points: evidenceTrusted ? 15 : 0,
       max: 15,
-      passed: evidenceConfidence >= RENEWAL_READINESS_CONFIDENCE_THRESHOLD,
-      blocker: "Resolve low-confidence extracted evidence before trusting the clock."
+      passed: evidenceTrusted,
+      blocker: input.approvedUnverifiedRiskOverride
+        ? "Approved unverified-risk override is recorded."
+        : "Resolve low-confidence extracted evidence before trusting the clock."
     },
     {
       key: "trusted_reminder",
       label: "Trusted reminder active",
-      points: input.trustedReminderActive ? 15 : 0,
+      points: input.trustedReminderActive && !input.trustedReminderGateBlocked ? 15 : 0,
       max: 15,
-      passed: input.trustedReminderActive,
-      blocker: "Activate the trusted reminder schedule."
+      passed: input.trustedReminderActive && !input.trustedReminderGateBlocked,
+      blocker: input.trustedReminderGateBlocked
+        ? "Trusted reminder gate is blocked."
+        : "Activate the trusted reminder schedule."
     },
     {
       key: "decision",
@@ -115,7 +124,10 @@ export function calculateRenewalReadiness(
   const rawScore =
     components.reduce((total, component) => total + component.points, 0) -
     urgentNoticePenalty;
-  const score = Math.max(0, Math.min(100, rawScore));
+  const score = Math.max(
+    0,
+    Math.min(input.trustedReminderGateBlocked ? 69 : 100, rawScore)
+  );
   const blockers = components
     .filter((component) => !component.passed)
     .map((component) => component.blocker);

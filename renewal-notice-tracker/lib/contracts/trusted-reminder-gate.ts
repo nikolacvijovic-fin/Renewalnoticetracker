@@ -7,6 +7,7 @@ export type TrustedReminderGateCode =
   | "auto_renew_unreviewed"
   | "p0_unreviewed"
   | "low_confidence"
+  | "unverified_risk_approval_pending"
   | "invalid_schedule";
 
 export type TrustedReminderGateInput = {
@@ -18,7 +19,8 @@ export type TrustedReminderGateInput = {
   p0FieldsReviewed: boolean;
   evidenceConfidence: number;
   leadDays: readonly number[];
-  humanReviewOverride?: boolean;
+  approvedUnverifiedRiskOverride?: boolean;
+  unverifiedRiskApprovalRequested?: boolean;
 };
 
 export type TrustedReminderGateFailure = {
@@ -34,7 +36,8 @@ export type TrustedReminderGateResult = {
     contractId: string;
     failureCount: number;
     evidenceConfidence: number;
-    humanReviewOverride: boolean;
+    approvedUnverifiedRiskOverride: boolean;
+    unverifiedRiskApprovalRequested: boolean;
   };
 };
 
@@ -86,12 +89,18 @@ export function evaluateTrustedReminderGate(
 
   if (
     evidenceConfidence < RENEWAL_READINESS_CONFIDENCE_THRESHOLD &&
-    !input.humanReviewOverride
+    !input.approvedUnverifiedRiskOverride
   ) {
     failures.push({
-      code: "low_confidence",
-      message: "The extracted evidence confidence is too low for trusted reminders.",
-      remediation: "Review the evidence or explicitly accept the unverified risk."
+      code: input.unverifiedRiskApprovalRequested
+        ? "unverified_risk_approval_pending"
+        : "low_confidence",
+      message: input.unverifiedRiskApprovalRequested
+        ? "Unverified risk acceptance has been requested but not approved."
+        : "The extracted evidence confidence is too low for trusted reminders.",
+      remediation: input.unverifiedRiskApprovalRequested
+        ? "Approve the unverified-risk override after human review, or resolve the evidence."
+        : "Review the evidence or approve a human risk override."
     });
   }
 
@@ -110,7 +119,8 @@ export function evaluateTrustedReminderGate(
       contractId: input.contractId,
       failureCount: failures.length,
       evidenceConfidence,
-      humanReviewOverride: Boolean(input.humanReviewOverride)
+      approvedUnverifiedRiskOverride: Boolean(input.approvedUnverifiedRiskOverride),
+      unverifiedRiskApprovalRequested: Boolean(input.unverifiedRiskApprovalRequested)
     }
   };
 }

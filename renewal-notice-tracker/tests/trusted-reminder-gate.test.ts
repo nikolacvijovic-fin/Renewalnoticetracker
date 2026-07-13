@@ -22,7 +22,8 @@ describe("trusted reminder gate", () => {
       contractId: "contract-1",
       failureCount: 0,
       evidenceConfidence: 0.9,
-      humanReviewOverride: false
+      approvedUnverifiedRiskOverride: false,
+      unverifiedRiskApprovalRequested: false
     });
   });
 
@@ -50,7 +51,26 @@ describe("trusted reminder gate", () => {
     );
   });
 
-  it("requires high-confidence evidence unless human review explicitly accepts the risk", () => {
+  it("does not let a requested unverified-risk override bypass low-confidence evidence", () => {
+    const result = evaluateTrustedReminderGate({
+      ...baseInput,
+      evidenceConfidence: 0.4,
+      unverifiedRiskApprovalRequested: true
+    });
+
+    expect(result.canActivate).toBe(false);
+    expect(result.failures.map((failure) => failure.code)).toContain(
+      "unverified_risk_approval_pending"
+    );
+    expect(result.auditMetadata).toEqual(
+      expect.objectContaining({
+        approvedUnverifiedRiskOverride: false,
+        unverifiedRiskApprovalRequested: true
+      })
+    );
+  });
+
+  it("requires high-confidence evidence unless human review has approved the risk", () => {
     expect(
       evaluateTrustedReminderGate({
         ...baseInput,
@@ -61,10 +81,10 @@ describe("trusted reminder gate", () => {
     const accepted = evaluateTrustedReminderGate({
       ...baseInput,
       evidenceConfidence: 0.4,
-      humanReviewOverride: true
+      approvedUnverifiedRiskOverride: true
     });
 
     expect(accepted.canActivate).toBe(true);
-    expect(accepted.auditMetadata.humanReviewOverride).toBe(true);
+    expect(accepted.auditMetadata.approvedUnverifiedRiskOverride).toBe(true);
   });
 });

@@ -46,6 +46,45 @@ describe("renewal readiness score", () => {
     );
   });
 
+  it("caps readiness when the trusted reminder gate is blocked", () => {
+    const score = calculateRenewalReadiness({
+      ownerAssigned: true,
+      renewalDateReviewed: true,
+      noticeDeadlineReviewed: true,
+      autoRenewReviewed: true,
+      evidenceConfidence: 0.98,
+      trustedReminderActive: true,
+      trustedReminderGateBlocked: true,
+      decisionRecorded: true,
+      daysToNotice: 45
+    });
+
+    expect(score.score).toBe(69);
+    expect(score.label).toBe("needs_review");
+    expect(score.blockers).toContain("Trusted reminder gate is blocked.");
+  });
+
+  it("treats approved unverified-risk override as evidence trust without removing the gate check", () => {
+    const score = calculateRenewalReadiness({
+      ownerAssigned: true,
+      renewalDateReviewed: true,
+      noticeDeadlineReviewed: true,
+      autoRenewReviewed: true,
+      evidenceConfidence: 0.3,
+      approvedUnverifiedRiskOverride: true,
+      trustedReminderActive: true,
+      decisionRecorded: false,
+      daysToNotice: 45
+    });
+
+    expect(score.components.find((component) => component.key === "evidence")).toEqual(
+      expect.objectContaining({ passed: true, points: 15 })
+    );
+    expect(score.blockers).not.toContain(
+      "Resolve low-confidence extracted evidence before trusting the clock."
+    );
+  });
+
   it("derives days until a renewal-control date deterministically", () => {
     expect(getDaysUntilDate("2026-06-10", new Date("2026-06-01T00:00:00.000Z"))).toBe(9);
     expect(getDaysUntilDate(null, new Date("2026-06-01T00:00:00.000Z"))).toBeNull();

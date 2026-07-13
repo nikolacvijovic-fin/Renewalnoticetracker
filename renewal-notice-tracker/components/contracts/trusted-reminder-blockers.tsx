@@ -23,9 +23,14 @@ export function TrustedReminderBlockers({
       </div>
 
       {gate.canActivate ? (
-        <p className="mt-3 text-sm text-slate-600">
-          Owner, P0 truth, evidence confidence, and schedule are aligned.
-        </p>
+        <div className="mt-3 space-y-2 text-sm text-slate-600">
+          <p>Owner, P0 truth, evidence confidence, and schedule are aligned.</p>
+          {gate.auditMetadata.approvedUnverifiedRiskOverride ? (
+            <p className="text-amber-800">
+              Low-confidence evidence is allowed only because an approved human risk override is recorded.
+            </p>
+          ) : null}
+        </div>
       ) : (
         <div className="mt-4 space-y-3">
           {gate.failures.slice(0, 3).map((failure) => (

@@ -19,6 +19,8 @@ const READINESS_TONES: Record<
 };
 
 export function ReadinessScoreCard({ score }: { score: RenewalReadinessScore }) {
+  const trustGateBlocked = score.blockers.includes("Trusted reminder gate is blocked.");
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
       <div className="flex items-start justify-between gap-3">
@@ -30,7 +32,11 @@ export function ReadinessScoreCard({ score }: { score: RenewalReadinessScore }) 
         </div>
         <Badge tone={READINESS_TONES[score.label]}>{READINESS_LABELS[score.label]}</Badge>
       </div>
-      <p className="mt-3 text-sm text-slate-600">{score.nextAction}</p>
+      <p className="mt-3 text-sm text-slate-600">
+        {trustGateBlocked
+          ? "The renewal loop may be partly complete, but it is not trusted until the reminder gate is unblocked."
+          : score.nextAction}
+      </p>
       <div className="mt-4 h-2 rounded-full bg-slate-100">
         <div
           className="h-2 rounded-full bg-primary"
