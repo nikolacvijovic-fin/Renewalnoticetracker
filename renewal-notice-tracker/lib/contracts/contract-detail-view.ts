@@ -266,10 +266,6 @@ export function getContractDetailEvidenceConfidence(metadata: ContractPageMetada
     .map((value) => Math.max(0, Math.min(1, value)));
 
   if (values.length === 0) {
-    if (hasApprovedUnverifiedRiskOverride(metadata)) {
-      return 1;
-    }
-
     if (
       metadata.needs_review ||
       metadata.has_weak_evidence ||

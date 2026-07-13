@@ -35,6 +35,7 @@ export type RenewalReadinessComponent = {
   max: number;
   passed: boolean;
   blocker: string;
+  exception: string | null;
 };
 
 export type RenewalReadinessScore = {
@@ -52,6 +53,9 @@ export function calculateRenewalReadiness(
   const evidenceTrusted =
     evidenceConfidence >= RENEWAL_READINESS_CONFIDENCE_THRESHOLD ||
     Boolean(input.approvedUnverifiedRiskOverride);
+  const evidenceAllowedByOverride =
+    evidenceConfidence < RENEWAL_READINESS_CONFIDENCE_THRESHOLD &&
+    Boolean(input.approvedUnverifiedRiskOverride);
   const components: RenewalReadinessComponent[] = [
     {
       key: "owner",
@@ -59,7 +63,8 @@ export function calculateRenewalReadiness(
       points: input.ownerAssigned ? 15 : 0,
       max: 15,
       passed: input.ownerAssigned,
-      blocker: "Assign one accountable owner."
+      blocker: "Assign one accountable owner.",
+      exception: null
     },
     {
       key: "renewal_date",
@@ -67,7 +72,8 @@ export function calculateRenewalReadiness(
       points: input.renewalDateReviewed ? 20 : 0,
       max: 20,
       passed: input.renewalDateReviewed,
-      blocker: "Review and confirm the renewal date."
+      blocker: "Review and confirm the renewal date.",
+      exception: null
     },
     {
       key: "notice_deadline",
@@ -75,7 +81,8 @@ export function calculateRenewalReadiness(
       points: input.noticeDeadlineReviewed ? 20 : 0,
       max: 20,
       passed: input.noticeDeadlineReviewed,
-      blocker: "Review and confirm the notice deadline."
+      blocker: "Review and confirm the notice deadline.",
+      exception: null
     },
     {
       key: "auto_renew",
@@ -83,17 +90,21 @@ export function calculateRenewalReadiness(
       points: input.autoRenewReviewed ? 10 : 0,
       max: 10,
       passed: input.autoRenewReviewed,
-      blocker: "Confirm whether auto-renewal applies."
+      blocker: "Confirm whether auto-renewal applies.",
+      exception: null
     },
     {
       key: "evidence",
-      label: "Evidence confidence",
+      label: "Evidence or approved override",
       points: evidenceTrusted ? 15 : 0,
       max: 15,
       passed: evidenceTrusted,
       blocker: input.approvedUnverifiedRiskOverride
         ? "Approved unverified-risk override is recorded."
-        : "Resolve low-confidence extracted evidence before trusting the clock."
+        : "Resolve low-confidence extracted evidence before trusting the clock.",
+      exception: evidenceAllowedByOverride
+        ? "Low-confidence evidence accepted by approved human override."
+        : null
     },
     {
       key: "trusted_reminder",
@@ -103,7 +114,8 @@ export function calculateRenewalReadiness(
       passed: input.trustedReminderActive && !input.trustedReminderGateBlocked,
       blocker: input.trustedReminderGateBlocked
         ? "Trusted reminder gate is blocked."
-        : "Activate the trusted reminder schedule."
+        : "Activate the trusted reminder schedule.",
+      exception: null
     },
     {
       key: "decision",
@@ -111,7 +123,8 @@ export function calculateRenewalReadiness(
       points: input.decisionRecorded ? 5 : 0,
       max: 5,
       passed: input.decisionRecorded,
-      blocker: "Record the renewal decision when the decision window opens."
+      blocker: "Record the renewal decision when the decision window opens.",
+      exception: null
     }
   ];
 

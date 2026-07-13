@@ -78,7 +78,12 @@ describe("renewal readiness score", () => {
     });
 
     expect(score.components.find((component) => component.key === "evidence")).toEqual(
-      expect.objectContaining({ passed: true, points: 15 })
+      expect.objectContaining({
+        label: "Evidence or approved override",
+        passed: true,
+        points: 15,
+        exception: "Low-confidence evidence accepted by approved human override."
+      })
     );
     expect(score.blockers).not.toContain(
       "Resolve low-confidence extracted evidence before trusting the clock."

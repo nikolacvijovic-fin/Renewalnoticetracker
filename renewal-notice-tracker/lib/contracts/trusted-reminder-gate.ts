@@ -38,6 +38,7 @@ export type TrustedReminderGateResult = {
     evidenceConfidence: number;
     approvedUnverifiedRiskOverride: boolean;
     unverifiedRiskApprovalRequested: boolean;
+    lowConfidenceAllowedByApprovedOverride: boolean;
   };
 };
 
@@ -46,6 +47,9 @@ export function evaluateTrustedReminderGate(
 ): TrustedReminderGateResult {
   const failures: TrustedReminderGateFailure[] = [];
   const evidenceConfidence = clampConfidence(input.evidenceConfidence);
+  const lowConfidenceAllowedByApprovedOverride =
+    evidenceConfidence < RENEWAL_READINESS_CONFIDENCE_THRESHOLD &&
+    Boolean(input.approvedUnverifiedRiskOverride);
 
   if (!input.ownerUserId) {
     failures.push({
@@ -120,7 +124,8 @@ export function evaluateTrustedReminderGate(
       failureCount: failures.length,
       evidenceConfidence,
       approvedUnverifiedRiskOverride: Boolean(input.approvedUnverifiedRiskOverride),
-      unverifiedRiskApprovalRequested: Boolean(input.unverifiedRiskApprovalRequested)
+      unverifiedRiskApprovalRequested: Boolean(input.unverifiedRiskApprovalRequested),
+      lowConfidenceAllowedByApprovedOverride
     }
   };
 }

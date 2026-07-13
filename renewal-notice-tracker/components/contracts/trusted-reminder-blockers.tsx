@@ -25,7 +25,7 @@ export function TrustedReminderBlockers({
       {gate.canActivate ? (
         <div className="mt-3 space-y-2 text-sm text-slate-600">
           <p>Owner, P0 truth, evidence confidence, and schedule are aligned.</p>
-          {gate.auditMetadata.approvedUnverifiedRiskOverride ? (
+          {gate.auditMetadata.lowConfidenceAllowedByApprovedOverride ? (
             <p className="text-amber-800">
               Low-confidence evidence is allowed only because an approved human risk override is recorded.
             </p>

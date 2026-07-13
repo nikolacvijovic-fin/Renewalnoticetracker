@@ -273,7 +273,7 @@ describe("contract detail view helpers", () => {
     expect(contractDetailView.hasApprovedUnverifiedRiskOverride(manualMetadata)).toBe(false);
     expect(contractDetailView.getContractDetailEvidenceConfidence(manualMetadata)).toBe(0);
     expect(contractDetailView.hasApprovedUnverifiedRiskOverride(approvedMetadata)).toBe(true);
-    expect(contractDetailView.getContractDetailEvidenceConfidence(approvedMetadata)).toBe(1);
+    expect(contractDetailView.getContractDetailEvidenceConfidence(approvedMetadata)).toBe(0);
   });
 });
 
@@ -430,6 +430,16 @@ describe("buildContractDetailViewModel", () => {
     expect(viewModel.trustedReminderGate.canActivate).toBe(true);
     expect(viewModel.trustedReminderGate.failures).toEqual([]);
     expect(viewModel.trustedReminderGate.auditMetadata.approvedUnverifiedRiskOverride).toBe(true);
+    expect(viewModel.trustedReminderGate.auditMetadata.evidenceConfidence).toBe(0);
+    expect(
+      viewModel.trustedReminderGate.auditMetadata.lowConfidenceAllowedByApprovedOverride
+    ).toBe(true);
+    expect(viewModel.readinessScore.components.find((component) => component.key === "evidence")).toEqual(
+      expect.objectContaining({
+        passed: true,
+        exception: "Low-confidence evidence accepted by approved human override."
+      })
+    );
     expect(viewModel.readinessScore.label).toBe("ready");
   });
 

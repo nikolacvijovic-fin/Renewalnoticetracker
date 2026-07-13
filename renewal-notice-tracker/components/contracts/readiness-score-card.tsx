@@ -20,6 +20,9 @@ const READINESS_TONES: Record<
 
 export function ReadinessScoreCard({ score }: { score: RenewalReadinessScore }) {
   const trustGateBlocked = score.blockers.includes("Trusted reminder gate is blocked.");
+  const exceptions = score.components
+    .map((component) => component.exception)
+    .filter((exception): exception is string => Boolean(exception));
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -52,6 +55,11 @@ export function ReadinessScoreCard({ score }: { score: RenewalReadinessScore }) 
       ) : (
         <p className="mt-4 text-sm text-success">Core renewal controls are ready.</p>
       )}
+      {exceptions.length ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          {exceptions[0]}
+        </div>
+      ) : null}
     </div>
   );
 }

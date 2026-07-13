@@ -23,7 +23,8 @@ describe("trusted reminder gate", () => {
       failureCount: 0,
       evidenceConfidence: 0.9,
       approvedUnverifiedRiskOverride: false,
-      unverifiedRiskApprovalRequested: false
+      unverifiedRiskApprovalRequested: false,
+      lowConfidenceAllowedByApprovedOverride: false
     });
   });
 
@@ -86,5 +87,7 @@ describe("trusted reminder gate", () => {
 
     expect(accepted.canActivate).toBe(true);
     expect(accepted.auditMetadata.approvedUnverifiedRiskOverride).toBe(true);
+    expect(accepted.auditMetadata.evidenceConfidence).toBe(0.4);
+    expect(accepted.auditMetadata.lowConfidenceAllowedByApprovedOverride).toBe(true);
   });
 });
