@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createAuditLog = vi.fn();
@@ -54,7 +56,13 @@ function makeApproval(overrides: Partial<FakeApproval> = {}): FakeApproval {
 function createFakeClient({
   approvalRows = [],
   contractFound = true,
-  insertedApproval = makeApproval({ id: "approval-created" }),
+  contractMetadata = {
+    needs_review: false,
+    has_weak_evidence: false,
+    is_manual_without_evidence: false,
+    field_confidence: { notice_deadline_date: 0.72, renewal_date: 0.8 }
+  },
+  insertedApproval = makeApproval({ id: "approval-created", evidence_confidence_at_approval: 0.72 }),
   revokedApproval = makeApproval({
     revoked_at: "2026-05-26T00:00:00.000Z",
     revoked_by_user_id: "reviewer-1",
@@ -63,6 +71,12 @@ function createFakeClient({
 }: {
   approvalRows?: FakeApproval[];
   contractFound?: boolean;
+  contractMetadata?: {
+    needs_review: boolean | null;
+    has_weak_evidence: boolean | null;
+    is_manual_without_evidence: boolean | null;
+    field_confidence: Record<string, number>;
+  } | null;
   insertedApproval?: FakeApproval;
   revokedApproval?: FakeApproval;
 } = {}) {
@@ -95,7 +109,7 @@ function createFakeClient({
       async single() {
         if (table === "contracts") {
           return contractFound
-            ? { data: { id: "contract-1" }, error: null }
+            ? { data: { id: "contract-1", contract_metadata: contractMetadata }, error: null }
             : { data: null, error: { message: "No rows found" } };
         }
 
@@ -175,7 +189,6 @@ describe("trust exception approvals", () => {
         approvalType: "manual_without_evidence",
         approvalReason: "Approved after manual review.",
         sourceFieldKeys: ["notice_deadline_date", "bad/raw/content<>"],
-        evidenceConfidenceAtApproval: -1
       },
       { client: fake.client as never }
     );
@@ -194,12 +207,26 @@ describe("trust exception approvals", () => {
         contractId: "contract-1",
         details: expect.objectContaining({
           approvalType: "manual_without_evidence",
-          evidenceConfidenceAtApproval: 0,
+          evidenceConfidenceAtApproval: 0.72,
           sourceFieldKeys: ["notice_deadline_date"]
         })
       })
     );
     expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain("raw contract text");
+  });
+
+  it("keeps client-submitted confidence out of the server action input", () => {
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "lib", "actions", "contracts", "trust-exceptions.ts"),
+      "utf8"
+    );
+    const actionInputBlock = source.slice(
+      source.indexOf("export async function createTrustExceptionApprovalAction"),
+      source.indexOf("}) {", source.indexOf("export async function createTrustExceptionApprovalAction"))
+    );
+
+    expect(actionInputBlock).not.toContain("evidenceConfidenceAtApproval");
+    expect(source).not.toContain("input.evidenceConfidenceAtApproval");
   });
 
   it("requires an approval reason before creating durable approval evidence", async () => {
@@ -212,8 +239,7 @@ describe("trust exception approvals", () => {
         context: makeContext("reviewer"),
         contractId: "contract-1",
         approvalType: "low_confidence_evidence",
-        approvalReason: "   ",
-        evidenceConfidenceAtApproval: 0.3
+        approvalReason: "   "
       })
     ).rejects.toBeInstanceOf(TrustExceptionApprovalValidationError);
   });
@@ -237,8 +263,7 @@ describe("trust exception approvals", () => {
           context: makeContext("reviewer"),
           contractId: "contract-1",
           approvalType: "low_confidence_evidence",
-          approvalReason: "Duplicate should fail.",
-          evidenceConfidenceAtApproval: 0.2
+          approvalReason: "Duplicate should fail."
         },
         { client: fake.client as never }
       )
@@ -265,8 +290,7 @@ describe("trust exception approvals", () => {
         context: makeContext("owner"),
         contractId: "contract-1",
         approvalType: "manual_without_evidence",
-        approvalReason: "Owner wants to approve.",
-        evidenceConfidenceAtApproval: 0
+        approvalReason: "Owner wants to approve."
       })
     ).rejects.toBeInstanceOf(TrustExceptionApprovalAuthorizationError);
 
@@ -294,8 +318,7 @@ describe("trust exception approvals", () => {
           context: makeContext("admin"),
           contractId: "contract-foreign",
           approvalType: "low_confidence_evidence",
-          approvalReason: "Should not cross org.",
-          evidenceConfidenceAtApproval: 0.2
+          approvalReason: "Should not cross org."
         },
         { client: fake.client as never }
       )
@@ -335,6 +358,40 @@ describe("trust exception approvals", () => {
           active: false,
           revokedAt: "2026-05-26T00:00:00.000Z"
         })
+      })
+    );
+  });
+
+  it("stores server-computed low confidence for manual-without-evidence metadata", async () => {
+    const fake = createFakeClient({
+      contractMetadata: {
+        needs_review: false,
+        has_weak_evidence: false,
+        is_manual_without_evidence: true,
+        field_confidence: {}
+      },
+      insertedApproval: makeApproval({
+        id: "approval-created",
+        evidence_confidence_at_approval: 0
+      })
+    });
+    const { createTrustExceptionApproval } = await import(
+      "@/lib/contracts/trust-exception-approvals"
+    );
+
+    await createTrustExceptionApproval(
+      {
+        context: makeContext("reviewer"),
+        contractId: "contract-1",
+        approvalType: "manual_without_evidence",
+        approvalReason: "Approved after manual review."
+      },
+      { client: fake.client as never }
+    );
+
+    expect(fake.calls.find((call) => call.operation === "insert")?.payload).toEqual(
+      expect.objectContaining({
+        evidence_confidence_at_approval: 0
       })
     );
   });

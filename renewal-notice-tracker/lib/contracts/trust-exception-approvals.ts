@@ -3,6 +3,7 @@ import type { ActiveOrganizationContext, MembershipRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
+import { getEvidenceConfidenceFromContractMetadata } from "@/lib/contracts/evidence-confidence";
 
 export const TRUST_EXCEPTION_APPROVAL_TYPES = [
   "low_confidence_evidence",
@@ -32,7 +33,6 @@ export type CreateTrustExceptionApprovalInput = {
   approvalType: TrustExceptionApprovalType;
   approvalReason: string;
   sourceFieldKeys?: string[];
-  evidenceConfidenceAtApproval: number;
   expiresAt?: string | null;
 };
 
@@ -164,10 +164,11 @@ export async function createTrustExceptionApproval(
   }
 
   const client = getClient(options);
-  await assertContractBelongsToOrganization(client, {
+  const metadata = await getContractMetadataForApproval(client, {
     contractId: input.contractId,
     organizationId: input.context.organizationId
   });
+  const evidenceConfidenceAtApproval = getEvidenceConfidenceFromContractMetadata(metadata);
 
   const existingActiveApproval = await getActiveTrustExceptionApproval(
     {
@@ -190,7 +191,7 @@ export async function createTrustExceptionApproval(
     approval_type: input.approvalType,
     approval_reason: approvalReason,
     source_field_keys: sanitizeSourceFieldKeys(input.sourceFieldKeys ?? []),
-    evidence_confidence_at_approval: clampConfidence(input.evidenceConfidenceAtApproval),
+    evidence_confidence_at_approval: evidenceConfidenceAtApproval,
     expires_at: input.expiresAt ?? null
   };
 
@@ -231,8 +232,7 @@ export async function revokeTrustExceptionApproval(
         context: input.context,
         contractId: input.contractId,
         approvalType: "low_confidence_evidence",
-        approvalReason: input.revocationReason,
-        evidenceConfidenceAtApproval: 0
+        approvalReason: input.revocationReason
       },
       "role_not_allowed"
     );
@@ -361,7 +361,7 @@ async function auditTrustExceptionApprovalDenied(
       details: {
         contractId: input.contractId,
         approvalType: input.approvalType,
-        evidenceConfidenceAtApproval: clampConfidence(input.evidenceConfidenceAtApproval),
+        evidenceConfidenceAtApproval: 0,
         sourceFieldKeys: sanitizeSourceFieldKeys(input.sourceFieldKeys ?? []),
         active: false,
         reason
@@ -371,13 +371,23 @@ async function auditTrustExceptionApprovalDenied(
   );
 }
 
-async function assertContractBelongsToOrganization(
+async function getContractMetadataForApproval(
   client: TrustExceptionApprovalClient,
   input: { organizationId: string; contractId: string }
 ) {
   const { data, error } = await client
     .from("contracts")
-    .select("id")
+    .select(
+      `
+      id,
+      contract_metadata (
+        needs_review,
+        has_weak_evidence,
+        is_manual_without_evidence,
+        field_confidence
+      )
+    `
+    )
     .eq("organization_id", input.organizationId)
     .eq("id", input.contractId)
     .single();
@@ -385,6 +395,39 @@ async function assertContractBelongsToOrganization(
   if (error || !data) {
     throw new TrustExceptionApprovalScopeError(input.contractId, input.organizationId);
   }
+
+  const metadata = (data as {
+    contract_metadata?:
+      | {
+          needs_review: boolean | null;
+          has_weak_evidence: boolean | null;
+          is_manual_without_evidence: boolean | null;
+          field_confidence: unknown;
+        }
+      | Array<{
+          needs_review: boolean | null;
+          has_weak_evidence: boolean | null;
+          is_manual_without_evidence: boolean | null;
+          field_confidence: unknown;
+        }>
+      | null;
+  }).contract_metadata;
+
+  const firstMetadata = Array.isArray(metadata) ? metadata[0] ?? null : metadata ?? null;
+
+  return firstMetadata
+    ? {
+        needs_review: firstMetadata.needs_review,
+        has_weak_evidence: firstMetadata.has_weak_evidence,
+        is_manual_without_evidence: firstMetadata.is_manual_without_evidence,
+        field_confidence:
+          typeof firstMetadata.field_confidence === "object" &&
+          firstMetadata.field_confidence !== null &&
+          !Array.isArray(firstMetadata.field_confidence)
+            ? (firstMetadata.field_confidence as Record<string, number>)
+            : {}
+      }
+    : null;
 }
 
 function sanitizeSourceFieldKeys(keys: string[]) {

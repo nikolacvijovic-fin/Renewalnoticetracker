@@ -28,6 +28,10 @@ import {
   isTrustExceptionApprovalActive,
   type TrustExceptionApproval
 } from "@/lib/contracts/trust-exception-approvals";
+import {
+  getEvidenceConfidenceFromContractMetadata,
+  normalizeFieldConfidence
+} from "@/lib/contracts/evidence-confidence";
 import type {
   CounterpartyRecord,
   OrganizationMember
@@ -257,10 +261,7 @@ export function normalizeContractDetailMetadata(
       typeof metadata.contract_value_amount === "number"
         ? (metadata.contract_value_amount as number)
         : null,
-    field_confidence:
-      typeof metadata.field_confidence === "object" && metadata.field_confidence !== null
-        ? (metadata.field_confidence as Record<string, number>)
-        : {},
+    field_confidence: normalizeFieldConfidence(metadata.field_confidence),
     field_source_snippets:
       typeof metadata.field_source_snippets === "object" &&
       metadata.field_source_snippets !== null
@@ -349,23 +350,7 @@ export function getContractDetailReminderBlockedReason(
 }
 
 export function getContractDetailEvidenceConfidence(metadata: ContractPageMetadata) {
-  const values = Object.values(metadata.field_confidence)
-    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-    .map((value) => Math.max(0, Math.min(1, value)));
-
-  if (values.length === 0) {
-    if (
-      metadata.needs_review ||
-      metadata.has_weak_evidence ||
-      metadata.is_manual_without_evidence
-    ) {
-      return 0;
-    }
-
-    return 0.5;
-  }
-
-  return Math.min(...values);
+  return getEvidenceConfidenceFromContractMetadata(metadata);
 }
 
 export function hasApprovedUnverifiedRiskOverride(metadata: ContractPageMetadata) {

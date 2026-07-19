@@ -1,0 +1,4 @@
+opportunity_id,organization_id,vendor,annual_spend,estimated_savings,risk_band,opportunity_type
+opp-1,org-1,Acme SaaS,24000,4200,critical,duplicate_vendor
+opp-2,org-1,Northwind Cloud,18000,2500,high,unused_licenses
+opp-3,org-2,Fabrikam Tools,30000,6000,medium,price_increase

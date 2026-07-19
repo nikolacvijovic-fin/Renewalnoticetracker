@@ -14,6 +14,7 @@ import { RenewalDecisionForm } from "@/components/contracts/renewal-decision-for
 import { ContractCycleActions } from "@/components/contracts/contract-cycle-actions";
 import { ContractWorkflowSummary } from "@/components/contracts/contract-workflow-summary";
 import { ContractActivityFeed } from "@/components/contracts/contract-activity-feed";
+import { ContractEnterpriseAuditTimeline } from "@/components/contracts/contract-enterprise-audit-timeline";
 import { ContractSecondaryTabs } from "@/components/contracts/contract-secondary-tabs";
 import { ContractDetailShell } from "@/components/contracts/contract-detail-shell";
 import { getRiskConfidenceLabel } from "@/lib/intelligence/risk/dashboard";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/intelligence/audit";
 import { formatDate } from "@/lib/utils";
 import { buildContractDetailViewModel } from "@/lib/contracts/contract-detail-view";
+import { getContractAuditTimeline } from "@/lib/enterprise-audit/audit-queries";
 
 export default async function ContractDetailPage({
   params
@@ -44,12 +46,19 @@ export default async function ContractDetailPage({
 
   if (!contract || !contract.contract_metadata) notFound();
 
-  const viewModel = await buildContractDetailViewModel({
-    context,
-    contract,
-    members,
-    counterparties
-  });
+  const [viewModel, enterpriseAuditTimeline] = await Promise.all([
+    buildContractDetailViewModel({
+      context,
+      contract,
+      members,
+      counterparties
+    }),
+    getContractAuditTimeline({
+      organizationId,
+      contractId: contract.id,
+      limit: 12
+    })
+  ]);
   const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
   const riskExplanationAccess = viewModel.intelligenceAccess.accessBySurface.risk_explanation;
   if (riskBadgeAccess.allowed) {
@@ -232,10 +241,30 @@ export default async function ContractDetailPage({
               key: "audit",
               label: "Audit trail",
               content: (
-                <ContractActivityFeed
-                  auditLogs={((contract.audit_logs ?? []) as never[])}
-                  actorLabels={viewModel.actorLabels}
-                />
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Enterprise trust timeline
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Trust-sensitive view of reminder gates, evidence review, exception approvals, and decisions.
+                    </p>
+                    <div className="mt-4">
+                      <ContractEnterpriseAuditTimeline events={enterpriseAuditTimeline} />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Workflow activity
+                    </h3>
+                    <div className="mt-4">
+                      <ContractActivityFeed
+                        auditLogs={((contract.audit_logs ?? []) as never[])}
+                        actorLabels={viewModel.actorLabels}
+                      />
+                    </div>
+                  </div>
+                </div>
               )
             },
             {

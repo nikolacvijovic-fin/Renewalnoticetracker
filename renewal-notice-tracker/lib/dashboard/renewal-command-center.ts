@@ -6,6 +6,10 @@ import {
   type TrustExceptionApproval
 } from "@/lib/contracts/trust-exception-approvals";
 import {
+  getEvidenceConfidenceFromContractMetadata,
+  normalizeFieldConfidence
+} from "@/lib/contracts/evidence-confidence";
+import {
   buildRenewalCommandActions,
   type RenewalCommandAction
 } from "@/lib/dashboard/renewal-command-actions";
@@ -168,27 +172,16 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return value ?? null;
 }
 
-function clampConfidence(value: number) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(1, value));
-}
-
-function normalizeConfidence(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-  return value as Record<string, number>;
-}
-
 function evidenceConfidence(input: {
   needsReview?: boolean | null;
   hasWeakEvidence?: boolean | null;
   fieldConfidence?: Record<string, number> | null;
 }) {
-  if (input.needsReview || input.hasWeakEvidence) return 0;
-  const values = Object.values(input.fieldConfidence ?? {}).filter(
-    (value): value is number => typeof value === "number" && Number.isFinite(value)
-  );
-  if (values.length === 0) return 0.5;
-  return clampConfidence(Math.min(...values));
+  return getEvidenceConfidenceFromContractMetadata({
+    needs_review: input.needsReview,
+    has_weak_evidence: input.hasWeakEvidence,
+    field_confidence: input.fieldConfidence
+  });
 }
 
 function daysUntil(date: string | null | undefined, now: Date) {
@@ -529,7 +522,7 @@ export async function getRenewalCommandCenterContracts(
       needsReview: metadata?.needs_review ?? null,
       hasWeakEvidence: metadata?.has_weak_evidence ?? null,
       acceptedUnverifiedRiskRequested: metadata?.accepted_unverified_risk_requested ?? null,
-      fieldConfidence: normalizeConfidence(metadata?.field_confidence),
+      fieldConfidence: normalizeFieldConfidence(metadata?.field_confidence),
       contractValueAmount: metadata?.contract_value_amount ?? null,
       reminders: row.reminders ?? [],
       trustExceptionApprovals:

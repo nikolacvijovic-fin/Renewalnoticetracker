@@ -18,6 +18,7 @@ function makeValidEnv(
     MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "",
     MONITORING_ALERT_WEBHOOK_TIMEOUT_MS: "2500",
     MONITORING_ALERT_WEBHOOK_DELIVERY_MODE: "await",
+    ADD_ON_INTERNAL_SIGNING_SECRET: "",
     PYTHON_INTELLIGENCE_URL: "",
     GO_WORKER_URL: "",
     JAVA_ENTERPRISE_CONNECTORS_URL: "",
@@ -81,6 +82,7 @@ describe("runtime configuration", () => {
       ocrProcessingLeaseMinutes: 30
     });
     expect(config.addOns).toEqual({
+      internalSigningSecret: null,
       pythonIntelligenceUrl: null,
       goWorkerUrl: null,
       javaEnterpriseConnectorsUrl: null
@@ -92,11 +94,13 @@ describe("runtime configuration", () => {
       makeValidEnv({
         PYTHON_INTELLIGENCE_URL: "https://python.example.com",
         GO_WORKER_URL: "https://worker.example.com",
-        JAVA_ENTERPRISE_CONNECTORS_URL: "https://java.example.com"
+        JAVA_ENTERPRISE_CONNECTORS_URL: "https://java.example.com",
+        ADD_ON_INTERNAL_SIGNING_SECRET: "test-add-on-secret"
       })
     );
 
     expect(config.addOns).toEqual({
+      internalSigningSecret: "test-add-on-secret",
       pythonIntelligenceUrl: "https://python.example.com",
       goWorkerUrl: "https://worker.example.com",
       javaEnterpriseConnectorsUrl: "https://java.example.com"
@@ -111,6 +115,16 @@ describe("runtime configuration", () => {
         })
       )
     ).toThrow(/PYTHON_INTELLIGENCE_URL/i);
+  });
+
+  it("requires an internal signing secret when add-on URLs are configured", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          PYTHON_INTELLIGENCE_URL: "https://python.example.com"
+        })
+      )
+    ).toThrow(/ADD_ON_INTERNAL_SIGNING_SECRET/i);
   });
 
   it("fails clearly when required secrets are missing", () => {

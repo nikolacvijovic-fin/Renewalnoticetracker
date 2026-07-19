@@ -1,0 +1,9 @@
+Package: noticecontrol.analytics
+Type: Package
+Title: NoticeControl Analytics Research Scaffolds
+Version: 0.1.0
+Description: Deterministic fixture-backed R scripts for renewal spend, risk, savings, and activation cohort analysis.
+License: Proprietary
+Encoding: UTF-8
+Suggests:
+    testthat

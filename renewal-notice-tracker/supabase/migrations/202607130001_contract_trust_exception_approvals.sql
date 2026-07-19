@@ -28,13 +28,67 @@ create table if not exists public.contract_trust_exception_approvals (
   )
 );
 
+comment on table public.contract_trust_exception_approvals is
+  'Durable trust exception approvals are append-only after insert. Only formal revocation fields may change.';
+
 alter table public.contract_trust_exception_approvals enable row level security;
+
+create or replace function public.prevent_contract_trust_exception_approval_mutation()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'contract_trust_exception_approvals are immutable and cannot be deleted';
+  end if;
+
+  if tg_op = 'UPDATE' then
+    if old.revoked_at is not null then
+      raise exception 'revoked contract trust exception approvals cannot be changed';
+    end if;
+
+    if old.organization_id is distinct from new.organization_id
+      or old.contract_id is distinct from new.contract_id
+      or old.approved_by_user_id is distinct from new.approved_by_user_id
+      or old.approval_type is distinct from new.approval_type
+      or old.approval_reason is distinct from new.approval_reason
+      or old.source_field_keys is distinct from new.source_field_keys
+      or old.evidence_confidence_at_approval is distinct from new.evidence_confidence_at_approval
+      or old.expires_at is distinct from new.expires_at
+      or old.created_at is distinct from new.created_at then
+      raise exception 'contract trust exception approval fields are immutable after insert';
+    end if;
+
+    if new.revoked_at is null
+      or new.revoked_by_user_id is null
+      or char_length(trim(coalesce(new.revocation_reason, ''))) = 0 then
+      raise exception 'revocation requires revoked_at, revoked_by_user_id, and revocation_reason';
+    end if;
+
+    if old.revoked_by_user_id is distinct from new.revoked_by_user_id
+      or old.revocation_reason is distinct from new.revocation_reason
+      or old.revoked_at is distinct from new.revoked_at then
+      return new;
+    end if;
+
+    raise exception 'contract trust exception approvals may only be updated for revocation';
+  end if;
+
+  return new;
+end;
+$$;
 
 drop trigger if exists contract_trust_exception_approvals_touch_updated_at
 on public.contract_trust_exception_approvals;
 create trigger contract_trust_exception_approvals_touch_updated_at
 before update on public.contract_trust_exception_approvals
 for each row execute function public.touch_updated_at();
+
+drop trigger if exists prevent_contract_trust_exception_approval_mutation
+on public.contract_trust_exception_approvals;
+create trigger prevent_contract_trust_exception_approval_mutation
+before update or delete on public.contract_trust_exception_approvals
+for each row execute function public.prevent_contract_trust_exception_approval_mutation();
 
 create index if not exists idx_contract_trust_exception_approvals_org_contract
   on public.contract_trust_exception_approvals(organization_id, contract_id);

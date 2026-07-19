@@ -1,0 +1,5 @@
+contract_id,organization_id,renewal_month,annual_spend,risk_band,days_until_notice
+contract-1,org-1,2026-08,12000,critical,12
+contract-2,org-1,2026-09,8000,high,35
+contract-3,org-1,2026-10,5000,medium,70
+contract-4,org-2,2026-08,18000,critical,8

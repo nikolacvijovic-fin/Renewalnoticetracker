@@ -45,6 +45,13 @@ The migration adds:
 
 All new tables include `organization_id` and RLS. Audit event tables are readable by organization members but have no broad client insert policy; mutation should go through trusted server-side paths.
 
+Commercial backbone tables are member-readable but restricted-write:
+
+- audit/event rows are trusted server-path writes only
+- import batch creation is limited to owner/admin/operator/reviewer roles
+- import rows/errors are member-read and service-write
+- usage reconciliation derived findings are member-read, with review updates limited to owner/admin/operator where applicable
+
 ## Python Intelligence
 
 Path: `services/python-intelligence`
@@ -120,8 +127,27 @@ Clients must:
 - return safe error objects
 - include request correlation IDs
 - use timeout handling
+- sign protected requests with `ADD_ON_INTERNAL_SIGNING_SECRET`
 - avoid throwing raw transport errors
 - avoid logging raw provider payloads, contract text, OCR output, tokens, or secrets
+
+Protected add-on calls include:
+
+- `x-request-correlation-id`
+- `x-noticecontrol-timestamp`
+- `x-noticecontrol-body-sha256`
+- `x-noticecontrol-signature`
+
+The signature format is `sha256=<hex>`, using HMAC-SHA256 over:
+
+```text
+METHOD
+/path?query
+timestamp
+bodySha256
+```
+
+`GET /health` may be unsigned for local scaffold checks. Mutating or data-bearing calls fail closed if the signing secret is missing.
 
 ## Operator Dashboard
 

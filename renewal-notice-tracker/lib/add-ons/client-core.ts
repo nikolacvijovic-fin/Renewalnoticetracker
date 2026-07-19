@@ -1,4 +1,5 @@
 import type { AddOnExecutionResult } from "@/lib/add-ons/add-on-registry";
+import { createHash, createHmac } from "node:crypto";
 
 export type AddOnClientOptions = {
   addOnId: string;
@@ -6,6 +7,7 @@ export type AddOnClientOptions = {
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
   correlationId?: string;
+  signingSecret?: string | null;
 };
 
 export type AddOnHealthResponse = {
@@ -17,6 +19,26 @@ export type AddOnHealthResponse = {
 export function makeCorrelationId(prefix = "addon") {
   const random = Math.random().toString(36).slice(2, 10);
   return `${prefix}_${Date.now().toString(36)}_${random}`;
+}
+
+export function sha256Hex(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+export function signAddOnRequest(input: {
+  method: string;
+  path: string;
+  timestamp: string;
+  bodySha256: string;
+  secret: string;
+}) {
+  const payload = [
+    input.method.toUpperCase(),
+    input.path,
+    input.timestamp,
+    input.bodySha256
+  ].join("\n");
+  return `sha256=${createHmac("sha256", input.secret).update(payload).digest("hex")}`;
 }
 
 function safeTransportMessage(status?: number) {
@@ -48,15 +70,46 @@ export async function callAddOnJson<TInput, TOutput>(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 2500);
   const fetcher = options.fetchImpl ?? fetch;
+  const method = options.method ?? (options.body ? "POST" : "GET");
+  const body = options.body ? JSON.stringify(options.body) : "";
+  const requestUrl = new URL(options.path, options.baseUrl);
+  const signedPath = `${requestUrl.pathname}${requestUrl.search}`;
+  const bodySha256 = sha256Hex(body);
+  const timestamp = new Date().toISOString();
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "x-request-correlation-id": correlationId
+  };
+  const requiresSignature = method !== "GET";
+
+  if (requiresSignature && !options.signingSecret) {
+    clearTimeout(timeout);
+    return {
+      ok: false,
+      addOnId: options.addOnId,
+      errorCode: "not_configured",
+      safeMessage: "Add-on internal signing secret is not configured.",
+      correlationId
+    };
+  }
+
+  if (options.signingSecret) {
+    headers["x-noticecontrol-timestamp"] = timestamp;
+    headers["x-noticecontrol-body-sha256"] = bodySha256;
+    headers["x-noticecontrol-signature"] = signAddOnRequest({
+      method,
+      path: signedPath,
+      timestamp,
+      bodySha256,
+      secret: options.signingSecret
+    });
+  }
 
   try {
-    const response = await fetcher(new URL(options.path, options.baseUrl), {
-      method: options.method ?? (options.body ? "POST" : "GET"),
-      headers: {
-        "content-type": "application/json",
-        "x-request-correlation-id": correlationId
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
+    const response = await fetcher(requestUrl, {
+      method,
+      headers,
+      body: body ? body : undefined,
       signal: controller.signal
     });
 

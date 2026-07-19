@@ -14,7 +14,6 @@ export async function createTrustExceptionApprovalAction(input: {
   approvalType?: TrustExceptionApprovalType;
   approvalReason: string;
   sourceFieldKeys?: string[];
-  evidenceConfidenceAtApproval: number;
   expiresAt?: string | null;
 }) {
   const context = await requireActiveOrganization();
@@ -24,7 +23,6 @@ export async function createTrustExceptionApprovalAction(input: {
     approvalType: input.approvalType ?? "low_confidence_evidence",
     approvalReason: input.approvalReason,
     sourceFieldKeys: input.sourceFieldKeys,
-    evidenceConfidenceAtApproval: input.evidenceConfidenceAtApproval,
     expiresAt: input.expiresAt ?? null
   });
 

@@ -153,6 +153,7 @@ const rawEnvBaseSchema = z.object({
     emptyStringToUndefined,
     z.enum(["await", "fire_and_forget"]).default("await")
   ),
+  ADD_ON_INTERNAL_SIGNING_SECRET: optionalNonEmptyString,
   PYTHON_INTELLIGENCE_URL: optionalUrl,
   GO_WORKER_URL: optionalUrl,
   JAVA_ENTERPRISE_CONNECTORS_URL: optionalUrl,
@@ -171,6 +172,17 @@ const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
       code: z.ZodIssueCode.custom,
       path: ["MONITORING_ALERT_WEBHOOK_URL"],
       message: "MONITORING_ALERT_WEBHOOK_URL is required when MONITORING_EVENT_SINK is structured_log_and_webhook."
+    });
+  }
+
+  if (
+    (value.PYTHON_INTELLIGENCE_URL || value.GO_WORKER_URL || value.JAVA_ENTERPRISE_CONNECTORS_URL) &&
+    !value.ADD_ON_INTERNAL_SIGNING_SECRET
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["ADD_ON_INTERNAL_SIGNING_SECRET"],
+      message: "ADD_ON_INTERNAL_SIGNING_SECRET is required when any add-on service URL is configured."
     });
   }
 
@@ -317,6 +329,7 @@ export type AppConfig = {
     ocrProcessingLeaseMinutes: number;
   };
   addOns: {
+    internalSigningSecret: string | null;
     pythonIntelligenceUrl: string | null;
     goWorkerUrl: string | null;
     javaEnterpriseConnectorsUrl: string | null;
@@ -411,6 +424,7 @@ export function parseAppConfig(
       ocrProcessingLeaseMinutes: raw.OCR_PROCESSING_LEASE_MINUTES
     },
     addOns: {
+      internalSigningSecret: nullable(raw.ADD_ON_INTERNAL_SIGNING_SECRET),
       pythonIntelligenceUrl: nullable(raw.PYTHON_INTELLIGENCE_URL),
       goWorkerUrl: nullable(raw.GO_WORKER_URL),
       javaEnterpriseConnectorsUrl: nullable(raw.JAVA_ENTERPRISE_CONNECTORS_URL)

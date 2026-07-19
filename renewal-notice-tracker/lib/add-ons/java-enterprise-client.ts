@@ -19,6 +19,7 @@ function options(overrides: Partial<AddOnClientOptions> = {}): AddOnClientOption
   return {
     addOnId: "java_enterprise_connectors",
     baseUrl: overrides.baseUrl === undefined ? getAppConfig().addOns.javaEnterpriseConnectorsUrl : overrides.baseUrl,
+    signingSecret: overrides.signingSecret === undefined ? getAppConfig().addOns.internalSigningSecret : overrides.signingSecret,
     ...overrides
   };
 }

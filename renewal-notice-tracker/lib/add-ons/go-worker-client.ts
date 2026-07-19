@@ -19,6 +19,7 @@ function options(overrides: Partial<AddOnClientOptions> = {}): AddOnClientOption
   return {
     addOnId: "go_reliability_worker",
     baseUrl: overrides.baseUrl === undefined ? getAppConfig().addOns.goWorkerUrl : overrides.baseUrl,
+    signingSecret: overrides.signingSecret === undefined ? getAppConfig().addOns.internalSigningSecret : overrides.signingSecret,
     ...overrides
   };
 }

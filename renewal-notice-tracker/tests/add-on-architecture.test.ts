@@ -99,5 +99,16 @@ describe("add-on architecture registry", () => {
     expect(migration).toContain("organization_renewal_readiness");
     expect(migration).toContain("spend_at_risk_summary");
     expect(migration).toContain("memberships.organization_id");
+    expect(migration).not.toMatch(/members can manage/i);
+    expect(migration).not.toMatch(/for all using/i);
+  });
+
+  it("keeps trust exception approvals immutable except formal revocation", () => {
+    const migration = readRepoFile("supabase", "migrations", "202607130001_contract_trust_exception_approvals.sql");
+
+    expect(migration).toContain("prevent_contract_trust_exception_approval_mutation");
+    expect(migration).toContain("approval fields are immutable after insert");
+    expect(migration).toContain("revocation requires revoked_at, revoked_by_user_id, and revocation_reason");
+    expect(migration).not.toContain("members can manage contract trust exception approvals");
   });
 });

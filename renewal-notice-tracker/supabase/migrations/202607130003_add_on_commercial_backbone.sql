@@ -320,38 +320,51 @@ for select using (exists (select 1 from public.memberships where memberships.org
 create policy "members can read renewal decision events" on public.renewal_decision_events
 for select using (exists (select 1 from public.memberships where memberships.organization_id = renewal_decision_events.organization_id and memberships.user_id = auth.uid()));
 
-create policy "members can manage contract import batches" on public.contract_import_batches
-for all using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_batches.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = contract_import_batches.organization_id and memberships.user_id = auth.uid()));
+create policy "members can read contract import batches" on public.contract_import_batches
+for select using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_batches.organization_id and memberships.user_id = auth.uid()));
 
-create policy "members can manage contract import rows" on public.contract_import_rows
-for all using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_rows.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = contract_import_rows.organization_id and memberships.user_id = auth.uid()));
+create policy "review-capable members can create contract import batches" on public.contract_import_batches
+for insert with check (exists (select 1 from public.memberships where memberships.organization_id = contract_import_batches.organization_id and memberships.user_id = auth.uid() and memberships.role in ('owner', 'admin', 'operator', 'reviewer')));
 
-create policy "members can manage contract import errors" on public.contract_import_errors
-for all using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_errors.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = contract_import_errors.organization_id and memberships.user_id = auth.uid()));
+create policy "creator admin operator can update contract import batches" on public.contract_import_batches
+for update using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_batches.organization_id and memberships.user_id = auth.uid() and (memberships.role in ('owner', 'admin', 'operator') or contract_import_batches.actor_user_id = auth.uid())))
+with check (exists (select 1 from public.memberships where memberships.organization_id = contract_import_batches.organization_id and memberships.user_id = auth.uid() and (memberships.role in ('owner', 'admin', 'operator') or contract_import_batches.actor_user_id = auth.uid())));
 
-create policy "members can manage usage import batches" on public.usage_import_batches
-for all using (exists (select 1 from public.memberships where memberships.organization_id = usage_import_batches.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = usage_import_batches.organization_id and memberships.user_id = auth.uid()));
+create policy "members can read contract import rows" on public.contract_import_rows
+for select using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_rows.organization_id and memberships.user_id = auth.uid()));
 
-create policy "members can manage usage import rows" on public.usage_import_rows
-for all using (exists (select 1 from public.memberships where memberships.organization_id = usage_import_rows.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = usage_import_rows.organization_id and memberships.user_id = auth.uid()));
+create policy "members can read contract import errors" on public.contract_import_errors
+for select using (exists (select 1 from public.memberships where memberships.organization_id = contract_import_errors.organization_id and memberships.user_id = auth.uid()));
 
-create policy "members can manage contract usage matches" on public.contract_usage_matches
-for all using (exists (select 1 from public.memberships where memberships.organization_id = contract_usage_matches.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = contract_usage_matches.organization_id and memberships.user_id = auth.uid()));
+create policy "members can read usage import batches" on public.usage_import_batches
+for select using (exists (select 1 from public.memberships where memberships.organization_id = usage_import_batches.organization_id and memberships.user_id = auth.uid()));
 
-create policy "members can manage unmatched usage rows" on public.unmatched_usage_rows
-for all using (exists (select 1 from public.memberships where memberships.organization_id = unmatched_usage_rows.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = unmatched_usage_rows.organization_id and memberships.user_id = auth.uid()));
+create policy "review-capable members can create usage import batches" on public.usage_import_batches
+for insert with check (exists (select 1 from public.memberships where memberships.organization_id = usage_import_batches.organization_id and memberships.user_id = auth.uid() and memberships.role in ('owner', 'admin', 'operator', 'reviewer')));
 
-create policy "members can manage duplicate vendor spend" on public.duplicate_vendor_spend
-for all using (exists (select 1 from public.memberships where memberships.organization_id = duplicate_vendor_spend.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = duplicate_vendor_spend.organization_id and memberships.user_id = auth.uid()));
+create policy "creator admin operator can update usage import batches" on public.usage_import_batches
+for update using (exists (select 1 from public.memberships where memberships.organization_id = usage_import_batches.organization_id and memberships.user_id = auth.uid() and (memberships.role in ('owner', 'admin', 'operator') or usage_import_batches.actor_user_id = auth.uid())))
+with check (exists (select 1 from public.memberships where memberships.organization_id = usage_import_batches.organization_id and memberships.user_id = auth.uid() and (memberships.role in ('owner', 'admin', 'operator') or usage_import_batches.actor_user_id = auth.uid())));
 
-create policy "members can manage license waste opportunities" on public.license_waste_opportunities
-for all using (exists (select 1 from public.memberships where memberships.organization_id = license_waste_opportunities.organization_id and memberships.user_id = auth.uid()))
-with check (exists (select 1 from public.memberships where memberships.organization_id = license_waste_opportunities.organization_id and memberships.user_id = auth.uid()));
+create policy "members can read usage import rows" on public.usage_import_rows
+for select using (exists (select 1 from public.memberships where memberships.organization_id = usage_import_rows.organization_id and memberships.user_id = auth.uid()));
+
+create policy "members can read contract usage matches" on public.contract_usage_matches
+for select using (exists (select 1 from public.memberships where memberships.organization_id = contract_usage_matches.organization_id and memberships.user_id = auth.uid()));
+
+create policy "members can read unmatched usage rows" on public.unmatched_usage_rows
+for select using (exists (select 1 from public.memberships where memberships.organization_id = unmatched_usage_rows.organization_id and memberships.user_id = auth.uid()));
+
+create policy "members can read duplicate vendor spend" on public.duplicate_vendor_spend
+for select using (exists (select 1 from public.memberships where memberships.organization_id = duplicate_vendor_spend.organization_id and memberships.user_id = auth.uid()));
+
+create policy "admin operator can review duplicate vendor spend" on public.duplicate_vendor_spend
+for update using (exists (select 1 from public.memberships where memberships.organization_id = duplicate_vendor_spend.organization_id and memberships.user_id = auth.uid() and memberships.role in ('owner', 'admin', 'operator')))
+with check (exists (select 1 from public.memberships where memberships.organization_id = duplicate_vendor_spend.organization_id and memberships.user_id = auth.uid() and memberships.role in ('owner', 'admin', 'operator')));
+
+create policy "members can read license waste opportunities" on public.license_waste_opportunities
+for select using (exists (select 1 from public.memberships where memberships.organization_id = license_waste_opportunities.organization_id and memberships.user_id = auth.uid()));
+
+create policy "admin operator can review license waste opportunities" on public.license_waste_opportunities
+for update using (exists (select 1 from public.memberships where memberships.organization_id = license_waste_opportunities.organization_id and memberships.user_id = auth.uid() and memberships.role in ('owner', 'admin', 'operator')))
+with check (exists (select 1 from public.memberships where memberships.organization_id = license_waste_opportunities.organization_id and memberships.user_id = auth.uid() and memberships.role in ('owner', 'admin', 'operator')));

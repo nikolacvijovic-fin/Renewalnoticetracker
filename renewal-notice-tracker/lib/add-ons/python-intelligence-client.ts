@@ -69,6 +69,7 @@ function options(overrides: Partial<AddOnClientOptions> = {}): AddOnClientOption
   return {
     addOnId: "python_contract_intelligence",
     baseUrl: overrides.baseUrl === undefined ? getAppConfig().addOns.pythonIntelligenceUrl : overrides.baseUrl,
+    signingSecret: overrides.signingSecret === undefined ? getAppConfig().addOns.internalSigningSecret : overrides.signingSecret,
     ...overrides
   };
 }

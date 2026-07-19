@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { callAddOnJson } from "@/lib/add-ons/client-core";
+import { callAddOnJson, sha256Hex, signAddOnRequest } from "@/lib/add-ons/client-core";
 import { checkPythonIntelligenceHealth, extractContract } from "@/lib/add-ons/python-intelligence-client";
 import { checkGoWorkerHealth, enqueueGoWorkerJob } from "@/lib/add-ons/go-worker-client";
 import { checkJavaEnterpriseHealth } from "@/lib/add-ons/java-enterprise-client";
@@ -25,7 +25,8 @@ describe("add-on clients", () => {
       baseUrl: "https://python.example.com",
       fetchImpl,
       timeoutMs: 1000,
-      correlationId: "corr-1"
+      correlationId: "corr-1",
+      signingSecret: null
     });
 
     expect(result).toEqual(
@@ -39,6 +40,7 @@ describe("add-on clients", () => {
   it("maps transport failures without leaking raw errors", async () => {
     const result = await checkGoWorkerHealth({
       baseUrl: "https://worker.example.com",
+      signingSecret: null,
       fetchImpl: vi.fn(async () => {
         throw new Error("raw provider payload with token should not leak");
       })
@@ -65,6 +67,7 @@ describe("add-on clients", () => {
     const result = await checkJavaEnterpriseHealth({
       baseUrl: "https://java.example.com",
       fetchImpl,
+      signingSecret: null,
       timeoutMs: 1
     });
 
@@ -96,7 +99,7 @@ describe("add-on clients", () => {
         file_id: "file-1",
         extraction_mode: "deterministic_scaffold"
       },
-      { baseUrl: "https://python.example.com", fetchImpl }
+      { baseUrl: "https://python.example.com", fetchImpl, signingSecret: "test-add-on-secret" }
     );
 
     expect(result).toEqual(expect.objectContaining({ ok: true }));
@@ -120,9 +123,74 @@ describe("add-on clients", () => {
         idempotency_key: "job-key-1",
         payload: { reminder_id: "reminder-1" }
       },
-      { baseUrl: "https://worker.example.com", fetchImpl }
+      { baseUrl: "https://worker.example.com", fetchImpl, signingSecret: "test-add-on-secret" }
     );
 
     expect(result).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it("signs protected add-on requests over method, path, timestamp, and body hash", async () => {
+    const fetchImpl = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
+      const requestUrl = url as URL;
+      const headers = init?.headers as Record<string, string>;
+      const body = String(init?.body);
+      const timestamp = headers["x-noticecontrol-timestamp"];
+      const bodyHash = sha256Hex(body);
+
+      expect(timestamp).toBeTruthy();
+      expect(headers["x-noticecontrol-body-sha256"]).toBe(bodyHash);
+      expect(headers["x-noticecontrol-signature"]).toBe(
+        signAddOnRequest({
+          method: "POST",
+          path: requestUrl.pathname,
+          timestamp: timestamp ?? "",
+          bodySha256: bodyHash,
+          secret: "test-add-on-secret"
+        })
+      );
+
+      return Response.json({
+        vendor_name: null,
+        renewal_date: null,
+        notice_deadline: null,
+        auto_renew: null,
+        contract_value: null,
+        currency: null,
+        extracted_fields: {},
+        evidence_confidence: 0,
+        citations: [],
+        warnings: []
+      });
+    });
+
+    await extractContract(
+      {
+        organization_id: "org-1",
+        contract_id: "contract-1",
+        file_id: "file-1",
+        extraction_mode: "deterministic_scaffold"
+      },
+      { baseUrl: "https://python.example.com", fetchImpl, signingSecret: "test-add-on-secret" }
+    );
+  });
+
+  it("fails protected calls closed when the signing secret is missing", async () => {
+    const result = await extractContract(
+      {
+        organization_id: "org-1",
+        contract_id: "contract-1",
+        file_id: "file-1",
+        extraction_mode: "deterministic_scaffold"
+      },
+      { baseUrl: "https://python.example.com", signingSecret: null }
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        errorCode: "not_configured",
+        safeMessage: "Add-on internal signing secret is not configured."
+      })
+    );
   });
 });
