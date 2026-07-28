@@ -13,6 +13,8 @@ Jobs are scoped by `organization_id`, optionally linked to `contract_id`, and id
 
 Enqueue is insert-first. If `(organization_id, idempotency_key)` already exists, the existing job is returned unchanged. Duplicate enqueue never rewrites payload, schedule, priority, max attempts, contract link, or terminal state.
 
+`background_job_attempts` is an operational lifecycle event history. A single worker attempt can produce multiple rows such as `claimed`, `retry_scheduled`, `completed`, or `cancelled`. The canonical retry counter is `background_jobs.attempts`; support metrics must not treat attempt rows as retry-count truth.
+
 Supported job types:
 
 - `trusted_reminder_delivery`
@@ -59,11 +61,13 @@ Worker requests use the add-on signing model:
 
 The signature covers method, path, timestamp, and request body hash. Expired, unsigned, body-hash-mismatched, or worker-id-less requests fail closed.
 
-State transitions are worker-owned:
+State transitions are worker-owned unless an explicit admin cancellation path is used:
 
 - Completion requires matching `organization_id`, `id`, `status = processing`, and `locked_by = workerId`.
 - Failure requires matching `organization_id`, `id`, `status = processing`, and `locked_by = workerId`.
-- Cancellation only applies to `queued`, `retry_scheduled`, or intentionally cancelled `processing` jobs.
+- Worker cancellation of `processing` jobs requires the same owning worker lock.
+- Admin cancellation requires an `actorUserId`, a `reasonCode`, and a separate audit event.
+- Cancellation attempts record `worker_cancelled` or `admin_cancelled` in attempt metadata.
 - Stale workers and wrong workers receive safe state-conflict responses instead of mutating the job.
 
 ## Trusted Reminder Delivery Flow

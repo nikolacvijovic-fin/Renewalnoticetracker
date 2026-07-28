@@ -35,6 +35,7 @@ import {
 const DEFAULT_PRIORITY = 100;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_CLAIM_LIMIT = 10;
+const DEFAULT_CANCELLATION_REASON_CODE = "ERR_BACKGROUND_JOB_CANCELLED_001";
 
 type SupabaseErrorLike = Error & { code?: string };
 
@@ -64,6 +65,30 @@ function reminderAuditEventForJob(job: BackgroundJob, eventType: string, metadat
       attempts: job.attempts,
       idempotencyKey: job.idempotency_key,
       ...metadata
+    },
+    mode: "best_effort"
+  });
+}
+
+function auditAdminCancellationForJob(job: BackgroundJob, input: {
+  actorUserId: string;
+  reasonCode: string;
+  cancellationMode: "admin_cancelled";
+}) {
+  return recordEnterpriseAuditEvent({
+    organizationId: job.organization_id,
+    contractId: job.contract_id,
+    actorUserId: input.actorUserId,
+    eventType: "background_job.admin_cancelled",
+    eventCategory: "admin",
+    eventSource: "background_job_queue",
+    severity: "warning",
+    metadata: {
+      jobId: job.id,
+      jobType: job.job_type,
+      previousStatus: job.status,
+      reasonCode: input.reasonCode,
+      cancellationMode: input.cancellationMode
     },
     mode: "best_effort"
   });
@@ -279,8 +304,18 @@ export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
   const nowIso = new Date().toISOString();
   const current = await getRequiredJob(input.organizationId, input.jobId);
   assertMutableBackgroundJobStatus(current.status);
+  const cancellationMode =
+    input.cancellationMode ?? (input.actorUserId ? "admin_cancelled" : "worker_cancelled");
+  const reasonCode = input.reasonCode ?? DEFAULT_CANCELLATION_REASON_CODE;
 
-  if (current.status === "processing" && input.workerId) {
+  if (cancellationMode === "admin_cancelled") {
+    if (!input.actorUserId?.trim() || !input.reasonCode?.trim()) {
+      throw new JobStateConflictError("Admin cancellation requires an actor and reason code.");
+    }
+  } else if (current.status === "processing") {
+    if (!input.workerId?.trim()) {
+      throw new JobStateConflictError("Processing jobs require worker ownership before cancellation.");
+    }
     assertWorkerOwnsJob(current, input.workerId);
   }
 
@@ -292,7 +327,7 @@ export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
       status: "cancelled",
       locked_at: null,
       locked_by: null,
-      last_error_code: input.reasonCode ?? "ERR_BACKGROUND_JOB_CANCELLED_001",
+      last_error_code: reasonCode,
       last_error_message: "Background job was cancelled.",
       updated_at: nowIso
     }
@@ -309,12 +344,24 @@ export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
     status: "cancelled",
     workerId: input.workerId ?? input.actorUserId ?? "internal",
     finishedAt: nowIso,
-    errorCode: input.reasonCode ?? "ERR_BACKGROUND_JOB_CANCELLED_001",
-    safeErrorMessage: "Background job was cancelled."
+    errorCode: reasonCode,
+    safeErrorMessage: "Background job was cancelled.",
+    metadata: {
+      cancellation_mode: cancellationMode,
+      reason_code: reasonCode
+    }
   });
   await reminderAuditEventForJob(data, "trusted_reminder_delivery.cancelled", {
-    reasonCode: input.reasonCode ?? "cancelled"
+    reasonCode,
+    cancellationMode
   });
+  if (cancellationMode === "admin_cancelled") {
+    await auditAdminCancellationForJob(data, {
+      actorUserId: input.actorUserId as string,
+      reasonCode,
+      cancellationMode
+    });
+  }
   return data;
 }
 

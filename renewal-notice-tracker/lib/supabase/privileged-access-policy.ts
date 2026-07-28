@@ -2,6 +2,7 @@ export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
   "lib/analytics/repositories/admin-analytics-repository.ts",
   "lib/audit/repositories/admin-audit-repository.ts",
   "lib/background-jobs/repositories/admin-background-jobs-repository.ts",
+  "lib/commercial-decision-workbench/repositories/admin-commercial-decision-repository.ts",
   "lib/contract-intelligence/repositories/admin-extraction-repository.ts",
   "lib/enterprise-audit/repositories/admin-enterprise-audit-repository.ts",
   "lib/billing/service.ts",

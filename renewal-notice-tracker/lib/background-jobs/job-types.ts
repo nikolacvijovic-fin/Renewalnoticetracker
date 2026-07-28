@@ -60,6 +60,9 @@ export type BackgroundJobAttempt = {
   metadata: BackgroundJobPayload;
 };
 
+// Attempts are operational lifecycle events, not one mutable row per retry.
+// The canonical retry count remains background_jobs.attempts.
+
 export type EnqueueBackgroundJobInput = {
   organizationId: string;
   contractId?: string | null;
@@ -103,6 +106,7 @@ export type CancelBackgroundJobInput = {
   actorUserId?: string | null;
   reasonCode?: string | null;
   workerId?: string | null;
+  cancellationMode?: "worker_cancelled" | "admin_cancelled";
 };
 
 export function isBackgroundJobType(value: string): value is BackgroundJobType {

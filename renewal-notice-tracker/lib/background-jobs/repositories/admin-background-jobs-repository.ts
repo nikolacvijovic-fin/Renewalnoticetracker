@@ -13,36 +13,6 @@ function admin() {
   return createAdminSupabaseClient() as UntypedSupabaseClient;
 }
 
-export async function upsertAdminBackgroundJob(input: {
-  organizationId: string;
-  contractId: string | null;
-  jobType: BackgroundJobType;
-  idempotencyKey: string;
-  payload: BackgroundJobPayload;
-  priority: number;
-  scheduledFor: string;
-  maxAttempts: number;
-}) {
-  return admin()
-    .from("background_jobs")
-    .upsert(
-      {
-        organization_id: input.organizationId,
-        contract_id: input.contractId,
-        job_type: input.jobType,
-        idempotency_key: input.idempotencyKey,
-        payload: input.payload,
-        priority: input.priority,
-        scheduled_for: input.scheduledFor,
-        max_attempts: input.maxAttempts,
-        updated_at: new Date().toISOString()
-      } as never,
-      { onConflict: "organization_id,idempotency_key", ignoreDuplicates: false }
-    )
-    .select("*")
-    .single() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
-}
-
 export async function insertAdminBackgroundJob(input: {
   organizationId: string;
   contractId: string | null;

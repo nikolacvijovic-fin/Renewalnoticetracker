@@ -170,7 +170,7 @@ export function computeEnterpriseReadinessScore(
     status:
       blockers.length > 0
         ? "not_ready"
-        : overallScore >= 90
+        : warnings.length === 0 && overallScore >= 90
           ? "enterprise_ready"
           : "getting_ready",
     blockers,

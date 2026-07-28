@@ -123,9 +123,14 @@ export default async function ContractDetailPage({
       subtitle={`${viewModel.counterpartyName} | Updated ${formatDate(contract.updated_at)}`}
       supportingLine="Run the contract through review, owner assignment, reminders, acknowledgment, decision, and closure from one calm workflow."
       primaryAction={
-        <Button asChild variant="secondary">
-          <a href={`/dashboard/contracts/${contract.id}/ics`}>Export ICS</a>
-        </Button>
+        <>
+          <Button asChild>
+            <a href={`/dashboard/contracts/${contract.id}/commercial-decision`}>Open decision workbench</a>
+          </Button>
+          <Button asChild variant="secondary">
+            <a href={`/dashboard/contracts/${contract.id}/ics`}>Export ICS</a>
+          </Button>
+        </>
       }
       badges={
         <>

@@ -62,6 +62,17 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `savings_opportunity.created`
 - `savings_opportunity.dismissed`
 - `savings_opportunity.realized`
+- `commercial_decision.created`
+- `commercial_decision.recomputed`
+- `commercial_decision.submitted_for_review`
+- `commercial_decision.approved`
+- `commercial_decision.rejected`
+- `commercial_decision.finalized`
+- `commercial_decision.archived`
+- `commercial_decision.recommended_action_changed`
+- `commercial_decision.negotiation_posture_changed`
+- `commercial_decision.evidence_attached`
+- `commercial_decision.snapshot_created`
 - `renewal_decision_recorded`
 - `contract.acknowledged`
 - `contract.acknowledged_from_email`

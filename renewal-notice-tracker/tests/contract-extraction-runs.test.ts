@@ -107,12 +107,13 @@ describe("contract extraction runs", () => {
         fields: [
           expect.objectContaining({
             field_key: "auto_renewal",
-            evidence_status: undefined,
             source_snippet: "Contract renews automatically."
           })
         ]
       })
     );
+    const insertedFields = repo.insertAdminContractExtractedFields.mock.calls[0]?.[0].fields ?? [];
+    expect(insertedFields[0]?.evidence_status).toBeUndefined();
     expect(repo.updateAdminContractExtractionRun).toHaveBeenCalledWith(
       expect.objectContaining({
         values: expect.objectContaining({ status: "completed" })
