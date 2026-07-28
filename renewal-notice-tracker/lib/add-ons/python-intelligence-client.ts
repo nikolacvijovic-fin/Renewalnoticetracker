@@ -6,19 +6,30 @@ export type ExtractContractRequest = {
   contract_id: string;
   file_id?: string;
   file_url?: string;
+  sample_text?: string;
   extraction_mode: "deterministic_scaffold" | "provider_backed";
 };
 
+export type ExtractContractFieldCitation = {
+  source_file_id?: string | null;
+  page?: number | null;
+  snippet?: string | null;
+  offsets?: Record<string, unknown> | null;
+};
+
+export type ExtractContractField = {
+  field_key: string;
+  extracted_value: unknown;
+  normalized_value?: unknown;
+  confidence: number;
+  citations: ExtractContractFieldCitation[];
+  warning_codes: string[];
+};
+
 export type ExtractContractResponse = {
-  vendor_name: string | null;
-  renewal_date: string | null;
-  notice_deadline: string | null;
-  auto_renew: boolean | null;
-  contract_value: number | null;
-  currency: string | null;
-  extracted_fields: Record<string, unknown>;
-  evidence_confidence: number;
-  citations: string[];
+  extraction_run_id?: string | null;
+  fields: ExtractContractField[];
+  overall_confidence: number;
   warnings: string[];
 };
 
@@ -27,15 +38,57 @@ export type CompareQuoteRequest = {
   contract_id: string;
   current_terms: Record<string, unknown>;
   proposed_terms: Record<string, unknown>;
+  quote_text?: string;
+  comparison_mode?: "deterministic_scaffold" | "provider_backed";
+};
+
+export type CompareQuoteFinding = {
+  finding_type:
+    | "price_increase"
+    | "discount_removed"
+    | "sku_changed"
+    | "payment_terms_changed"
+    | "renewal_term_changed"
+    | "auto_renew_risk"
+    | "notice_window_risk"
+    | "usage_mismatch"
+    | "duplicate_vendor_risk"
+    | "unfavorable_clause_change";
+  severity: "info" | "low" | "medium" | "high" | "critical";
+  title: string;
+  description: string;
+  current_value?: unknown;
+  proposed_value?: unknown;
+  delta_value?: unknown;
+  confidence: number;
+  citation?: {
+    source_file_id?: string | null;
+    page?: number | null;
+    snippet?: string | null;
+    evidence_label?: string | null;
+  } | null;
+};
+
+export type CompareQuoteSavingsOpportunity = {
+  opportunity_type: string;
+  title: string;
+  estimated_savings_amount?: number | null;
+  currency?: string | null;
+  confidence: number;
+  evidence: Record<string, unknown>;
 };
 
 export type CompareQuoteResponse = {
-  price_delta: number;
-  percent_increase: number;
-  changed_terms: string[];
-  removed_discounts: string[];
-  negotiation_flags: string[];
-  recommendation: string;
+  current_total_amount: number | null;
+  proposed_total_amount: number | null;
+  currency: string | null;
+  price_delta_amount: number | null;
+  price_delta_percent: number | null;
+  overall_risk_level: "unknown" | "info" | "low" | "medium" | "high" | "critical";
+  findings: CompareQuoteFinding[];
+  savings_opportunities: CompareQuoteSavingsOpportunity[];
+  recommendation_summary: string;
+  warnings: string[];
 };
 
 export type ReconcileUsageRequest = {

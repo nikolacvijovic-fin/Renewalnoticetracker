@@ -395,6 +395,222 @@ export const PRODUCT_EVENT_TAXONOMY = {
     owningProductModule: "reminder_workflow_automation",
     relatedSupportSignals: ["reminders_not_trusted"]
   }),
+  "trusted_reminder_delivery.enqueued": taxonomyEvent({
+    name: "trusted_reminder_delivery.enqueued",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "reminder_id", "idempotency_key"],
+    owningProductModule: "reminder_workflow_automation",
+    relatedOnboardingMilestones: ["first_reminder_trusted"]
+  }),
+  "trusted_reminder_delivery.claimed": taxonomyEvent({
+    name: "trusted_reminder_delivery.claimed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "worker_id", "attempt_count"],
+    owningProductModule: "reminder_workflow_automation"
+  }),
+  "trusted_reminder_delivery.sent": taxonomyEvent({
+    name: "trusted_reminder_delivery.sent",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "reminder_id", "delivery_count", "duplicate_suppressed_count"],
+    owningProductModule: "reminder_workflow_automation",
+    relatedOnboardingMilestones: ["first_reminder_trusted"]
+  }),
+  "trusted_reminder_delivery.retry_scheduled": taxonomyEvent({
+    name: "trusted_reminder_delivery.retry_scheduled",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "attempt_count", "next_retry_at"],
+    owningProductModule: "reminder_workflow_automation",
+    relatedSupportSignals: ["reminders_not_trusted"]
+  }),
+  "trusted_reminder_delivery.dead_lettered": taxonomyEvent({
+    name: "trusted_reminder_delivery.dead_lettered",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "attempt_count"],
+    owningProductModule: "reminder_workflow_automation",
+    relatedSupportSignals: ["reminders_not_trusted"]
+  }),
+  "trusted_reminder_delivery.cancelled": taxonomyEvent({
+    name: "trusted_reminder_delivery.cancelled",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "reason_code"],
+    owningProductModule: "reminder_workflow_automation"
+  }),
+  "trusted_reminder_delivery.blocked_by_gate": taxonomyEvent({
+    name: "trusted_reminder_delivery.blocked_by_gate",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/background-jobs/job-queue.ts and lib/notifications/reminders.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [...commonSafeMetadata, "job_id", "job_type", "reminder_id", "blocker_code"],
+    owningProductModule: "reminder_workflow_automation",
+    relatedSupportSignals: ["reminders_not_trusted"]
+  }),
+  "contract_extraction.requested": taxonomyEvent({
+    name: "contract_extraction.requested",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/extraction-runs.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "run_id", "contract_file_id", "provider", "extraction_mode"],
+    owningProductModule: "ocr_import_intelligence"
+  }),
+  "contract_extraction.completed": taxonomyEvent({
+    name: "contract_extraction.completed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/extraction-runs.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "run_id",
+      "provider",
+      "extraction_mode",
+      "field_keys",
+      "confidence_values",
+      "overall_confidence",
+      "warning_codes"
+    ],
+    owningProductModule: "ocr_import_intelligence"
+  }),
+  "contract_extraction.failed": taxonomyEvent({
+    name: "contract_extraction.failed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/extraction-runs.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "run_id", "failure_code", "safe_error_message"],
+    owningProductModule: "ocr_import_intelligence",
+    relatedSupportSignals: ["import_or_extraction_failures"]
+  }),
+  "contract_extracted_field.accepted": taxonomyEvent({
+    name: "contract_extracted_field.accepted",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/extraction-runs.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "run_id", "field_id", "field_key", "confidence", "warning_codes", "reviewer_id"],
+    owningProductModule: "ocr_import_intelligence"
+  }),
+  "contract_extracted_field.rejected": taxonomyEvent({
+    name: "contract_extracted_field.rejected",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/extraction-runs.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "run_id", "field_id", "field_key", "confidence", "warning_codes", "reviewer_id"],
+    owningProductModule: "ocr_import_intelligence"
+  }),
+  "contract_extracted_fields.applied_to_metadata": taxonomyEvent({
+    name: "contract_extracted_fields.applied_to_metadata",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/apply-extracted-fields.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "field_ids", "field_keys", "confidence_values", "weak_evidence", "needs_review", "reviewer_id"],
+    owningProductModule: "ocr_import_intelligence"
+  }),
+  "renewal_quote_comparison.created": taxonomyEvent({
+    name: "renewal_quote_comparison.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "comparison_id", "quote_file_id", "source"],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "renewal_quote_comparison.completed": taxonomyEvent({
+    name: "renewal_quote_comparison.completed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "comparison_id",
+      "finding_ids",
+      "risk_level",
+      "price_delta_percent",
+      "warning_codes"
+    ],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "renewal_quote_comparison.failed": taxonomyEvent({
+    name: "renewal_quote_comparison.failed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "comparison_id", "failure_code", "warning_codes"],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "renewal_quote_finding.reviewed": taxonomyEvent({
+    name: "renewal_quote_finding.reviewed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "finding_id",
+      "comparison_id",
+      "finding_type",
+      "decision",
+      "confidence"
+    ],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "savings_opportunity.created": taxonomyEvent({
+    name: "savings_opportunity.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "opportunity_id",
+      "finding_id",
+      "comparison_id",
+      "estimated_savings_amount",
+      "confidence"
+    ],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "savings_opportunity.dismissed": taxonomyEvent({
+    name: "savings_opportunity.dismissed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "opportunity_id", "comparison_id", "estimated_savings_amount", "confidence"],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "savings_opportunity.realized": taxonomyEvent({
+    name: "savings_opportunity.realized",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/quote-comparison.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "opportunity_id", "comparison_id", "estimated_savings_amount", "confidence"],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
   "renewal_decision.created": taxonomyEvent({
     name: "renewal_decision.created",
     type: "audit",

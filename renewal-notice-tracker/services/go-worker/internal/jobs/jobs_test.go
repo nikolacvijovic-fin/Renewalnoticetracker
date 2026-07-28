@@ -17,7 +17,7 @@ func TestReminderJobPayloadValidation(t *testing.T) {
 	err := ValidateReminderDelivery(queue.Job{
 		OrganizationID: "org-1",
 		JobID:          "job-1",
-		Type:           queue.ReminderDelivery,
+		Type:           queue.TrustedReminderDelivery,
 		IdempotencyKey: "reminder-1",
 		Payload: map[string]any{
 			"reminder_id": "reminder-1",
@@ -33,7 +33,7 @@ func TestImportJobPayloadValidation(t *testing.T) {
 	err := ValidateImportProcessing(queue.Job{
 		OrganizationID: "org-1",
 		JobID:          "job-1",
-		Type:           queue.ImportProcessing,
+		Type:           queue.ContractImportProcessing,
 		IdempotencyKey: "import-1",
 		Payload: map[string]any{
 			"batch_id": "batch-1",

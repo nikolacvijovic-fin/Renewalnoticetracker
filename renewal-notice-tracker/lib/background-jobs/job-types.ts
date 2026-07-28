@@ -108,3 +108,47 @@ export type CancelBackgroundJobInput = {
 export function isBackgroundJobType(value: string): value is BackgroundJobType {
   return (BACKGROUND_JOB_TYPES as readonly string[]).includes(value);
 }
+
+export const TERMINAL_BACKGROUND_JOB_STATUSES = [
+  "completed",
+  "failed",
+  "dead_lettered",
+  "cancelled"
+] as const satisfies readonly BackgroundJobStatus[];
+
+export function isTerminalBackgroundJobStatus(status: BackgroundJobStatus) {
+  return (TERMINAL_BACKGROUND_JOB_STATUSES as readonly string[]).includes(status);
+}
+
+export class BackgroundJobNotFoundError extends Error {
+  constructor(message = "Background job was not found.") {
+    super(message);
+    this.name = "BackgroundJobNotFoundError";
+  }
+}
+
+export class BackgroundJobStateConflictError extends Error {
+  constructor(message = "Background job state no longer allows this transition.") {
+    super(message);
+    this.name = "BackgroundJobStateConflictError";
+  }
+}
+
+export class BackgroundJobOwnershipError extends Error {
+  constructor(message = "Background job is not owned by this worker.") {
+    super(message);
+    this.name = "BackgroundJobOwnershipError";
+  }
+}
+
+export function assertMutableBackgroundJobStatus(status: BackgroundJobStatus) {
+  if (isTerminalBackgroundJobStatus(status)) {
+    throw new BackgroundJobStateConflictError("Terminal background jobs cannot be mutated.");
+  }
+}
+
+export function assertWorkerOwnsJob(job: BackgroundJob, workerId: string) {
+  if (job.locked_by !== workerId) {
+    throw new BackgroundJobOwnershipError("Background job lock is owned by a different worker.");
+  }
+}

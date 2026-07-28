@@ -119,7 +119,7 @@ describe("add-on clients", () => {
     const result = await enqueueGoWorkerJob(
       {
         organization_id: "org-1",
-        job_type: "reminder_delivery",
+        job_type: "trusted_reminder_delivery",
         idempotency_key: "job-key-1",
         payload: { reminder_id: "reminder-1" }
       },

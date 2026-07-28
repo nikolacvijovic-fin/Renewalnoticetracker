@@ -50,10 +50,15 @@ Examples:
 
 - Trust exception approval created, revoked, or denied
 - Trusted reminder gate used with an approval
+- Trusted reminder delivery enqueued, claimed, sent, retried, dead-lettered, cancelled, or blocked by the gate
+- Contract extraction requested, completed, failed, field accepted, field rejected, or accepted fields applied to metadata
+- Renewal quote comparison created, completed, failed, finding reviewed, and savings opportunity events
 - Evidence review events
 - Reminder gate blocker transitions
 
 Contract detail now includes a compact enterprise trust timeline so reviewers can see why a reminder is trusted or blocked without reading raw internal metadata.
+
+Renewal quote comparison events are evidence events. They can identify commercial risk and savings opportunities, but they do not automatically update contract metadata, create negotiation instructions, or mark a renewal decision as trusted.
 
 ## Security-Sensitive Events
 
@@ -160,6 +165,7 @@ The approval table remains readable to scoped organization members, but create/r
 - Customer-facing enterprise audit portal is not shipped.
 - Audit export has a service scaffold but no broad customer download route.
 - Exact category/actor audit count aggregates should be implemented with SQL views or RPCs before presenting totals as complete.
+- Background job health is now visible internally, but exact queue metrics should move to aggregate views/RPCs before high-volume enterprise operations.
 - SSO/SCIM remains provider-integration future work.
 - Backup/restore evidence is represented in readiness but should be wired to real drill evidence before enterprise claims.
 - Long-term alerting should connect audit/readiness events to the monitoring sink and incident runbooks.

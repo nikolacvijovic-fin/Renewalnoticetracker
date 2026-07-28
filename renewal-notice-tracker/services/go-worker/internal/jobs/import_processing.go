@@ -10,7 +10,7 @@ func ValidateImportProcessing(job queue.Job) error {
 	if err := queue.Validate(job); err != nil {
 		return err
 	}
-	if job.Type != queue.ImportProcessing {
+	if job.Type != queue.ContractImportProcessing {
 		return errors.New("invalid_import_job_type")
 	}
 	if job.Payload["batch_id"] == "" {

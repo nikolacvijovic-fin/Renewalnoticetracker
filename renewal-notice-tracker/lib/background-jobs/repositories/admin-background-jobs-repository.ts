@@ -40,7 +40,45 @@ export async function upsertAdminBackgroundJob(input: {
       { onConflict: "organization_id,idempotency_key", ignoreDuplicates: false }
     )
     .select("*")
-    .single() as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+    .single() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+}
+
+export async function insertAdminBackgroundJob(input: {
+  organizationId: string;
+  contractId: string | null;
+  jobType: BackgroundJobType;
+  idempotencyKey: string;
+  payload: BackgroundJobPayload;
+  priority: number;
+  scheduledFor: string;
+  maxAttempts: number;
+}) {
+  return admin()
+    .from("background_jobs")
+    .insert({
+      organization_id: input.organizationId,
+      contract_id: input.contractId,
+      job_type: input.jobType,
+      idempotency_key: input.idempotencyKey,
+      payload: input.payload,
+      priority: input.priority,
+      scheduled_for: input.scheduledFor,
+      max_attempts: input.maxAttempts
+    } as never)
+    .select("*")
+    .single() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+}
+
+export async function getAdminBackgroundJobByIdempotencyKey(input: {
+  organizationId: string;
+  idempotencyKey: string;
+}) {
+  return admin()
+    .from("background_jobs")
+    .select("*")
+    .eq("organization_id", input.organizationId)
+    .eq("idempotency_key", input.idempotencyKey)
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
 }
 
 export async function listAdminClaimableBackgroundJobs(input: {
@@ -62,7 +100,7 @@ export async function listAdminClaimableBackgroundJobs(input: {
     query = query.in("job_type", input.jobTypes);
   }
 
-  return query as Promise<{ data: BackgroundJob[] | null; error: Error | null }>;
+  return query as unknown as Promise<{ data: BackgroundJob[] | null; error: Error | null }>;
 }
 
 export async function claimAdminBackgroundJob(input: {
@@ -83,7 +121,7 @@ export async function claimAdminBackgroundJob(input: {
     .eq("id", input.jobId)
     .in("status", ["queued", "retry_scheduled"])
     .select("*")
-    .maybeSingle() as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
 }
 
 export async function updateAdminBackgroundJobState(input: {
@@ -97,7 +135,65 @@ export async function updateAdminBackgroundJobState(input: {
     .eq("organization_id", input.organizationId)
     .eq("id", input.jobId)
     .select("*")
-    .single() as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+    .single() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+}
+
+export async function completeAdminBackgroundJob(input: {
+  organizationId: string;
+  jobId: string;
+  workerId: string;
+  nowIso: string;
+}) {
+  return admin()
+    .from("background_jobs")
+    .update({
+      status: "completed",
+      completed_at: input.nowIso,
+      locked_at: null,
+      locked_by: null,
+      last_error_code: null,
+      last_error_message: null,
+      updated_at: input.nowIso
+    } as never)
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.jobId)
+    .eq("status", "processing")
+    .eq("locked_by", input.workerId)
+    .select("*")
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+}
+
+export async function failAdminBackgroundJob(input: {
+  organizationId: string;
+  jobId: string;
+  workerId: string;
+  update: Record<string, unknown>;
+}) {
+  return admin()
+    .from("background_jobs")
+    .update(input.update as never)
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.jobId)
+    .eq("status", "processing")
+    .eq("locked_by", input.workerId)
+    .select("*")
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+}
+
+export async function cancelAdminBackgroundJob(input: {
+  organizationId: string;
+  jobId: string;
+  update: Record<string, unknown>;
+  allowedStatuses: BackgroundJobStatus[];
+}) {
+  return admin()
+    .from("background_jobs")
+    .update(input.update as never)
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.jobId)
+    .in("status", input.allowedStatuses)
+    .select("*")
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
 }
 
 export async function insertAdminBackgroundJobAttempt(input: {
@@ -125,7 +221,7 @@ export async function insertAdminBackgroundJobAttempt(input: {
       metadata: input.metadata ?? {}
     } as never)
     .select("*")
-    .single() as Promise<{ data: BackgroundJobAttempt | null; error: Error | null }>;
+    .single() as unknown as Promise<{ data: BackgroundJobAttempt | null; error: Error | null }>;
 }
 
 export async function getAdminBackgroundJobById(input: {
@@ -137,7 +233,7 @@ export async function getAdminBackgroundJobById(input: {
     .select("*")
     .eq("organization_id", input.organizationId)
     .eq("id", input.jobId)
-    .maybeSingle() as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
 }
 
 export async function getAdminBackgroundJobHealthSnapshot(input: {

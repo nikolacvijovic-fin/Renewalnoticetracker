@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-const processDueRemindersMock = vi.fn();
+const enqueueDueTrustedReminderDeliveryJobsMock = vi.fn();
 const logServerError = vi.fn();
 const logServerWarn = vi.fn();
 const emitOperationalEvent = vi.fn();
@@ -8,7 +8,7 @@ const frozenNow = new Date("2030-01-01T12:00:00.000Z");
 let POST: (request: Request) => Promise<Response>;
 
 vi.mock("@/lib/notifications/reminders", () => ({
-  processDueReminders: processDueRemindersMock
+  enqueueDueTrustedReminderDeliveryJobs: enqueueDueTrustedReminderDeliveryJobsMock
 }));
 
 vi.mock("@/lib/observability/server-logger", () => ({
@@ -44,7 +44,7 @@ describe("send reminders cron route", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    processDueRemindersMock.mockReset();
+    enqueueDueTrustedReminderDeliveryJobsMock.mockReset();
     emitOperationalEvent.mockReset();
     emitOperationalEvent.mockResolvedValue({});
   });
@@ -61,7 +61,7 @@ describe("send reminders cron route", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(processDueRemindersMock).not.toHaveBeenCalled();
+    expect(enqueueDueTrustedReminderDeliveryJobsMock).not.toHaveBeenCalled();
   });
 
   it("rejects unauthorized requests", async () => {
@@ -75,13 +75,13 @@ describe("send reminders cron route", () => {
     );
 
     expect(response.status).toBe(401);
-    expect(processDueRemindersMock).not.toHaveBeenCalled();
+    expect(enqueueDueTrustedReminderDeliveryJobsMock).not.toHaveBeenCalled();
   });
 
   it("returns an empty result for authorized requests when no reminders are due", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(frozenNow);
-    processDueRemindersMock.mockResolvedValue([]);
+    enqueueDueTrustedReminderDeliveryJobsMock.mockResolvedValue([]);
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST",
@@ -93,15 +93,15 @@ describe("send reminders cron route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(processDueRemindersMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
+    expect(enqueueDueTrustedReminderDeliveryJobsMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
     expect(payload.results).toEqual([]);
   });
 
-  it("delegates to the reminder processor for authorized successful requests", async () => {
+  it("delegates to the reminder enqueue layer for authorized successful requests", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(frozenNow);
-    processDueRemindersMock.mockResolvedValue([
-      { id: "r1", status: "sent", deliveryCount: 1 }
+    enqueueDueTrustedReminderDeliveryJobsMock.mockResolvedValue([
+      { id: "r1", status: "queued", jobId: "job-1" }
     ]);
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
@@ -114,19 +114,19 @@ describe("send reminders cron route", () => {
     const payload = await response.json();
 
     expect(response.status).toBe(200);
-    expect(processDueRemindersMock).toHaveBeenCalledTimes(1);
-    expect(processDueRemindersMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
+    expect(enqueueDueTrustedReminderDeliveryJobsMock).toHaveBeenCalledTimes(1);
+    expect(enqueueDueTrustedReminderDeliveryJobsMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
     expect(payload.results).toEqual([
-      { id: "r1", status: "sent", deliveryCount: 1 }
+      { id: "r1", status: "queued", jobId: "job-1" }
     ]);
   });
 
-  it("returns mixed success and failure results without hiding processor state", async () => {
+  it("returns queued job results without hiding enqueue state", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(frozenNow);
-    processDueRemindersMock.mockResolvedValue([
-      { id: "r1", status: "sent", deliveryCount: 1 },
-      { id: "r2", status: "failed", error: "email_provider_unavailable" }
+    enqueueDueTrustedReminderDeliveryJobsMock.mockResolvedValue([
+      { id: "r1", status: "queued", jobId: "job-1" },
+      { id: "r2", status: "queued", jobId: "job-2" }
     ]);
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
@@ -140,16 +140,16 @@ describe("send reminders cron route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.results).toEqual([
-      { id: "r1", status: "sent", deliveryCount: 1 },
-      { id: "r2", status: "failed", error: "email_provider_unavailable" }
+      { id: "r1", status: "queued", jobId: "job-1" },
+      { id: "r2", status: "queued", jobId: "job-2" }
     ]);
   });
 
-  it("surfaces duplicate suppression results from the processor", async () => {
+  it("surfaces existing job status from the enqueue layer", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(frozenNow);
-    processDueRemindersMock.mockResolvedValue([
-      { id: "r2", status: "sent", duplicateSuppressedCount: 1, deliveryCount: 0 }
+    enqueueDueTrustedReminderDeliveryJobsMock.mockResolvedValue([
+      { id: "r2", status: "completed", jobId: "job-2" }
     ]);
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
@@ -163,12 +163,12 @@ describe("send reminders cron route", () => {
 
     expect(response.status).toBe(200);
     expect(payload.results).toEqual([
-      { id: "r2", status: "sent", duplicateSuppressedCount: 1, deliveryCount: 0 }
+      { id: "r2", status: "completed", jobId: "job-2" }
     ]);
   });
 
   it("returns a generic error when reminder processing fails", async () => {
-    processDueRemindersMock.mockRejectedValue(new Error("db failure"));
+    enqueueDueTrustedReminderDeliveryJobsMock.mockRejectedValue(new Error("db failure"));
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST",

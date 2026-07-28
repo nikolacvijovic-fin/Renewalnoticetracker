@@ -1,6 +1,8 @@
 export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
   "lib/analytics/repositories/admin-analytics-repository.ts",
   "lib/audit/repositories/admin-audit-repository.ts",
+  "lib/background-jobs/repositories/admin-background-jobs-repository.ts",
+  "lib/contract-intelligence/repositories/admin-extraction-repository.ts",
   "lib/enterprise-audit/repositories/admin-enterprise-audit-repository.ts",
   "lib/billing/service.ts",
   "lib/commercial/capacity-snapshot.ts",
@@ -16,6 +18,7 @@ export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
   "lib/ocr/jobs.ts",
   "lib/organization/scoped-admin.ts",
   "lib/organization/workspace-deletion.ts",
+  "lib/quote-comparison/repositories/admin-quote-comparison-repository.ts",
   "lib/supabase/privileged.ts"
 ] as const;
 

@@ -5,10 +5,11 @@ import "errors"
 type JobType string
 
 const (
-	ReminderDelivery     JobType = "reminder_delivery"
-	ImportProcessing     JobType = "import_processing"
-	WebhookDispatch       JobType = "webhook_dispatch"
-	AuditEventProcessing  JobType = "audit_event_processing"
+	TrustedReminderDelivery JobType = "trusted_reminder_delivery"
+	ContractImportProcessing JobType = "contract_import_processing"
+	WebhookDispatch          JobType = "webhook_dispatch"
+	AuditEventFlush          JobType = "audit_event_flush"
+	AddOnTask                JobType = "add_on_task"
 )
 
 type Job struct {
@@ -30,7 +31,7 @@ func Validate(job Job) error {
 		return errors.New("idempotency_key_required")
 	}
 	switch job.Type {
-	case ReminderDelivery, ImportProcessing, WebhookDispatch, AuditEventProcessing:
+	case TrustedReminderDelivery, ContractImportProcessing, WebhookDispatch, AuditEventFlush, AddOnTask:
 		return nil
 	default:
 		return errors.New("unsupported_job_type")

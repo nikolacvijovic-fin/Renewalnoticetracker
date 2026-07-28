@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireOrganization } from "@/lib/auth";
+import { hasRequiredRole, requireOrganization } from "@/lib/auth";
 import {
   getContractById,
   getCounterparties,
@@ -23,6 +23,8 @@ import { RiskBadge } from "@/components/contracts/risk-badge";
 import { ReadinessScoreCard } from "@/components/contracts/readiness-score-card";
 import { TrustedReminderBlockers } from "@/components/contracts/trusted-reminder-blockers";
 import { ContractOnboardingPanel } from "@/components/contracts/contract-onboarding-panel";
+import { ContractExtractionReviewPanel } from "@/components/contracts/contract-extraction-review-panel";
+import { RenewalQuoteComparisonPanel } from "@/components/contracts/renewal-quote-comparison-panel";
 import { DecisionLoopLedger } from "@/components/contracts/decision-loop-ledger";
 import {
   auditRiskBadgeViewed
@@ -30,6 +32,15 @@ import {
 import { formatDate } from "@/lib/utils";
 import { buildContractDetailViewModel } from "@/lib/contracts/contract-detail-view";
 import { getContractAuditTimeline } from "@/lib/enterprise-audit/audit-queries";
+import {
+  listContractExtractedFields,
+  listContractExtractionRuns
+} from "@/lib/contract-intelligence/extraction-runs";
+import {
+  listQuoteComparisons,
+  listQuoteFindings,
+  listSavingsOpportunities
+} from "@/lib/quote-comparison/quote-comparison";
 
 export default async function ContractDetailPage({
   params
@@ -46,7 +57,15 @@ export default async function ContractDetailPage({
 
   if (!contract || !contract.contract_metadata) notFound();
 
-  const [viewModel, enterpriseAuditTimeline] = await Promise.all([
+  const [
+    viewModel,
+    enterpriseAuditTimeline,
+    extractionRuns,
+    extractedFields,
+    quoteComparisons,
+    quoteFindings,
+    savingsOpportunities
+  ] = await Promise.all([
     buildContractDetailViewModel({
       context,
       contract,
@@ -57,8 +76,33 @@ export default async function ContractDetailPage({
       organizationId,
       contractId: contract.id,
       limit: 12
+    }),
+    listContractExtractionRuns({
+      organizationId,
+      contractId: contract.id,
+      limit: 5
+    }),
+    listContractExtractedFields({
+      organizationId,
+      contractId: contract.id
+    }),
+    listQuoteComparisons({
+      organizationId,
+      contractId: contract.id,
+      limit: 5
+    }),
+    listQuoteFindings({
+      organizationId,
+      contractId: contract.id,
+      limit: 25
+    }),
+    listSavingsOpportunities({
+      organizationId,
+      contractId: contract.id,
+      limit: 25
     })
   ]);
+  const canReviewExtraction = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
   const riskExplanationAccess = viewModel.intelligenceAccess.accessBySurface.risk_explanation;
   if (riskBadgeAccess.allowed) {
@@ -184,7 +228,20 @@ export default async function ContractDetailPage({
               key: "evidence",
               label: "Evidence",
               content: (
-                <div className="space-y-3">
+                <div className="space-y-6">
+                  <ContractExtractionReviewPanel
+                    contractId={contract.id}
+                    runs={extractionRuns}
+                    fields={extractedFields}
+                    canReview={canReviewExtraction}
+                  />
+                  <RenewalQuoteComparisonPanel
+                    contractId={contract.id}
+                    comparisons={quoteComparisons}
+                    findings={quoteFindings}
+                    opportunities={savingsOpportunities}
+                    canReview={canReviewExtraction}
+                  />
                   {contract.extracted_field_evidence?.length ? (
                     contract.extracted_field_evidence.map(
                       (row: {

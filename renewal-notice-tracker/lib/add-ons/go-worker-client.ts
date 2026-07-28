@@ -3,7 +3,12 @@ import { getAppConfig } from "@/lib/config";
 
 export type GoWorkerJobRequest = {
   organization_id: string;
-  job_type: "reminder_delivery" | "import_processing" | "webhook_dispatch" | "audit_event_processing";
+  job_type:
+    | "trusted_reminder_delivery"
+    | "contract_import_processing"
+    | "webhook_dispatch"
+    | "audit_event_flush"
+    | "add_on_task";
   idempotency_key: string;
   payload: Record<string, unknown>;
 };

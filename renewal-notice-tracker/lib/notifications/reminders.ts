@@ -7,7 +7,10 @@ import {
   isTerminalAttempt,
   nextRetryForAttempt
 } from "@/lib/notifications/policy";
-import { normalizeReminderType } from "@/lib/contracts/shipped-reminder-policy";
+import {
+  getReminderActivationState,
+  normalizeReminderType
+} from "@/lib/contracts/shipped-reminder-policy";
 import {
   getScopedNotificationLogById,
   getScopedReminderById,
@@ -16,6 +19,7 @@ import {
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
 import { getAppConfig } from "@/lib/config";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
+import { enqueueTrustedReminderDeliveryJob } from "@/lib/background-jobs/job-queue";
 
 export const REMINDER_PROCESSING_LEASE_MS = 15 * 60 * 1000;
 export const REMINDER_DISPATCH_BATCH_LIMIT = 50;
@@ -37,14 +41,23 @@ type ReminderRecord = {
 
 type DeliveryContract = {
   id: string;
+  owner_user_id?: string | null;
   contract_metadata:
     | {
         contract_title: string | null;
         counterparty_name: string | null;
+        needs_review?: boolean | null;
+        notice_deadline_date?: string | null;
+        renewal_date?: string | null;
+        expiration_date?: string | null;
       }
     | Array<{
         contract_title: string | null;
         counterparty_name: string | null;
+        needs_review?: boolean | null;
+        notice_deadline_date?: string | null;
+        renewal_date?: string | null;
+        expiration_date?: string | null;
       }>
     | null;
 };
@@ -153,6 +166,58 @@ export async function processDueReminders(untilIso: string) {
   return results;
 }
 
+export async function enqueueDueTrustedReminderDeliveryJobs(untilIso: string) {
+  const admin = createAdminSupabaseClient();
+  const nowIso = new Date().toISOString();
+  const staleBeforeIso = new Date(Date.now() - getReminderProcessingLeaseMs()).toISOString();
+
+  await rescueStaleReminderClaims(nowIso, staleBeforeIso);
+
+  const { data: reminders, error } = await admin
+    .from("reminders")
+    .select("id, organization_id, contract_id, remind_at, status")
+    .in("status", ["pending", "retry_pending"])
+    .or(`next_retry_at.lte.${untilIso},and(next_retry_at.is.null,remind_at.lte.${untilIso})`)
+    .order("next_retry_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(REMINDER_DISPATCH_BATCH_LIMIT);
+
+  if (error) throw error;
+
+  const results = [];
+  for (const reminder of (reminders ?? []) as Array<{
+    id: string;
+    organization_id: string;
+    contract_id: string;
+    remind_at: string;
+  }>) {
+    const job = await enqueueTrustedReminderDeliveryJob({
+      organizationId: reminder.organization_id,
+      contractId: reminder.contract_id,
+      reminderId: reminder.id,
+      remindAt: reminder.remind_at,
+      scheduledFor: reminder.remind_at
+    });
+    emitReminderLifecycleEvent({
+      eventName: "trusted_reminder_delivery_enqueued",
+      organizationId: reminder.organization_id,
+      reminderId: reminder.id,
+      contractId: reminder.contract_id,
+      metadata: {
+        job_id: job.id,
+        status: job.status
+      }
+    });
+    results.push({
+      id: reminder.id,
+      jobId: job.id,
+      status: job.status === "queued" || job.status === "retry_scheduled" ? "queued" : job.status
+    });
+  }
+
+  return results;
+}
+
 export async function resendNotificationByLogId(notificationLogId: string, organizationId: string) {
   const log = await getScopedNotificationLogById(notificationLogId, organizationId);
   if (!log.reminder_id) throw new Error("Notification log is not linked to a reminder.");
@@ -242,9 +307,14 @@ async function claimReminder(
         *,
         contracts (
           id,
+          owner_user_id,
           contract_metadata (
             contract_title,
-            counterparty_name
+            counterparty_name,
+            needs_review,
+            notice_deadline_date,
+            renewal_date,
+            expiration_date
           )
         )
       `
@@ -271,6 +341,72 @@ async function claimReminder(
   }
 
   return claimed;
+}
+
+export async function processTrustedReminderDeliveryJob(input: {
+  organizationId: string;
+  reminderId: string;
+  workerId: string;
+}) {
+  const reminderId = input.reminderId.trim();
+  if (!reminderId) {
+    return {
+      status: "blocked_by_gate" as const,
+      reminderId,
+      blockerCode: "missing_reminder_id",
+      safeMessage: "Trusted reminder delivery job is missing a reminder id."
+    };
+  }
+
+  const claimed = await claimReminder(reminderId, input.organizationId);
+  if (!claimed) {
+    return {
+      status: "blocked_by_gate" as const,
+      reminderId,
+      blockerCode: "not_claimable",
+      safeMessage: "Trusted reminder could not be claimed for delivery."
+    };
+  }
+
+  const gate = evaluateDeliveryGate(claimed);
+  if (gate.status !== "scheduled") {
+    await releaseReminderAfterBlockedGate({
+      reminderId,
+      organizationId: input.organizationId,
+      safeMessage: gate.safeMessage
+    });
+    emitReminderLifecycleEvent({
+      eventName: "trusted_reminder_delivery_blocked_by_gate",
+      organizationId: input.organizationId,
+      reminderId,
+      contractId: claimed.contract_id,
+      severity: "P2",
+      alert: true,
+      metadata: {
+        worker_id: input.workerId,
+        blocker_code: gate.status,
+        failure_code: "ERR_TRUSTED_REMINDER_GATE_BLOCKED_001"
+      }
+    });
+    return {
+      status: "blocked_by_gate" as const,
+      reminderId,
+      blockerCode: gate.status,
+      safeMessage: gate.safeMessage
+    };
+  }
+
+  const result = await deliverReminder({
+    reminder: claimed,
+    contract: claimed.contracts as DeliveryContract
+  });
+
+  return {
+    status: "sent" as const,
+    reminderId,
+    deliveryCount: result.deliveryCount ?? 0,
+    duplicateSuppressedCount: result.duplicateSuppressedCount ?? 0
+  };
 }
 
 async function deliverReminder(input: {
@@ -396,6 +532,61 @@ async function deliverReminder(input: {
     duplicateSuppressedCount,
     deliveryCount
   };
+}
+
+function evaluateDeliveryGate(reminder: JoinedReminderRecord) {
+  const contract = reminder.contracts as DeliveryContract;
+  const metadata = Array.isArray(contract.contract_metadata)
+    ? contract.contract_metadata[0]
+    : contract.contract_metadata;
+  const status = getReminderActivationState({
+    needsReview: metadata?.needs_review ?? true,
+    ownerUserId: contract.owner_user_id ?? null,
+    noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
+    renewalDate: metadata?.renewal_date ?? null,
+    expirationDate: metadata?.expiration_date ?? null,
+    recipientCount: Array.isArray(reminder.recipient_emails) ? reminder.recipient_emails.length : 1
+  });
+
+  if (status === "scheduled") {
+    return { status };
+  }
+
+  return {
+    status,
+    safeMessage:
+      status === "blocked_by_review"
+        ? "Trusted reminders are blocked until review is complete."
+        : status === "blocked_by_missing_owner"
+          ? "Trusted reminders are blocked until an owner is assigned."
+          : "Trusted reminders are blocked until required contract dates are confirmed."
+  };
+}
+
+async function releaseReminderAfterBlockedGate(input: {
+  reminderId: string;
+  organizationId: string;
+  safeMessage: string;
+}) {
+  const admin = createAdminSupabaseClient();
+  await checkedReminderWrite(
+    admin
+      .from("reminders")
+      .update({
+        status: "retry_pending",
+        last_error: input.safeMessage,
+        processing_started_at: null,
+        processing_token: null,
+        next_retry_at: null
+      })
+      .eq("id", input.reminderId)
+      .eq("organization_id", input.organizationId),
+    {
+      operation: "update",
+      table: "reminders",
+      context: `release_reminder_after_blocked_gate:${input.reminderId}`
+    }
+  );
 }
 
 async function sendEmailOnce(params: {

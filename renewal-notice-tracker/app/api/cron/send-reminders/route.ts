@@ -5,7 +5,7 @@ import {
   RouteHttpError,
   routeServerError
 } from "@/lib/http";
-import { processDueReminders } from "@/lib/notifications/reminders";
+import { enqueueDueTrustedReminderDeliveryJobs } from "@/lib/notifications/reminders";
 import { logServerError } from "@/lib/observability/server-logger";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
@@ -52,7 +52,7 @@ export const POST = createRouteHandler(
   },
   async ({ json }) => {
     const until = addMinutes(new Date(), 15).toISOString();
-    const results = await processDueReminders(until);
+    const results = await enqueueDueTrustedReminderDeliveryJobs(until);
     return json({ results });
   }
 );

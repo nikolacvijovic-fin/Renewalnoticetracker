@@ -73,6 +73,8 @@ Endpoints:
 
 Current implementation is deterministic scaffold logic. It does not call AI providers and must not claim production extraction quality.
 
+`POST /extract-contract` now returns structured evidence fields with confidence, citations, warning codes, and bounded snippets. The TypeScript app stores those outputs as review evidence in `contract_extraction_runs` and `contract_extracted_fields`; they do not become trusted contract truth until explicitly reviewed and then confirmed through the existing P0 workflow.
+
 ## Go Worker
 
 Path: `services/go-worker`

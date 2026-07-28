@@ -9,12 +9,22 @@ import type {
   CancelBackgroundJobInput
 } from "@/lib/background-jobs/job-types";
 import {
+  assertMutableBackgroundJobStatus,
+  assertWorkerOwnsJob,
+  BackgroundJobNotFoundError as JobNotFoundError,
+  BackgroundJobStateConflictError as JobStateConflictError,
+  BackgroundJobOwnershipError as JobOwnershipError
+} from "@/lib/background-jobs/job-types";
+import {
   claimAdminBackgroundJob,
+  cancelAdminBackgroundJob,
+  completeAdminBackgroundJob,
+  failAdminBackgroundJob,
+  getAdminBackgroundJobByIdempotencyKey,
   getAdminBackgroundJobById,
+  insertAdminBackgroundJob,
   insertAdminBackgroundJobAttempt,
-  listAdminClaimableBackgroundJobs,
-  updateAdminBackgroundJobState,
-  upsertAdminBackgroundJob
+  listAdminClaimableBackgroundJobs
 } from "@/lib/background-jobs/repositories/admin-background-jobs-repository";
 import {
   classifyJobFailure,
@@ -25,6 +35,8 @@ import {
 const DEFAULT_PRIORITY = 100;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_CLAIM_LIMIT = 10;
+
+type SupabaseErrorLike = Error & { code?: string };
 
 function iso(value: string | Date | undefined, fallback = new Date()) {
   if (!value) return fallback.toISOString();
@@ -57,10 +69,19 @@ function reminderAuditEventForJob(job: BackgroundJob, eventType: string, metadat
   });
 }
 
+function isUniqueConstraintError(error: unknown) {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    "code" in error &&
+    (error as SupabaseErrorLike).code === "23505"
+  );
+}
+
 export async function enqueueBackgroundJob(input: EnqueueBackgroundJobInput) {
   const organizationId = requireNonEmpty(input.organizationId, "organizationId");
   const idempotencyKey = requireNonEmpty(input.idempotencyKey, "idempotencyKey");
-  const { data, error } = await upsertAdminBackgroundJob({
+  const { data, error } = await insertAdminBackgroundJob({
     organizationId,
     contractId: input.contractId ?? null,
     jobType: input.jobType,
@@ -70,6 +91,18 @@ export async function enqueueBackgroundJob(input: EnqueueBackgroundJobInput) {
     scheduledFor: iso(input.scheduledFor),
     maxAttempts: input.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
   });
+
+  if (isUniqueConstraintError(error)) {
+    const existing = await getAdminBackgroundJobByIdempotencyKey({
+      organizationId,
+      idempotencyKey
+    });
+    if (existing.error) throw existing.error;
+    if (!existing.data) {
+      throw new JobStateConflictError("Background job idempotency conflict could not be resolved.");
+    }
+    return existing.data;
+  }
 
   if (error) throw error;
   if (!data) throw new Error("Background job enqueue returned no row.");
@@ -141,21 +174,18 @@ export async function claimBackgroundJobs(input: ClaimBackgroundJobsInput) {
 export async function completeBackgroundJob(input: CompleteBackgroundJobInput) {
   const nowIso = new Date().toISOString();
   const current = await getRequiredJob(input.organizationId, input.jobId);
-  const { data, error } = await updateAdminBackgroundJobState({
+  assertProcessingJobOwnedByWorker(current, input.workerId);
+
+  const { data, error } = await completeAdminBackgroundJob({
     organizationId: input.organizationId,
     jobId: input.jobId,
-    update: {
-      status: "completed",
-      completed_at: nowIso,
-      locked_at: null,
-      locked_by: null,
-      last_error_code: null,
-      last_error_message: null,
-      updated_at: nowIso
-    }
+    workerId: input.workerId,
+    nowIso
   });
   if (error) throw error;
-  if (!data) throw new Error("Background job completion returned no row.");
+  if (!data) {
+    throw new JobStateConflictError("Background job could not be completed because its lock or state changed.");
+  }
 
   await insertAdminBackgroundJobAttempt({
     organizationId: input.organizationId,
@@ -174,6 +204,7 @@ export async function failBackgroundJob(input: FailBackgroundJobInput) {
   const now = input.now instanceof Date ? input.now : input.now ? new Date(input.now) : new Date();
   const nowIso = now.toISOString();
   const current = await getRequiredJob(input.organizationId, input.jobId);
+  assertProcessingJobOwnedByWorker(current, input.workerId);
   const attemptNumber = current.attempts + 1;
   const classified = classifyJobFailure({
     error: input.errorMessage ?? input.errorCode,
@@ -187,9 +218,10 @@ export async function failBackgroundJob(input: FailBackgroundJobInput) {
   const nextRetryAt = retryable ? computeNextRetryAt({ attemptNumber, now }) : null;
   const safeErrorMessage = sanitizeJobErrorMessage(input.errorMessage ?? classified.safeMessage);
 
-  const { data, error } = await updateAdminBackgroundJobState({
+  const { data, error } = await failAdminBackgroundJob({
     organizationId: input.organizationId,
     jobId: input.jobId,
+    workerId: input.workerId,
     update: {
       status,
       attempts: attemptNumber,
@@ -203,7 +235,9 @@ export async function failBackgroundJob(input: FailBackgroundJobInput) {
     }
   });
   if (error) throw error;
-  if (!data) throw new Error("Background job failure returned no row.");
+  if (!data) {
+    throw new JobStateConflictError("Background job could not be failed because its lock or state changed.");
+  }
 
   await insertAdminBackgroundJobAttempt({
     organizationId: input.organizationId,
@@ -243,9 +277,17 @@ export async function failBackgroundJob(input: FailBackgroundJobInput) {
 
 export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
   const nowIso = new Date().toISOString();
-  const { data, error } = await updateAdminBackgroundJobState({
+  const current = await getRequiredJob(input.organizationId, input.jobId);
+  assertMutableBackgroundJobStatus(current.status);
+
+  if (current.status === "processing" && input.workerId) {
+    assertWorkerOwnsJob(current, input.workerId);
+  }
+
+  const { data, error } = await cancelAdminBackgroundJob({
     organizationId: input.organizationId,
     jobId: input.jobId,
+    allowedStatuses: ["queued", "retry_scheduled", "processing"],
     update: {
       status: "cancelled",
       locked_at: null,
@@ -256,7 +298,9 @@ export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
     }
   });
   if (error) throw error;
-  if (!data) throw new Error("Background job cancellation returned no row.");
+  if (!data) {
+    throw new JobStateConflictError("Background job could not be cancelled because its state changed.");
+  }
 
   await insertAdminBackgroundJobAttempt({
     organizationId: input.organizationId,
@@ -277,6 +321,23 @@ export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
 async function getRequiredJob(organizationId: string, jobId: string) {
   const { data, error } = await getAdminBackgroundJobById({ organizationId, jobId });
   if (error) throw error;
-  if (!data) throw new Error("Background job not found.");
+  if (!data) throw new JobNotFoundError();
   return data;
+}
+
+function assertProcessingJobOwnedByWorker(job: BackgroundJob, workerId: string) {
+  assertMutableBackgroundJobStatus(job.status);
+
+  if (job.status !== "processing") {
+    throw new JobStateConflictError("Background job must be processing before this transition.");
+  }
+
+  assertWorkerOwnsJob(job, workerId);
+}
+
+export function mapBackgroundJobError(error: unknown) {
+  return {
+    notFound: error instanceof JobNotFoundError,
+    conflict: error instanceof JobStateConflictError || error instanceof JobOwnershipError
+  };
 }
