@@ -17,6 +17,7 @@ Customer-visible scope:
 - import jobs may complete with partial success and a downloadable row-level error report
 - critical audit logging
 - early reporting only: reviewed coverage, owner coverage, due-soon exposure, decision gaps
+- Revenue Intelligence Command Center as aggregation over reviewed renewal-control and commercial workflow evidence only
 - counterparty normalization v1
 - Paddle primary billing with manual invoice exceptions
 - Paddle is the only shipped-first self-serve billing provider

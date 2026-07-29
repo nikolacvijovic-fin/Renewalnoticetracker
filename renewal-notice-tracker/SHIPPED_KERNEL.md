@@ -26,6 +26,7 @@ It includes only:
 - acknowledgment
 - decision and cycle actions
 - CSV/XLSX export through explicit export presets: basic export is shipped by default, workflow/notes/intelligence exports are gated premium presets, and audit export is deferred until hardened
+- Revenue Intelligence Command Center over existing renewal-control and commercial workflow evidence, with no external outreach delivery or CRM enrichment
 - per-contract ICS export
 - minimal settings for profile, billing, and workspace control
 - internal rescue console for internal roles only

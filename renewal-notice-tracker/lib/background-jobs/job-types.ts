@@ -5,6 +5,7 @@ export const BACKGROUND_JOB_TYPES = [
   "contract_import_processing",
   "audit_event_flush",
   "webhook_dispatch",
+  "revenue_intelligence_refresh",
   "add_on_task"
 ] as const;
 

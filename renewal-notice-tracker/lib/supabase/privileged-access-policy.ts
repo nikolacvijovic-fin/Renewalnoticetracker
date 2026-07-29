@@ -22,6 +22,7 @@ export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
   "lib/organization/scoped-admin.ts",
   "lib/organization/workspace-deletion.ts",
   "lib/quote-comparison/repositories/admin-quote-comparison-repository.ts",
+  "lib/revenue-intelligence/repositories/admin-revenue-intelligence-repository.ts",
   "lib/supabase/privileged.ts"
 ] as const;
 

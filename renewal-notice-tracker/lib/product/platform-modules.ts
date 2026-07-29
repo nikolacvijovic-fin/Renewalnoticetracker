@@ -12,6 +12,7 @@ export type PlatformModuleId =
   | "reminder_workflow_automation"
   | "billing_entitlement_control"
   | "admin_support_operations"
+  | "revenue_intelligence_command_center"
   | "enterprise_identity_rbac_retention"
   | "enterprise_integrations"
   | "advanced_retention_governance_analytics"
@@ -291,6 +292,39 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     ],
     promotionCriteria: ["Support diagnostics stay code-first, bounded, tenant-scoped, and free of customer content."],
     notAllowed: ["Broad founder operating system runtime", "raw customer data in support views", "destructive action without stronger auth"]
+  },
+  revenue_intelligence_command_center: {
+    id: "revenue_intelligence_command_center",
+    label: "Revenue Intelligence Command Center",
+    status: "shipped",
+    allowedInCurrentShippedKernel: true,
+    gate: {
+      source: "active_org_and_role",
+      minimumPlan: "growth",
+      policy:
+        "Admin/operator/reviewer command-center access over existing renewal-control evidence only; no external outreach, CRM enrichment, or sending."
+    },
+    ownerSurfaces: {
+      routes: ["/dashboard/revenue-intelligence"],
+      components: ["RevenueCommandCenter", "RevenueKpiStrip", "RevenueRiskQueue"],
+      modules: ["lib/revenue-intelligence", "lib/actions/revenue-intelligence.ts"],
+      docs: ["docs/REVENUE_INTELLIGENCE_COMMAND_CENTER.md", "docs/REVENUE_INTELLIGENCE_RELEASE_GATE.md"]
+    },
+    requiredTestsOrReleaseGates: [
+      "test:revenue-intelligence",
+      "tests/revenue-intelligence-boundaries.test.ts",
+      "tests/revenue-intelligence-audit-taxonomy.test.ts"
+    ],
+    promotionCriteria: [
+      "Every number is generated from organization-scoped shipped evidence and can link back to source contracts, decisions, quotes, or workflow records."
+    ],
+    notAllowed: [
+      "External cold outreach delivery",
+      "CRM enrichment or sync",
+      "lead database runtime",
+      "automated email sending",
+      "unsupported forecasts from ungrounded data"
+    ]
   },
   enterprise_identity_rbac_retention: {
     id: "enterprise_identity_rbac_retention",

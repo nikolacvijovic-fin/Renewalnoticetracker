@@ -55,6 +55,7 @@ export type PlatformCapabilityId =
   | "contract_intelligence"
   | "financial_intelligence"
   | "procurement_analytics"
+  | "revenue_intelligence_command_center"
   | "revenue_intelligence"
   | "billing"
   | "identity"
@@ -388,9 +389,34 @@ export const PLATFORM_CAPABILITIES: Record<PlatformCapabilityId, PlatformCapabil
     docs: ["docs/intelligence/PROCUREMENT_ANALYTICS_SCOPE.md", "docs/intelligence/INTELLIGENCE_RELEASE_GATE.md"],
     notes: "Surfaces action-oriented vendor renewal portfolio metrics with drilldown IDs and no vendor enrichment."
   },
+  revenue_intelligence_command_center: {
+    id: "revenue_intelligence_command_center",
+    label: "Revenue Intelligence Command Center",
+    lifecycle: "generally_available",
+    health: "healthy",
+    owningModule: "revenue_intelligence_command_center",
+    dependencies: ["contracts", "exports", "audit", "monitoring", "permissions"],
+    requiredProviders: ["supabase"],
+    requiredPermissions: ["view_revenue_intelligence_command_center"],
+    requiredPlans: ["growth", "portfolio"],
+    requiredMarketPolicies: ["global/default runtime market"],
+    requiredIdentityPolicies: ["admin/operator/reviewer active organization membership"],
+    requiredAuditEvents: [
+      "revenue_intelligence.snapshot_generated",
+      "revenue_intelligence.signals_refreshed",
+      "revenue_intelligence.metrics_refreshed",
+      "revenue_intelligence.forecast_refreshed",
+      "revenue_intelligence.insights_refreshed"
+    ],
+    requiredMonitoring: ["revenue intelligence refresh failures"],
+    requiredDeploymentGates: ["test:revenue-intelligence"],
+    docs: ["docs/REVENUE_INTELLIGENCE_COMMAND_CENTER.md", "docs/REVENUE_INTELLIGENCE_RELEASE_GATE.md"],
+    notes:
+      "Bounded shipped aggregation over existing renewal-control evidence; no external outreach delivery, CRM enrichment, lead database, or sending."
+  },
   revenue_intelligence: {
     id: "revenue_intelligence",
-    label: "Revenue intelligence and personalized outreach foundation",
+    label: "Future external Revenue Intelligence and personalized outreach foundation",
     lifecycle: "future_only",
     health: "future_only",
     owningModule: "advanced_retention_governance_analytics",

@@ -38,6 +38,7 @@ describe("platform module registry", () => {
       "reminder_workflow_automation",
       "billing_entitlement_control",
       "admin_support_operations",
+      "revenue_intelligence_command_center",
       "enterprise_identity_rbac_retention",
       "enterprise_integrations",
       "advanced_retention_governance_analytics",

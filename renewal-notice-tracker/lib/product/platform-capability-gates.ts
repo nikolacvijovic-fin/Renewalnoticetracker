@@ -62,6 +62,7 @@ export const SHIPPED_PLATFORM_FEATURE_GATES: readonly PlatformCapabilityId[] = [
   "contract_intelligence",
   "financial_intelligence",
   "procurement_analytics",
+  "revenue_intelligence_command_center",
   "ocr",
   "exports",
   "notifications",

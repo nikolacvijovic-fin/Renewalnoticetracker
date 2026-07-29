@@ -10,7 +10,8 @@ NoticeControl now has multiple substantial domains:
 
 - Renewal Management
 - Contract Intelligence
-- Revenue Intelligence foundation
+- Revenue Intelligence Command Center
+- External Revenue Intelligence/outreach foundation
 - Market Profiles
 - Market Activation Approval
 - Enterprise Identity
@@ -64,7 +65,7 @@ The platform model defines contracts for:
 - `PlatformJob`
 - `PlatformHealth`
 
-The current implementation intentionally keeps these as typed contracts and registries. Business logic remains in domain modules such as `lib/contracts`, `lib/intelligence`, `lib/billing`, `lib/notifications`, and `lib/product/enterprise-identity-runtime.ts`. Future Revenue Intelligence contracts are isolated under `deferred/revenue-intelligence` and exposed to existing registries only through a compatibility shim.
+The current implementation intentionally keeps these as typed contracts and registries. Business logic remains in domain modules such as `lib/contracts`, `lib/intelligence`, `lib/billing`, `lib/notifications`, `lib/revenue-intelligence`, and `lib/product/enterprise-identity-runtime.ts`. Future external Revenue Intelligence/outreach contracts are isolated under `deferred/revenue-intelligence` and exposed to existing registries only through a compatibility shim.
 
 ## Platform Capability Registry
 
@@ -92,6 +93,7 @@ Current registered capabilities include:
 - `contract_intelligence`
 - `financial_intelligence`
 - `procurement_analytics`
+- `revenue_intelligence_command_center`
 - `revenue_intelligence`
 - `billing`
 - `identity`
@@ -117,6 +119,7 @@ The dependency graph lets the platform answer what a capability requires.
 
 Examples:
 
+- `revenue_intelligence_command_center` depends on `contracts`, `exports`, `audit`, `monitoring`, and `permissions`.
 - `revenue_intelligence` depends on `market_profiles`, `compliance`, `ai_generation`, `approval_queue`, `audit`, and `monitoring`.
 - `contract_intelligence` depends on `contracts`, `ocr`, `ai_generation`, `audit`, `monitoring`, and `billing`.
 - `exports` depends on `contracts`, `billing`, `audit`, `monitoring`, and `permissions`.
@@ -235,7 +238,7 @@ Allowed lifecycle states:
 
 This lifecycle is separate from the existing shipped/deferred platform module status. Module status answers product packaging truth; lifecycle answers capability maturity.
 
-Runtime consequence: `future_only`, `planned`, `experimental`, `deprecated`, and `disabled` capabilities are not customer-usable just because a provider, plan, or feature flag is present. `revenue_intelligence`, `identity`, `market_activation`, and `approval_queue` remain non-usable in the current runtime.
+Runtime consequence: `future_only`, `planned`, `experimental`, `deprecated`, and `disabled` capabilities are not customer-usable just because a provider, plan, or feature flag is present. `revenue_intelligence`, `identity`, `market_activation`, and `approval_queue` remain non-usable in the current runtime. The separate `revenue_intelligence_command_center` capability is the shipped bounded aggregation surface and must not be used as a shortcut to external outreach or lead-generation runtime.
 
 ## Future Expansion Philosophy
 
@@ -257,7 +260,7 @@ Only then should route, UI, provider, or workflow implementation begin.
 
 ## Domain Relationships
 
-Revenue Intelligence is future-only. It depends on compliance, market profiles, AI contracts, approval queue, audit, and monitoring. It must not become a mass email tool or bypass human approval. Its release blockers are documented in [REVENUE_INTELLIGENCE_RELEASE_GATE.md](REVENUE_INTELLIGENCE_RELEASE_GATE.md).
+The Revenue Intelligence Command Center is shipped only as bounded aggregation over existing renewal-control evidence. External Revenue Intelligence and personalized outreach remain future-only. They depend on compliance, market profiles, AI contracts, approval queue, audit, and monitoring. They must not become a mass email tool or bypass human approval. Their release blockers are documented in [REVENUE_INTELLIGENCE_RELEASE_GATE.md](REVENUE_INTELLIGENCE_RELEASE_GATE.md).
 
 Market Expansion is infrastructure. `global/default` remains the only shipped market. Planned and restricted profiles are not runtime permission.
 

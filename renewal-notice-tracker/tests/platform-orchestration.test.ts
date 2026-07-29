@@ -79,6 +79,7 @@ describe("platform orchestration foundation", () => {
       expect(coverage[moduleId]?.length, moduleId).toBeGreaterThan(0);
     }
 
+    expect(coverage.revenue_intelligence_command_center).toContain("revenue_intelligence_command_center");
     expect(coverage.advanced_retention_governance_analytics).toContain("revenue_intelligence");
     expect(coverage.enterprise_identity_rbac_retention).toContain("identity");
   });
@@ -95,6 +96,9 @@ describe("platform orchestration foundation", () => {
 
     expect(resolvePlatformCapabilityDependencies("revenue_intelligence")).toEqual(
       expect.arrayContaining(["market_profiles", "compliance", "ai_generation", "approval_queue", "audit", "monitoring"])
+    );
+    expect(resolvePlatformCapabilityDependencies("revenue_intelligence_command_center")).toEqual(
+      expect.arrayContaining(["contracts", "exports", "audit", "monitoring", "permissions"])
     );
     expect(resolvePlatformCapabilityDependencies("contract_intelligence")).toEqual(
       expect.arrayContaining(["contracts", "ocr", "ai_generation", "billing", "audit", "monitoring"])
@@ -328,7 +332,7 @@ describe("platform orchestration foundation", () => {
 
     expect(doc).toContain("Platform Capability Registry");
     expect(doc).toContain("No end-user functionality is shipped by this layer");
-    expect(doc).toContain("Revenue Intelligence");
+    expect(doc).toContain("Revenue Intelligence Command Center");
     expect(doc).toContain("Market Expansion");
     expect(doc).toContain("Enterprise Identity");
     expect(architectureDoc).toContain("PLATFORM_ORCHESTRATION_FOUNDATION.md");

@@ -1,8 +1,10 @@
 # Revenue Intelligence Release Gate
 
-Revenue Intelligence and cold outreach are not shipped runtime features.
+Future external Revenue Intelligence and cold outreach are not shipped runtime features.
 
-No runtime Revenue Intelligence module may ship until all blockers below are implemented, tested, and reviewed:
+The shipped Revenue Intelligence Command Center is a bounded CFO-facing aggregation layer over existing contract, quote, savings, commercial decision, negotiation, and internal draft-only outreach evidence. It is documented separately in `docs/REVENUE_INTELLIGENCE_COMMAND_CENTER.md` and does not send messages, enrich leads, run campaigns, or expose a lead database.
+
+No runtime Revenue Intelligence module may ship for external outreach, lead generation, campaign execution, CRM enrichment, or autonomous sales workflows until all blockers below are implemented, tested, and reviewed:
 
 - organization-scoped outreach schema
 - RLS policies for every outreach table
@@ -18,9 +20,11 @@ No runtime Revenue Intelligence module may ship until all blockers below are imp
 
 ## Current Allowed Scope
 
-The only allowed Revenue Intelligence code today is future foundation code under `deferred/revenue-intelligence`.
+The only allowed future/external Revenue Intelligence code today is foundation code under `deferred/revenue-intelligence`.
 
 The compatibility shim at `lib/product/revenue-intelligence.ts` exists only so existing boundary tests and registries can reference the future foundation without making it a shipped runtime module.
+
+The bounded command-center runtime under `lib/revenue-intelligence` is allowed only because it aggregates existing shipped commercial workflow evidence and preserves the no-sending/no-enrichment boundary.
 
 ## Not Allowed
 
@@ -31,7 +35,7 @@ The compatibility shim at `lib/product/revenue-intelligence.ts` exists only so e
 - CRM enrichment or sync
 - scraping or enrichment provider calls
 - public API access
-- customer-facing Revenue Intelligence navigation
+- customer-facing external outreach or lead-generation Revenue Intelligence navigation
 - treating planned/restricted markets as active outreach markets
 
 ## Promotion Rule

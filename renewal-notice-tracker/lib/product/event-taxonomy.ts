@@ -234,6 +234,25 @@ const internalOutreachSafeMetadata = [
   "expiresAt"
 ] as const;
 
+const revenueIntelligenceSafeMetadata = [
+  ...commonSafeMetadata,
+  "snapshotId",
+  "signalCount",
+  "metricCount",
+  "summaryCount",
+  "forecastScenarioCount",
+  "insightCount",
+  "reviewedInsightId",
+  "archivedSignalId",
+  "aggregateAmounts",
+  "currency",
+  "severityCounts",
+  "warningCodes",
+  "sourceModule",
+  "refreshDurationBucket",
+  "jobId"
+] as const;
+
 function taxonomyEvent(input: Omit<ProductEventTaxonomyEntry, "forbiddenMetadataFields">) {
   return {
     ...input,
@@ -1200,6 +1219,105 @@ export const PRODUCT_EVENT_TAXONOMY = {
     privacySensitivity: "high",
     safeMetadataFields: internalOutreachSafeMetadata,
     owningProductModule: "financial_exposure_intelligence"
+  }),
+  "revenue_intelligence.snapshot_generated": taxonomyEvent({
+    name: "revenue_intelligence.snapshot_generated",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.signals_refreshed": taxonomyEvent({
+    name: "revenue_intelligence.signals_refreshed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.metrics_refreshed": taxonomyEvent({
+    name: "revenue_intelligence.metrics_refreshed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.vendor_category_refreshed": taxonomyEvent({
+    name: "revenue_intelligence.vendor_category_refreshed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.forecast_refreshed": taxonomyEvent({
+    name: "revenue_intelligence.forecast_refreshed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.insights_refreshed": taxonomyEvent({
+    name: "revenue_intelligence.insights_refreshed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.insight_reviewed": taxonomyEvent({
+    name: "revenue_intelligence.insight_reviewed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.signal_archived": taxonomyEvent({
+    name: "revenue_intelligence.signal_archived",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.refresh_job_enqueued": taxonomyEvent({
+    name: "revenue_intelligence.refresh_job_enqueued",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/revenue-intelligence/revenue-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.refresh_job_completed": taxonomyEvent({
+    name: "revenue_intelligence.refresh_job_completed",
+    type: "audit",
+    emittedToday: false,
+    source: "future revenue intelligence background worker emitter",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
+  }),
+  "revenue_intelligence.refresh_job_failed": taxonomyEvent({
+    name: "revenue_intelligence.refresh_job_failed",
+    type: "audit",
+    emittedToday: false,
+    source: "future revenue intelligence background worker emitter",
+    privacySensitivity: "high",
+    safeMetadataFields: revenueIntelligenceSafeMetadata,
+    owningProductModule: "revenue_intelligence_command_center"
   }),
   "renewal_decision.created": taxonomyEvent({
     name: "renewal_decision.created",

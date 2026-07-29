@@ -18,6 +18,7 @@ function baseInput() {
     backupRestoreStatusPresent: true,
     monitoringAlertingStatusPresent: true,
     addOnSigningConfigured: true,
+    revenueIntelligenceEvidencePresent: true,
     unresolvedCriticalSecurityEvents: 0,
     staleReviewApprovalRisks: 0
   };
@@ -52,6 +53,16 @@ describe("enterprise readiness score", () => {
 
     expect(result.status).toBe("getting_ready");
     expect(result.warnings.join(" ")).toMatch(/Add-on service requests/i);
+  });
+
+  it("warns when revenue intelligence command-center evidence is not present", () => {
+    const result = computeEnterpriseReadinessScore({
+      ...baseInput(),
+      revenueIntelligenceEvidencePresent: false
+    });
+
+    expect(result.status).toBe("getting_ready");
+    expect(result.warnings.join(" ")).toMatch(/Revenue intelligence command-center evidence/i);
   });
 
   it("reaches enterprise_ready only when critical controls are complete", () => {

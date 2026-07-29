@@ -14,6 +14,7 @@ export type EnterpriseReadinessControl =
   | "backup_restore_status"
   | "monitoring_alerting_status"
   | "add_on_signing_configured"
+  | "revenue_intelligence_evidence"
   | "critical_security_events_resolved"
   | "fresh_review_approval_state";
 
@@ -29,6 +30,7 @@ export type EnterpriseReadinessInput = {
   backupRestoreStatusPresent: boolean;
   monitoringAlertingStatusPresent: boolean;
   addOnSigningConfigured: boolean;
+  revenueIntelligenceEvidencePresent?: boolean;
   unresolvedCriticalSecurityEvents: number;
   staleReviewApprovalRisks: number;
 };
@@ -130,6 +132,13 @@ const CONTROLS: ControlDefinition[] = [
     complete: (input) => input.addOnSigningConfigured
   },
   {
+    id: "revenue_intelligence_evidence",
+    label: "Revenue intelligence command-center evidence is present.",
+    weight: 5,
+    critical: false,
+    complete: (input) => Boolean(input.revenueIntelligenceEvidencePresent)
+  },
+  {
     id: "critical_security_events_resolved",
     label: "No unresolved critical security-sensitive events are present.",
     weight: 6,
@@ -191,6 +200,7 @@ export function buildEnterpriseReadinessInputFromAuditEvents(input: {
   backupRestoreStatusPresent?: boolean;
   monitoringAlertingStatusPresent?: boolean;
   addOnSigningConfigured?: boolean;
+  revenueIntelligenceEvidencePresent?: boolean;
   staleReviewApprovalRisks?: number;
 }): EnterpriseReadinessInput {
   const hasTrustedReminderGate = input.events.some(
@@ -215,6 +225,7 @@ export function buildEnterpriseReadinessInputFromAuditEvents(input: {
     backupRestoreStatusPresent: input.backupRestoreStatusPresent ?? false,
     monitoringAlertingStatusPresent: input.monitoringAlertingStatusPresent ?? false,
     addOnSigningConfigured: input.addOnSigningConfigured ?? false,
+    revenueIntelligenceEvidencePresent: input.revenueIntelligenceEvidencePresent ?? false,
     unresolvedCriticalSecurityEvents,
     staleReviewApprovalRisks: input.staleReviewApprovalRisks ?? 0
   };

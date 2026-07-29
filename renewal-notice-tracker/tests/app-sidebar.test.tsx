@@ -27,6 +27,7 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("link", { name: /Risk Queue/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Financial/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Procurement/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Revenue Intelligence/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Contracts/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Settings/i })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Pricing/i })).toBeInTheDocument();

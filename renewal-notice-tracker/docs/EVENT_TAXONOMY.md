@@ -112,6 +112,15 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `internal_outreach.crm_note_generated`
 - `internal_outreach.safety_reviewed`
 - `internal_outreach.duplicate_dismissed`
+- `revenue_intelligence.snapshot_generated`
+- `revenue_intelligence.signals_refreshed`
+- `revenue_intelligence.metrics_refreshed`
+- `revenue_intelligence.vendor_category_refreshed`
+- `revenue_intelligence.forecast_refreshed`
+- `revenue_intelligence.insights_refreshed`
+- `revenue_intelligence.insight_reviewed`
+- `revenue_intelligence.signal_archived`
+- `revenue_intelligence.refresh_job_enqueued`
 - `renewal_decision_recorded`
 - `contract.acknowledged`
 - `contract.acknowledged_from_email`
@@ -198,6 +207,8 @@ These events are registry contracts only. They must not be counted as live evide
 - `identity.member_unlocked`
 - `identity.group_role_mapping_changed`
 - `identity.break_glass_policy_checked`
+- `revenue_intelligence.refresh_job_completed`
+- `revenue_intelligence.refresh_job_failed`
 - `enterprise.identity_provider_configured`
 - `enterprise.sso_config_changed`
 - `enterprise.sso_configured`

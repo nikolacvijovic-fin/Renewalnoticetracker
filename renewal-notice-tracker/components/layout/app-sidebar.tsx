@@ -16,6 +16,7 @@ const ICONS = {
   "/dashboard/procurement-analytics": BriefcaseBusiness,
   "/dashboard/internal-outreach": SendToBack,
   "/dashboard/saas-opt-out-clock": TimerReset,
+  "/dashboard/revenue-intelligence": BarChart3,
   "/dashboard/contracts": FileText,
   "/dashboard/settings": Settings,
   "/pricing": CreditCard,

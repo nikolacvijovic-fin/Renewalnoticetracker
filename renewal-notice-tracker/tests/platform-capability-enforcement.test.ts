@@ -123,6 +123,7 @@ describe("platform capability enforcement surfaces", () => {
     const gates = resolveShippedPlatformFeatureGates();
     expect(gates).toContain("exports");
     expect(gates).toContain("contract_intelligence");
+    expect(gates).toContain("revenue_intelligence_command_center");
     expect(gates).not.toContain("revenue_intelligence");
     expect(gates).not.toContain("identity");
     expect(gates).not.toContain("market_activation");
