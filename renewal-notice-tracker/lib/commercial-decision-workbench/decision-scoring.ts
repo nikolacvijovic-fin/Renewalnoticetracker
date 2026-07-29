@@ -5,7 +5,8 @@ import type {
   CommercialDecisionWarningCode,
   CommercialRecommendedAction,
   CommercialRiskLevel,
-  NegotiationPosture
+  NegotiationPosture,
+  TrustedReminderReadinessStatus
 } from "@/lib/commercial-decision-workbench/decision-types";
 
 const RISK_SCORE: Record<CommercialRiskLevel, number> = {
@@ -60,6 +61,32 @@ function pickSavings(input: CommercialDecisionScoreInput) {
   };
 }
 
+function normalizeTrustedReminderReadiness(
+  input: CommercialDecisionScoreInput
+): TrustedReminderReadinessStatus {
+  const status = input.trustedReminderGate?.status;
+  if (
+    status === "not_configured" ||
+    status === "configured_ready" ||
+    status === "configured_blocked_by_review" ||
+    status === "configured_blocked_by_owner" ||
+    status === "configured_blocked_by_dates" ||
+    status === "not_applicable"
+  ) {
+    return status;
+  }
+  if (input.trustedReminderGate?.blocked) return "configured_blocked_by_review";
+  return "not_configured";
+}
+
+function trustedReminderIsBlocked(status: TrustedReminderReadinessStatus) {
+  return (
+    status === "configured_blocked_by_review" ||
+    status === "configured_blocked_by_owner" ||
+    status === "configured_blocked_by_dates"
+  );
+}
+
 function recommend(input: {
   risk: CommercialRiskLevel;
   blockers: CommercialDecisionBlockerCode[];
@@ -88,13 +115,15 @@ export function scoreCommercialDecision(input: CommercialDecisionScoreInput): Co
   const noticeDeadline = dateOnly(metadata?.notice_deadline_date);
   const blockers = new Set<CommercialDecisionBlockerCode>();
   const warnings = new Set<CommercialDecisionWarningCode>();
+  const trustedReminderReadinessStatus = normalizeTrustedReminderReadiness(input);
 
   if (!input.contract.owner_user_id) blockers.add("missing_owner");
   if (!renewalDeadline) blockers.add("missing_renewal_date");
   if (!input.quoteComparison || input.quoteComparison.status !== "completed") blockers.add("missing_quote_comparison");
-  if (input.trustedReminderGate?.blocked) blockers.add("trusted_reminder_blocked");
+  if (trustedReminderIsBlocked(trustedReminderReadinessStatus)) blockers.add("trusted_reminder_blocked");
   if (noticeDeadline && isPast(noticeDeadline, now)) blockers.add("expired_notice_deadline");
   if (!noticeDeadline) warnings.add("missing_notice_deadline");
+  if (trustedReminderReadinessStatus === "not_configured") warnings.add("trusted_reminder_not_configured");
   if (metadata?.has_weak_evidence || metadata?.needs_review) warnings.add("weak_contract_evidence");
 
   const criticalFinding = (input.quoteFindings ?? []).some((finding) => finding.severity === "critical");
@@ -144,6 +173,8 @@ export function scoreCommercialDecision(input: CommercialDecisionScoreInput): Co
     currency: savings.currency ?? metadata?.contract_value_currency ?? input.quoteComparison?.currency ?? null,
     renewalDeadline,
     noticeDeadline,
+    ownerUserId: input.contract.owner_user_id ?? null,
+    trustedReminderReadinessStatus,
     blockerCodes,
     warningCodes: Array.from(warnings),
     readinessStatus,

@@ -44,6 +44,13 @@ describe("commercial decision workbench migration", () => {
     expect(migration).toContain("idx_renewal_commercial_decisions_owner");
   });
 
+  it("enforces one active decision per contract and idempotent evidence links", () => {
+    expect(migration).toContain("idx_renewal_commercial_decisions_one_active_per_contract");
+    expect(migration).toContain("where decision_status <> 'archived'");
+    expect(migration).toContain("idx_renewal_decision_evidence_links_unique_evidence");
+    expect(migration).toContain("coalesce(evidence_id::text, '')");
+  });
+
   it("enables RLS and limits mutations to review roles without broad deletes", () => {
     expect(migration).toContain("alter table public.renewal_commercial_decisions enable row level security");
     expect(migration).toContain("alter table public.renewal_decision_evidence_links enable row level security");

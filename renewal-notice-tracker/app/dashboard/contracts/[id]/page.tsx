@@ -128,6 +128,9 @@ export default async function ContractDetailPage({
             <a href={`/dashboard/contracts/${contract.id}/commercial-decision`}>Open decision workbench</a>
           </Button>
           <Button asChild variant="secondary">
+            <a href={`/dashboard/contracts/${contract.id}/internal-outreach`}>Open outreach drafts</a>
+          </Button>
+          <Button asChild variant="secondary">
             <a href={`/dashboard/contracts/${contract.id}/ics`}>Export ICS</a>
           </Button>
         </>

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { assertCanUseShippedAction, requireOrganization } from "@/lib/auth";
+import { assertCanUseShippedAction, hasRequiredRole, requireOrganization } from "@/lib/auth";
 import { requireScopedContract } from "@/lib/contracts/kernel-queries";
 import type {
   CommercialDecisionEvidenceType,
@@ -17,6 +17,7 @@ import {
   finalizeCommercialDecision,
   recomputeCommercialDecision,
   rejectCommercialDecision,
+  reassignCommercialDecisionApprover,
   submitCommercialDecisionForReview,
   updateCommercialDecisionNegotiationPosture,
   updateCommercialDecisionRecommendedAction
@@ -47,6 +48,14 @@ function formString(formData: FormData, key: string) {
 async function requireDecisionOperator() {
   const context = await requireOrganization();
   await assertCanUseShippedAction(context, "review_p0");
+  return context;
+}
+
+async function requireApproverReassignmentOperator() {
+  const context = await requireDecisionOperator();
+  if (!hasRequiredRole(context.role, ["admin", "operator"])) {
+    throw new Error("Commercial decision approver reassignment requires an admin or operator.");
+  }
   return context;
 }
 
@@ -87,7 +96,8 @@ export async function recomputeCommercialDecisionAction(
 
 export async function submitCommercialDecisionForReviewAction(
   decisionId: string,
-  contractId: string
+  contractId: string,
+  formData?: FormData
 ): Promise<CommercialDecisionActionResult> {
   try {
     const context = await requireDecisionOperator();
@@ -95,10 +105,40 @@ export async function submitCommercialDecisionForReviewAction(
     await submitCommercialDecisionForReview({
       organizationId: context.organizationId,
       decisionId,
-      actorUserId: context.user.id
+      actorUserId: context.user.id,
+      approverUserId: formData ? formString(formData, "approver_user_id") : null
     });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision submitted for approval." };
+  } catch (error) {
+    return safeError(error);
+  }
+}
+
+export async function reassignCommercialDecisionApproverAction(
+  decisionId: string,
+  contractId: string,
+  formData: FormData
+): Promise<CommercialDecisionActionResult> {
+  try {
+    const context = await requireApproverReassignmentOperator();
+    await requireScopedContract(contractId, context.organizationId);
+    const newApproverUserId = formString(formData, "approver_user_id");
+    if (!newApproverUserId) {
+      return {
+        ok: false,
+        message: "Choose an approver before reassigning this commercial decision.",
+        code: "ERR_COMMERCIAL_DECISION_APPROVER_REQUIRED_001"
+      };
+    }
+    await reassignCommercialDecisionApprover({
+      organizationId: context.organizationId,
+      decisionId,
+      actorUserId: context.user.id,
+      newApproverUserId
+    });
+    revalidatePath(contractDecisionPath(contractId));
+    return { ok: true, message: "Commercial decision approver reassigned." };
   } catch (error) {
     return safeError(error);
   }
@@ -307,6 +347,14 @@ export async function submitCommercialDecisionForReviewFormAction(decisionId: st
   await submitCommercialDecisionForReviewAction(decisionId, contractId);
 }
 
+export async function submitCommercialDecisionForReviewWithApproverFormAction(
+  decisionId: string,
+  contractId: string,
+  formData: FormData
+) {
+  await submitCommercialDecisionForReviewAction(decisionId, contractId, formData);
+}
+
 export async function approveCommercialDecisionFormAction(
   decisionId: string,
   contractId: string,
@@ -337,4 +385,12 @@ export async function addCommercialDecisionReviewerNoteFormAction(
   formData: FormData
 ) {
   await addCommercialDecisionReviewerNoteAction(decisionId, contractId, formData);
+}
+
+export async function reassignCommercialDecisionApproverFormAction(
+  decisionId: string,
+  contractId: string,
+  formData: FormData
+) {
+  await reassignCommercialDecisionApproverAction(decisionId, contractId, formData);
 }

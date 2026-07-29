@@ -5,12 +5,20 @@ import { DecisionBlockersPanel } from "@/components/commercial-decision/decision
 import { DecisionEvidenceList } from "@/components/commercial-decision/decision-evidence-list";
 import { DecisionRiskSummary } from "@/components/commercial-decision/decision-risk-summary";
 import { NegotiationPosturePanel } from "@/components/commercial-decision/negotiation-posture-panel";
+import { NegotiationWorkflowPanel } from "@/components/negotiation-workflow/negotiation-workflow-panel";
 import type {
   CommercialDecision,
   CommercialDecisionApprovalStep,
   CommercialDecisionEvidenceLink,
   CommercialDecisionSnapshot
 } from "@/lib/commercial-decision-workbench/decision-types";
+import type {
+  NegotiationBrief,
+  NegotiationBriefEvidenceLink,
+  NegotiationPlaybookItem,
+  VendorCommunicationApprovalStep,
+  VendorCommunicationDraft
+} from "@/lib/negotiation-workflow/negotiation-types";
 import { formatDate } from "@/lib/utils";
 
 export function CommercialDecisionWorkbenchPanel({
@@ -20,7 +28,11 @@ export function CommercialDecisionWorkbenchPanel({
   snapshots,
   ownerLabel,
   approverLabel,
-  canAct
+  approverOptions,
+  currentUserId,
+  canAct,
+  canReassignApprover,
+  negotiationWorkflow
 }: {
   decision: CommercialDecision;
   evidenceLinks: CommercialDecisionEvidenceLink[];
@@ -28,7 +40,17 @@ export function CommercialDecisionWorkbenchPanel({
   snapshots: CommercialDecisionSnapshot[];
   ownerLabel: string;
   approverLabel: string;
+  approverOptions: Array<{ userId: string; label: string }>;
+  currentUserId: string;
   canAct: boolean;
+  canReassignApprover: boolean;
+  negotiationWorkflow: {
+    brief: NegotiationBrief | null;
+    evidenceLinks: NegotiationBriefEvidenceLink[];
+    drafts: VendorCommunicationDraft[];
+    approvalSteps: VendorCommunicationApprovalStep[];
+    playbookItems: NegotiationPlaybookItem[];
+  };
 }) {
   const finalState = ["approved", "rejected", "finalized", "archived"].includes(decision.decision_status);
 
@@ -72,8 +94,25 @@ export function CommercialDecisionWorkbenchPanel({
 
       <DecisionRiskSummary decision={decision} />
       <DecisionBlockersPanel blockers={decision.blocker_codes} warnings={decision.warning_codes} />
-      <DecisionActionBar decision={decision} canAct={canAct} />
+      <DecisionActionBar
+        decision={decision}
+        canAct={canAct}
+        canApprove={canAct && decision.approver_user_id === currentUserId}
+        canReassignApprover={canReassignApprover}
+        approverOptions={approverOptions}
+      />
       <NegotiationPosturePanel decision={decision} canEdit={canAct && !finalState} />
+      <NegotiationWorkflowPanel
+        decision={decision}
+        brief={negotiationWorkflow.brief}
+        evidenceLinks={negotiationWorkflow.evidenceLinks}
+        drafts={negotiationWorkflow.drafts}
+        approvalSteps={negotiationWorkflow.approvalSteps}
+        playbookItems={negotiationWorkflow.playbookItems}
+        approverOptions={approverOptions}
+        currentUserId={currentUserId}
+        canAct={canAct}
+      />
 
       <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
         <DecisionEvidenceList evidenceLinks={evidenceLinks} />

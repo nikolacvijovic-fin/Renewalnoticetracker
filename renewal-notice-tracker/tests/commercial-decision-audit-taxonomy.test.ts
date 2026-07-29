@@ -17,7 +17,11 @@ const commercialDecisionEvents = [
   "commercial_decision.recommended_action_changed",
   "commercial_decision.negotiation_posture_changed",
   "commercial_decision.evidence_attached",
-  "commercial_decision.snapshot_created"
+  "commercial_decision.evidence_refreshed",
+  "commercial_decision.snapshot_created",
+  "commercial_decision.approver_reassigned",
+  "commercial_decision.approval_blocked",
+  "commercial_decision.duplicate_create_resolved"
 ] as const;
 
 describe("commercial decision audit taxonomy", () => {
@@ -52,7 +56,10 @@ describe("commercial decision audit taxonomy", () => {
           "recommended_action",
           "negotiation_posture",
           "commercial_risk_level",
-          "evidence_confidence"
+          "evidence_confidence",
+          "assigned_approver_user_id",
+          "acting_approver_user_id",
+          "approval_authority_mode"
         ])
       );
       expect(entry.forbiddenMetadataFields).toEqual(PRODUCT_EVENT_FORBIDDEN_METADATA_FIELDS);

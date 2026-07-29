@@ -9,6 +9,7 @@ const repo = vi.hoisted(() => ({
   updateAdminCommercialDecisionRecommendedAction: vi.fn(),
   updateAdminCommercialDecisionNegotiationPosture: vi.fn(),
   insertAdminCommercialDecisionEvidenceLink: vi.fn(),
+  upsertAdminCommercialDecisionEvidenceLink: vi.fn(),
   insertAdminCommercialDecisionApprovalStep: vi.fn(),
   updateAdminCommercialDecisionApprovalStep: vi.fn(),
   insertAdminCommercialDecisionSnapshot: vi.fn(),
@@ -68,6 +69,12 @@ describe("commercial decision service", () => {
     vi.clearAllMocks();
     audit.recordEnterpriseAuditEvent.mockResolvedValue({ ok: true });
     repo.listAdminCommercialDecisionApprovalSteps.mockResolvedValue({ data: [], error: null });
+    repo.listAdminCommercialDecisionEvidenceLinks.mockResolvedValue({ data: [], error: null });
+    repo.listAdminCommercialDecisionSnapshots.mockResolvedValue({ data: [], error: null });
+    repo.upsertAdminCommercialDecisionEvidenceLink.mockResolvedValue({
+      data: { id: "evidence-link-1", decision_id: "decision-1" },
+      error: null
+    });
     repo.insertAdminCommercialDecisionSnapshot.mockResolvedValue({
       data: {
         id: "snapshot-1",
@@ -131,7 +138,8 @@ describe("commercial decision service", () => {
         contractId: "contract-1",
         values: expect.objectContaining({
           recommended_action: "renegotiate",
-          commercial_risk_level: "critical"
+          commercial_risk_level: "critical",
+          owner_user_id: "owner-1"
         })
       })
     );
@@ -181,7 +189,7 @@ describe("commercial decision service", () => {
 
   it("records approval audit metadata without raw reviewer notes", async () => {
     repo.getAdminCommercialDecisionById.mockResolvedValue({
-      data: decision({ decision_status: "in_approval" }),
+      data: decision({ decision_status: "in_approval", approver_user_id: "approver-1" }),
       error: null
     });
     repo.updateAdminCommercialDecisionStatus.mockResolvedValue({
@@ -216,6 +224,190 @@ describe("commercial decision service", () => {
           reviewer_note: "Reviewer note redacted because it contained sensitive raw content markers."
         })
       })
+    );
+  });
+
+  it("returns the existing active decision when a duplicate create hits the unique constraint", async () => {
+    const existing = decision({ id: "decision-existing", decision_status: "ready_for_review" });
+    repo.getAdminActiveCommercialDecisionByContractId
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: existing, error: null });
+    repo.insertAdminCommercialDecision.mockResolvedValue({
+      data: null,
+      error: Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" })
+    });
+    contractQueries.getContractById.mockResolvedValue({
+      id: "contract-1",
+      owner_user_id: "owner-1",
+      cycle_status: "active",
+      renewal_decision_status: "undecided",
+      contract_metadata: {
+        renewal_date: "2030-05-01",
+        notice_deadline_date: "2030-03-01"
+      },
+      reminders: [{ status: "scheduled" }]
+    });
+    extraction.listContractExtractedFields.mockResolvedValue([]);
+    quote.listQuoteComparisons.mockResolvedValue([]);
+    quote.listQuoteFindings.mockResolvedValue([]);
+    quote.listSavingsOpportunities.mockResolvedValue([]);
+    const { createCommercialDecisionForContract } = await import(
+      "@/lib/commercial-decision-workbench/commercial-decision-workbench"
+    );
+
+    await expect(
+      createCommercialDecisionForContract({
+        organizationId: "org-1",
+        contractId: "contract-1",
+        actorUserId: "user-1"
+      })
+    ).resolves.toBe(existing);
+    expect(audit.recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: "commercial_decision.duplicate_create_resolved" })
+    );
+  });
+
+  it("recompute preserves assigned approver, refreshes evidence, and does not duplicate link inserts", async () => {
+    repo.getAdminCommercialDecisionById.mockResolvedValue({
+      data: decision({ decision_status: "ready_for_review", approver_user_id: "approver-1" }),
+      error: null
+    });
+    repo.updateAdminCommercialDecision.mockResolvedValue({
+      data: decision({ decision_status: "ready_for_review", approver_user_id: "approver-1", owner_user_id: "owner-2" }),
+      error: null
+    });
+    contractQueries.getContractById.mockResolvedValue({
+      id: "contract-1",
+      owner_user_id: "owner-2",
+      cycle_status: "active",
+      renewal_decision_status: "undecided",
+      contract_metadata: {
+        renewal_date: "2030-05-01",
+        notice_deadline_date: "2030-03-01"
+      },
+      reminders: [{ status: "scheduled" }]
+    });
+    extraction.listContractExtractedFields.mockResolvedValue([{ id: "field-1", field_key: "renewal_date", confidence: 0.9, evidence_status: "accepted" }]);
+    quote.listQuoteComparisons.mockResolvedValue([
+      {
+        id: "comparison-1",
+        status: "completed",
+        overall_risk_level: "low",
+        price_delta_percent: 1,
+        price_delta_amount: 100,
+        currency: "USD"
+      }
+    ]);
+    quote.listQuoteFindings.mockResolvedValue([]);
+    quote.listSavingsOpportunities.mockResolvedValue([]);
+    const { recomputeCommercialDecision } = await import("@/lib/commercial-decision-workbench/commercial-decision-workbench");
+
+    await recomputeCommercialDecision({ organizationId: "org-1", decisionId: "decision-1", actorUserId: "user-1" });
+
+    expect(repo.updateAdminCommercialDecision).toHaveBeenCalledWith(
+      expect.objectContaining({
+        values: expect.objectContaining({
+          owner_user_id: "owner-2",
+          approver_user_id: "approver-1"
+        })
+      })
+    );
+    expect(repo.upsertAdminCommercialDecisionEvidenceLink).toHaveBeenCalled();
+    expect(repo.insertAdminCommercialDecisionEvidenceLink).not.toHaveBeenCalled();
+    expect(audit.recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: "commercial_decision.evidence_refreshed" })
+    );
+  });
+
+  it("does not create a decision during workbench reads", async () => {
+    repo.getAdminActiveCommercialDecisionByContractId.mockResolvedValue({ data: null, error: null });
+    const { getCommercialDecisionWorkbench } = await import(
+      "@/lib/commercial-decision-workbench/commercial-decision-workbench"
+    );
+
+    const workbench = await getCommercialDecisionWorkbench({ organizationId: "org-1", contractId: "contract-1" });
+
+    expect(workbench).toEqual({ decision: null, evidenceLinks: [], approvalSteps: [], snapshots: [] });
+    expect(repo.insertAdminCommercialDecision).not.toHaveBeenCalled();
+  });
+
+  it("requires an approver assignment before submitting for approval", async () => {
+    repo.getAdminCommercialDecisionById.mockResolvedValue({
+      data: decision({ decision_status: "ready_for_review", approver_user_id: null }),
+      error: null
+    });
+    const { submitCommercialDecisionForReview } = await import(
+      "@/lib/commercial-decision-workbench/commercial-decision-workbench"
+    );
+
+    await expect(
+      submitCommercialDecisionForReview({ organizationId: "org-1", decisionId: "decision-1", actorUserId: "user-1" })
+    ).rejects.toMatchObject({ name: "CommercialDecisionTransitionError" });
+    expect(repo.updateAdminCommercialDecisionStatus).not.toHaveBeenCalled();
+    expect(audit.recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: "commercial_decision.approval_blocked" })
+    );
+  });
+
+  it("allows only the assigned approver to approve", async () => {
+    repo.getAdminCommercialDecisionById.mockResolvedValue({
+      data: decision({ decision_status: "in_approval", approver_user_id: "approver-1" }),
+      error: null
+    });
+    const { approveCommercialDecision } = await import("@/lib/commercial-decision-workbench/commercial-decision-workbench");
+
+    await expect(
+      approveCommercialDecision({ organizationId: "org-1", decisionId: "decision-1", actorUserId: "admin-1" })
+    ).rejects.toMatchObject({ name: "CommercialDecisionTransitionError" });
+    expect(repo.updateAdminCommercialDecisionStatus).not.toHaveBeenCalled();
+  });
+
+  it("reassigns approver with safe audit metadata", async () => {
+    repo.getAdminCommercialDecisionById.mockResolvedValue({
+      data: decision({ decision_status: "ready_for_review", approver_user_id: "approver-1" }),
+      error: null
+    });
+    repo.updateAdminCommercialDecision.mockResolvedValue({
+      data: decision({ decision_status: "ready_for_review", approver_user_id: "approver-2" }),
+      error: null
+    });
+    const { reassignCommercialDecisionApprover } = await import(
+      "@/lib/commercial-decision-workbench/commercial-decision-workbench"
+    );
+
+    await reassignCommercialDecisionApprover({
+      organizationId: "org-1",
+      decisionId: "decision-1",
+      actorUserId: "operator-1",
+      newApproverUserId: "approver-2"
+    });
+
+    expect(audit.recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "commercial_decision.approver_reassigned",
+        metadata: expect.objectContaining({
+          previousApproverUserId: "approver-1",
+          newApproverUserId: "approver-2"
+        })
+      })
+    );
+  });
+
+  it("returns a conflict when a status transition loses the compare-and-set race", async () => {
+    repo.getAdminCommercialDecisionById.mockResolvedValue({
+      data: decision({ decision_status: "approved" }),
+      error: null
+    });
+    repo.updateAdminCommercialDecisionStatus.mockResolvedValue({ data: null, error: null });
+    const { finalizeCommercialDecision } = await import(
+      "@/lib/commercial-decision-workbench/commercial-decision-workbench"
+    );
+
+    await expect(
+      finalizeCommercialDecision({ organizationId: "org-1", decisionId: "decision-1", actorUserId: "user-1" })
+    ).rejects.toMatchObject({ name: "CommercialDecisionConflictError" });
+    expect(repo.updateAdminCommercialDecisionStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ expectedStatus: "approved" })
     );
   });
 

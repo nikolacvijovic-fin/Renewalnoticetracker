@@ -116,6 +116,10 @@ create index if not exists idx_renewal_commercial_decisions_org_status
 create index if not exists idx_renewal_commercial_decisions_org_contract
   on public.renewal_commercial_decisions(organization_id, contract_id);
 
+create unique index if not exists idx_renewal_commercial_decisions_one_active_per_contract
+  on public.renewal_commercial_decisions(organization_id, contract_id)
+  where decision_status <> 'archived';
+
 create index if not exists idx_renewal_commercial_decisions_org_risk
   on public.renewal_commercial_decisions(organization_id, commercial_risk_level);
 
@@ -127,6 +131,15 @@ create index if not exists idx_renewal_commercial_decisions_owner
 
 create index if not exists idx_renewal_decision_evidence_links_decision
   on public.renewal_decision_evidence_links(organization_id, decision_id, evidence_type);
+
+create unique index if not exists idx_renewal_decision_evidence_links_unique_evidence
+  on public.renewal_decision_evidence_links(
+    organization_id,
+    decision_id,
+    evidence_type,
+    coalesce(evidence_id::text, ''),
+    evidence_label
+  );
 
 create index if not exists idx_renewal_decision_approval_steps_decision
   on public.renewal_decision_approval_steps(organization_id, decision_id, step_order);

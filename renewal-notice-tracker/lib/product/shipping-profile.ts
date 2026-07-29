@@ -61,6 +61,7 @@ export const SHIPPED_FIRST_SCOPE = {
     "counterparty_normalization_v1",
     "saas_software_inventory",
     "cfo_opt_out_clock",
+    "internal_outreach_draft_intelligence",
     "paddle_primary_billing",
     "manual_invoice_exceptions",
     "customer_services_onboarding_import_cleanup_renewal_ops"
@@ -78,7 +79,8 @@ export const SHIPPED_FIRST_SCOPE = {
     "customer_visible_health_scores",
     "customer_visible_readiness_or_capacity_scores",
     "customer_visible_internal_analytics",
-    "granular_enterprise_rbac"
+    "granular_enterprise_rbac",
+    "external_cold_outreach_delivery"
   ],
   internalOnlyFeatures: [
     "internal_ops_dashboard",
@@ -106,6 +108,7 @@ export const SHIPPED_FIRST_SCOPE = {
     { href: "/dashboard/risk-queue", label: "Risk Queue" },
     { href: "/dashboard/financial-intelligence", label: "Financial" },
     { href: "/dashboard/procurement-analytics", label: "Procurement" },
+    { href: "/dashboard/internal-outreach", label: "Outreach Drafts" },
     { href: "/dashboard/saas-opt-out-clock", label: "Opt-Out Clock" },
     { href: "/dashboard/contracts", label: "Contracts" },
     { href: "/dashboard/settings", label: "Settings" },

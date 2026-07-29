@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const auth = vi.hoisted(() => ({
   requireOrganization: vi.fn(),
-  assertCanUseShippedAction: vi.fn()
+  assertCanUseShippedAction: vi.fn(),
+  hasRequiredRole: vi.fn((role: string, allowedRoles: string[]) => allowedRoles.includes(role))
 }));
 const queries = vi.hoisted(() => ({ requireScopedContract: vi.fn() }));
 const service = vi.hoisted(() => ({
@@ -14,6 +15,7 @@ const service = vi.hoisted(() => ({
   finalizeCommercialDecision: vi.fn(),
   recomputeCommercialDecision: vi.fn(),
   rejectCommercialDecision: vi.fn(),
+  reassignCommercialDecisionApprover: vi.fn(),
   submitCommercialDecisionForReview: vi.fn(),
   updateCommercialDecisionNegotiationPosture: vi.fn(),
   updateCommercialDecisionRecommendedAction: vi.fn()
@@ -113,5 +115,41 @@ describe("commercial decision actions", () => {
       })
     );
     expect(JSON.stringify(result)).not.toContain("raw note text");
+  });
+
+  it("allows admin or operator approver reassignment through the action boundary", async () => {
+    auth.requireOrganization.mockResolvedValueOnce({
+      organizationId: "org-1",
+      role: "operator",
+      user: { id: "operator-1" }
+    });
+    const { reassignCommercialDecisionApproverAction } = await import("@/lib/actions/commercial-decision-workbench");
+    const formData = new FormData();
+    formData.set("approver_user_id", "approver-2");
+
+    const result = await reassignCommercialDecisionApproverAction("decision-1", "contract-1", formData);
+
+    expect(result).toEqual({ ok: true, message: "Commercial decision approver reassigned." });
+    expect(service.reassignCommercialDecisionApprover).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      decisionId: "decision-1",
+      actorUserId: "operator-1",
+      newApproverUserId: "approver-2"
+    });
+  });
+
+  it("blocks reviewer approver reassignment before the service layer", async () => {
+    const { reassignCommercialDecisionApproverAction } = await import("@/lib/actions/commercial-decision-workbench");
+    const formData = new FormData();
+    formData.set("approver_user_id", "approver-2");
+
+    const result = await reassignCommercialDecisionApproverAction("decision-1", "contract-1", formData);
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Commercial decision approver reassignment requires an admin or operator.",
+      code: "ERR_COMMERCIAL_DECISION_ACTION_FAILED_001"
+    });
+    expect(service.reassignCommercialDecisionApprover).not.toHaveBeenCalled();
   });
 });

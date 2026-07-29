@@ -31,13 +31,21 @@ import {
   updateAdminCommercialDecisionApprovalStep,
   updateAdminCommercialDecisionNegotiationPosture,
   updateAdminCommercialDecisionRecommendedAction,
-  updateAdminCommercialDecisionStatus
+  updateAdminCommercialDecisionStatus,
+  upsertAdminCommercialDecisionEvidenceLink
 } from "@/lib/commercial-decision-workbench/repositories/admin-commercial-decision-repository";
 
 export class CommercialDecisionTransitionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "CommercialDecisionTransitionError";
+  }
+}
+
+export class CommercialDecisionConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CommercialDecisionConflictError";
   }
 }
 
@@ -58,7 +66,7 @@ function sanitizeReviewerNote(value: string | null | undefined) {
   return normalized.length > 600 ? `${normalized.slice(0, 597)}...` : normalized;
 }
 
-function valuesFromScore(score: CommercialDecisionScore) {
+function valuesFromScore(score: CommercialDecisionScore, existing?: Pick<CommercialDecision, "approver_user_id"> | null) {
   return {
     recommended_action: score.recommendedAction,
     decision_status: score.decisionStatus,
@@ -70,6 +78,8 @@ function valuesFromScore(score: CommercialDecisionScore) {
     commercial_impact: score.commercialImpact,
     renewal_deadline: score.renewalDeadline,
     notice_deadline: score.noticeDeadline,
+    owner_user_id: score.ownerUserId,
+    approver_user_id: existing?.approver_user_id ?? null,
     decision_summary: score.decisionSummary,
     blocker_codes: score.blockerCodes,
     warning_codes: score.warningCodes
@@ -129,7 +139,7 @@ async function auditDecision(input: {
   });
 }
 
-export async function buildCommercialDecisionScore(input: {
+async function loadCommercialDecisionEvidenceContext(input: {
   organizationId: string;
   contractId: string;
 }) {
@@ -162,8 +172,17 @@ export async function buildCommercialDecisionScore(input: {
   const activeReminders = (contract.reminders ?? []).filter((reminder: { status?: string }) =>
     !["cancelled", "superseded"].includes(reminder.status ?? "")
   );
+  const trustedReminderReadinessStatus = evaluateTrustedReminderReadiness({
+    ownerUserId: contract.owner_user_id,
+    renewalDate: metadata?.renewal_date ?? null,
+    noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
+    needsReview: Boolean(metadata?.needs_review || metadata?.has_weak_evidence),
+    activeReminderCount: activeReminders.length,
+    cycleStatus: contract.cycle_status ?? null,
+    renewalDecisionStatus: contract.renewal_decision_status ?? null
+  });
 
-  return scoreCommercialDecision({
+  const score = scoreCommercialDecision({
     contract: {
       id: contract.id,
       owner_user_id: contract.owner_user_id,
@@ -179,10 +198,172 @@ export async function buildCommercialDecisionScore(input: {
     quoteFindings,
     savingsOpportunities,
     trustedReminderGate: {
-      blocked: activeReminders.length === 0,
-      blockerCodes: activeReminders.length === 0 ? ["trusted_reminder_blocked"] : []
+      status: trustedReminderReadinessStatus,
+      blocked: trustedReminderReadinessStatus.startsWith("configured_blocked"),
+      blockerCodes: trustedReminderReadinessStatus.startsWith("configured_blocked") ? ["trusted_reminder_blocked"] : [],
+      warningCodes: trustedReminderReadinessStatus === "not_configured" ? ["trusted_reminder_not_configured"] : []
     }
   });
+
+  return {
+    contract,
+    metadata,
+    activeReminders,
+    extractedFields,
+    quoteComparisons,
+    quoteFindings,
+    savingsOpportunities,
+    trustedReminderReadinessStatus,
+    score
+  };
+}
+
+export async function buildCommercialDecisionScore(input: {
+  organizationId: string;
+  contractId: string;
+}) {
+  const context = await loadCommercialDecisionEvidenceContext(input);
+  return context.score;
+}
+
+async function refreshCoreDecisionEvidence(input: {
+  organizationId: string;
+  decision: CommercialDecision;
+  evidenceContext: Awaited<ReturnType<typeof loadCommercialDecisionEvidenceContext>>;
+  actorUserId?: string | null;
+}) {
+  const links: Array<{
+    evidenceType: CommercialDecisionEvidenceType;
+    evidenceId?: string | null;
+    evidenceLabel: string;
+    confidence?: number | null;
+    riskLevel?: string | null;
+    metadata?: Record<string, unknown>;
+  }> = [];
+  const latestCompletedQuote = input.evidenceContext.quoteComparisons.find((comparison) => comparison.status === "completed");
+  if (latestCompletedQuote) {
+    links.push({
+      evidenceType: "renewal_quote_comparison",
+      evidenceId: latestCompletedQuote.id,
+      evidenceLabel: "Latest completed quote comparison",
+      riskLevel: latestCompletedQuote.overall_risk_level,
+      metadata: {
+        status: latestCompletedQuote.status,
+        priceDeltaPercent: latestCompletedQuote.price_delta_percent,
+        priceDeltaAmount: latestCompletedQuote.price_delta_amount,
+        currency: latestCompletedQuote.currency
+      }
+    });
+  }
+  for (const finding of input.evidenceContext.quoteFindings.filter((entry) =>
+    ["critical", "high"].includes(entry.severity)
+  )) {
+    links.push({
+      evidenceType: "renewal_quote_finding",
+      evidenceId: finding.id,
+      evidenceLabel: `${finding.severity} quote finding: ${finding.finding_type}`,
+      confidence: finding.confidence,
+      riskLevel: finding.severity,
+      metadata: { findingType: finding.finding_type, status: finding.status }
+    });
+  }
+  for (const field of input.evidenceContext.extractedFields) {
+    links.push({
+      evidenceType: "contract_extraction_field",
+      evidenceId: field.id,
+      evidenceLabel: `Accepted extraction field: ${field.field_key}`,
+      confidence: field.confidence,
+      riskLevel: field.confidence < 0.7 ? "medium" : "low",
+      metadata: { fieldKey: field.field_key, evidenceStatus: field.evidence_status }
+    });
+  }
+  for (const opportunity of input.evidenceContext.savingsOpportunities.filter((entry) =>
+    ["open", "in_review", "accepted"].includes(entry.status)
+  )) {
+    links.push({
+      evidenceType: "savings_opportunity",
+      evidenceId: opportunity.id,
+      evidenceLabel: `Open savings opportunity: ${opportunity.opportunity_type}`,
+      confidence: opportunity.confidence,
+      riskLevel: "medium",
+      metadata: {
+        opportunityType: opportunity.opportunity_type,
+        estimatedSavingsAmount: opportunity.estimated_savings_amount,
+        currency: opportunity.currency,
+        status: opportunity.status
+      }
+    });
+  }
+  links.push({
+    evidenceType: "trusted_reminder_gate",
+    evidenceId: null,
+    evidenceLabel: "Trusted reminder readiness",
+    riskLevel: input.evidenceContext.trustedReminderReadinessStatus.startsWith("configured_blocked") ? "high" : "low",
+    metadata: {
+      readinessStatus: input.evidenceContext.trustedReminderReadinessStatus,
+      activeReminderCount: input.evidenceContext.activeReminders.length
+    }
+  });
+
+  await Promise.all(
+    links.map((link) =>
+      upsertAdminCommercialDecisionEvidenceLink({
+        organizationId: input.organizationId,
+        contractId: input.decision.contract_id,
+        decisionId: input.decision.id,
+        createdByUserId: input.actorUserId ?? null,
+        values: {
+          evidence_type: link.evidenceType,
+          evidence_id: link.evidenceId ?? null,
+          evidence_label: link.evidenceLabel.slice(0, 180),
+          confidence: link.confidence ?? null,
+          risk_level: link.riskLevel ?? null,
+          metadata: safeMetadata(link.metadata ?? {})
+        }
+      })
+    )
+  );
+
+  await auditDecision({
+    organizationId: input.organizationId,
+    contractId: input.decision.contract_id,
+    actorUserId: input.actorUserId ?? null,
+    eventType: "commercial_decision.evidence_refreshed",
+    decision: input.decision,
+    metadata: {
+      refreshedEvidenceCount: links.length,
+      refreshedEvidenceTypes: Array.from(new Set(links.map((link) => link.evidenceType)))
+    }
+  });
+}
+
+function evaluateTrustedReminderReadiness(input: {
+  ownerUserId?: string | null;
+  renewalDate?: string | null;
+  noticeDeadlineDate?: string | null;
+  needsReview?: boolean;
+  activeReminderCount: number;
+  cycleStatus?: string | null;
+  renewalDecisionStatus?: string | null;
+}) {
+  if (input.cycleStatus === "closed" || input.renewalDecisionStatus === "no_action_required") {
+    return "not_applicable" as const;
+  }
+  if (input.activeReminderCount === 0) return "not_configured" as const;
+  if (input.needsReview) return "configured_blocked_by_review" as const;
+  if (!input.ownerUserId) return "configured_blocked_by_owner" as const;
+  if (!input.renewalDate && !input.noticeDeadlineDate) return "configured_blocked_by_dates" as const;
+  return "configured_ready" as const;
+}
+
+function isUniqueConflict(error: unknown) {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      ("code" in error || "message" in error) &&
+      ((error as { code?: string }).code === "23505" ||
+        /duplicate key|unique constraint/i.test(String((error as { message?: string }).message ?? "")))
+  );
 }
 
 export async function createDecisionSnapshot(input: {
@@ -250,16 +431,41 @@ export async function createCommercialDecisionForContract(input: {
   if (existing.error) throw existing.error;
   if (existing.data) return existing.data;
 
-  const score = await buildCommercialDecisionScore(input);
+  const evidenceContext = await loadCommercialDecisionEvidenceContext(input);
   const result = await insertAdminCommercialDecision({
     organizationId: input.organizationId,
     contractId: input.contractId,
     createdByUserId: input.actorUserId ?? null,
-    values: valuesFromScore(score)
+    values: valuesFromScore(evidenceContext.score)
   });
-  if (result.error) throw result.error;
+  if (result.error) {
+    if (isUniqueConflict(result.error)) {
+      const resolved = await getAdminActiveCommercialDecisionByContractId({
+        organizationId: input.organizationId,
+        contractId: input.contractId
+      });
+      if (resolved.error) throw resolved.error;
+      if (!resolved.data) throw result.error;
+      await auditDecision({
+        organizationId: input.organizationId,
+        contractId: input.contractId,
+        actorUserId: input.actorUserId ?? null,
+        eventType: "commercial_decision.duplicate_create_resolved",
+        decision: resolved.data,
+        metadata: { resolution: "existing_active_decision_returned" }
+      });
+      return resolved.data;
+    }
+    throw result.error;
+  }
   if (!result.data) throw new Error("Commercial decision was not created.");
 
+  await refreshCoreDecisionEvidence({
+    organizationId: input.organizationId,
+    decision: result.data,
+    evidenceContext,
+    actorUserId: input.actorUserId ?? null
+  });
   await auditDecision({
     organizationId: input.organizationId,
     contractId: input.contractId,
@@ -283,18 +489,24 @@ export async function recomputeCommercialDecision(input: {
 }) {
   const current = await getRequiredDecision(input.organizationId, input.decisionId);
   assertEditable(current);
-  const score = await buildCommercialDecisionScore({
+  const evidenceContext = await loadCommercialDecisionEvidenceContext({
     organizationId: input.organizationId,
     contractId: current.contract_id
   });
   const updated = await updateAdminCommercialDecision({
     organizationId: input.organizationId,
     decisionId: input.decisionId,
-    values: valuesFromScore(score)
+    values: valuesFromScore(evidenceContext.score, current)
   });
   if (updated.error) throw updated.error;
   if (!updated.data) throw new Error("Commercial decision was not recomputed.");
 
+  await refreshCoreDecisionEvidence({
+    organizationId: input.organizationId,
+    decision: updated.data,
+    evidenceContext,
+    actorUserId: input.actorUserId ?? null
+  });
   await auditDecision({
     organizationId: input.organizationId,
     contractId: current.contract_id,
@@ -325,6 +537,18 @@ export async function submitCommercialDecisionForReview(input: {
   if (decision.blocker_codes.length > 0 && !decision.blocker_codes.every((code) => code === "missing_quote_comparison")) {
     throw new CommercialDecisionTransitionError("Blocked commercial decisions cannot be submitted for review.");
   }
+  const approverUserId = input.approverUserId ?? decision.approver_user_id;
+  if (!approverUserId) {
+    await auditDecision({
+      organizationId: input.organizationId,
+      contractId: decision.contract_id,
+      actorUserId: input.actorUserId ?? null,
+      eventType: "commercial_decision.approval_blocked",
+      decision,
+      metadata: { reasonCode: "approver_assignment_required", approvalAuthorityMode: "assigned_approver_required" }
+    });
+    throw new CommercialDecisionTransitionError("Commercial decision requires an assigned approver before review.");
+  }
   const updated = await transitionDecision({
     organizationId: input.organizationId,
     decision,
@@ -332,8 +556,9 @@ export async function submitCommercialDecisionForReview(input: {
     eventType: "commercial_decision.submitted_for_review",
     values: {
       decision_status: "in_approval",
-      approver_user_id: input.approverUserId ?? decision.approver_user_id
-    }
+      approver_user_id: approverUserId
+    },
+    metadata: { assignedApproverUserId: approverUserId, approvalAuthorityMode: "assigned_approver" }
   });
   await insertAdminCommercialDecisionApprovalStep({
     organizationId: input.organizationId,
@@ -342,7 +567,7 @@ export async function submitCommercialDecisionForReview(input: {
     values: {
       step_order: 1,
       status: "pending",
-      approver_user_id: input.approverUserId ?? decision.approver_user_id ?? null
+      approver_user_id: approverUserId
     }
   });
   return updated;
@@ -358,6 +583,33 @@ export async function approveCommercialDecision(input: {
   if (decision.decision_status !== "in_approval") {
     throw new CommercialDecisionTransitionError("Commercial decision must be in approval before approval.");
   }
+  if (!decision.approver_user_id) {
+    await auditDecision({
+      organizationId: input.organizationId,
+      contractId: decision.contract_id,
+      actorUserId: input.actorUserId,
+      eventType: "commercial_decision.approval_blocked",
+      decision,
+      metadata: { reasonCode: "approver_assignment_required", approvalAuthorityMode: "assigned_approver_required" }
+    });
+    throw new CommercialDecisionTransitionError("Commercial decision approval requires an assigned approver.");
+  }
+  if (decision.approver_user_id !== input.actorUserId) {
+    await auditDecision({
+      organizationId: input.organizationId,
+      contractId: decision.contract_id,
+      actorUserId: input.actorUserId,
+      eventType: "commercial_decision.approval_blocked",
+      decision,
+      metadata: {
+        reasonCode: "acting_user_not_assigned_approver",
+        assignedApproverUserId: decision.approver_user_id,
+        actingApproverUserId: input.actorUserId,
+        approvalAuthorityMode: "assigned_approver"
+      }
+    });
+    throw new CommercialDecisionTransitionError("Only the assigned approver can approve this commercial decision.");
+  }
   const updated = await transitionDecision({
     organizationId: input.organizationId,
     decision,
@@ -368,7 +620,12 @@ export async function approveCommercialDecision(input: {
       approved_at: new Date().toISOString(),
       approver_user_id: input.actorUserId
     },
-    metadata: { reviewerNoteRecorded: Boolean(input.reviewerNote?.trim()) }
+    metadata: {
+      reviewerNoteRecorded: Boolean(input.reviewerNote?.trim()),
+      assignedApproverUserId: decision.approver_user_id,
+      actingApproverUserId: input.actorUserId,
+      approvalAuthorityMode: "assigned_approver"
+    }
   });
   await markPendingApprovalStep({
     organizationId: input.organizationId,
@@ -378,6 +635,42 @@ export async function approveCommercialDecision(input: {
     reviewerNote: input.reviewerNote
   });
   return updated;
+}
+
+export async function reassignCommercialDecisionApprover(input: {
+  organizationId: string;
+  decisionId: string;
+  actorUserId: string;
+  newApproverUserId: string;
+}) {
+  const decision = await getRequiredDecision(input.organizationId, input.decisionId);
+  assertEditable(decision);
+  if (decision.decision_status === "approved" || decision.decision_status === "rejected") {
+    throw new CommercialDecisionTransitionError("Approved or rejected commercial decisions require a new review cycle before reassignment.");
+  }
+  const result = await updateAdminCommercialDecision({
+    organizationId: input.organizationId,
+    decisionId: input.decisionId,
+    values: {
+      approver_user_id: input.newApproverUserId
+    }
+  });
+  if (result.error) throw result.error;
+  if (!result.data) throw new Error("Commercial decision approver was not reassigned.");
+  await auditDecision({
+    organizationId: input.organizationId,
+    contractId: decision.contract_id,
+    actorUserId: input.actorUserId,
+    eventType: "commercial_decision.approver_reassigned",
+    previousStatus: decision.decision_status,
+    decision: result.data,
+    metadata: {
+      previousApproverUserId: decision.approver_user_id,
+      newApproverUserId: input.newApproverUserId,
+      approvalAuthorityMode: "assigned_approver"
+    }
+  });
+  return result.data;
 }
 
 export async function rejectCommercialDecision(input: {
@@ -390,6 +683,33 @@ export async function rejectCommercialDecision(input: {
   if (decision.decision_status !== "in_approval") {
     throw new CommercialDecisionTransitionError("Commercial decision must be in approval before rejection.");
   }
+  if (!decision.approver_user_id) {
+    await auditDecision({
+      organizationId: input.organizationId,
+      contractId: decision.contract_id,
+      actorUserId: input.actorUserId,
+      eventType: "commercial_decision.approval_blocked",
+      decision,
+      metadata: { reasonCode: "approver_assignment_required", approvalAuthorityMode: "assigned_approver_required" }
+    });
+    throw new CommercialDecisionTransitionError("Commercial decision rejection requires an assigned approver.");
+  }
+  if (decision.approver_user_id !== input.actorUserId) {
+    await auditDecision({
+      organizationId: input.organizationId,
+      contractId: decision.contract_id,
+      actorUserId: input.actorUserId,
+      eventType: "commercial_decision.approval_blocked",
+      decision,
+      metadata: {
+        reasonCode: "acting_user_not_assigned_approver",
+        assignedApproverUserId: decision.approver_user_id,
+        actingApproverUserId: input.actorUserId,
+        approvalAuthorityMode: "assigned_approver"
+      }
+    });
+    throw new CommercialDecisionTransitionError("Only the assigned approver can reject this commercial decision.");
+  }
   const updated = await transitionDecision({
     organizationId: input.organizationId,
     decision,
@@ -399,7 +719,12 @@ export async function rejectCommercialDecision(input: {
       decision_status: "rejected",
       rejected_at: new Date().toISOString()
     },
-    metadata: { reviewerNoteRecorded: Boolean(input.reviewerNote?.trim()) }
+    metadata: {
+      reviewerNoteRecorded: Boolean(input.reviewerNote?.trim()),
+      assignedApproverUserId: decision.approver_user_id,
+      actingApproverUserId: input.actorUserId,
+      approvalAuthorityMode: "assigned_approver"
+    }
   });
   await markPendingApprovalStep({
     organizationId: input.organizationId,
@@ -558,12 +883,15 @@ export async function getCommercialDecisionWorkbench(input: {
 }) {
   const decision = await getAdminActiveCommercialDecisionByContractId(input);
   if (decision.error) throw decision.error;
-  const activeDecision =
-    decision.data ??
-    (await createCommercialDecisionForContract({
-      organizationId: input.organizationId,
-      contractId: input.contractId
-    }));
+  if (!decision.data) {
+    return {
+      decision: null,
+      evidenceLinks: [],
+      approvalSteps: [],
+      snapshots: []
+    };
+  }
+  const activeDecision = decision.data;
   const [evidence, approvals, snapshots] = await Promise.all([
     listAdminCommercialDecisionEvidenceLinks({
       organizationId: input.organizationId,
@@ -601,10 +929,13 @@ async function transitionDecision(input: {
   const result = await updateAdminCommercialDecisionStatus({
     organizationId: input.organizationId,
     decisionId: input.decision.id,
+    expectedStatus: input.decision.decision_status,
     values: input.values
   });
   if (result.error) throw result.error;
-  if (!result.data) throw new Error("Commercial decision transition failed.");
+  if (!result.data) {
+    throw new CommercialDecisionConflictError("Commercial decision changed while the transition was being applied.");
+  }
   await auditDecision({
     organizationId: input.organizationId,
     contractId: input.decision.contract_id,

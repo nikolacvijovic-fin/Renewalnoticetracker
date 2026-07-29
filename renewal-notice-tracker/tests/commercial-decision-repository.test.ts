@@ -22,7 +22,9 @@ describe("commercial decision admin repository", () => {
         "getAdminActiveCommercialDecisionByContractId",
         "listAdminCommercialDecisions",
         "updateAdminCommercialDecision",
+        "updateAdminCommercialDecisionStatus",
         "insertAdminCommercialDecisionEvidenceLink",
+        "upsertAdminCommercialDecisionEvidenceLink",
         "insertAdminCommercialDecisionApprovalStep",
         "updateAdminCommercialDecisionApprovalStep",
         "insertAdminCommercialDecisionSnapshot",
@@ -50,5 +52,13 @@ describe("commercial decision admin repository", () => {
 
   it("does not expose archived decisions as the active contract decision", () => {
     expect(repository).toContain('.neq("decision_status", "archived")');
+  });
+
+  it("uses compare-and-set status updates and idempotent evidence refresh", () => {
+    expect(repository).toContain("expectedStatus");
+    expect(repository).toContain('.eq("decision_status", input.expectedStatus)');
+    expect(repository).toContain("upsertAdminCommercialDecisionEvidenceLink");
+    expect(repository).toContain(".maybeSingle()");
+    expect(repository).toContain('.eq("decision_id", input.decisionId)');
   });
 });

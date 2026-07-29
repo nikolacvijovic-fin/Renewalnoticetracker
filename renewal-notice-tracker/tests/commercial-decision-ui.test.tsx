@@ -1,5 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CommercialDecisionEmptyState } from "@/components/commercial-decision/commercial-decision-empty-state";
 import { CommercialDecisionWorkbenchPanel } from "@/components/commercial-decision/commercial-decision-workbench-panel";
 import type {
   CommercialDecision,
@@ -14,10 +15,13 @@ vi.mock("@/lib/actions/commercial-decision-workbench", () => ({
   archiveCommercialDecisionFormAction: vi.fn(),
   changeCommercialDecisionNegotiationPostureFormAction: vi.fn(),
   changeCommercialDecisionRecommendedActionFormAction: vi.fn(),
+  createCommercialDecisionFormAction: vi.fn(),
   finalizeCommercialDecisionFormAction: vi.fn(),
+  reassignCommercialDecisionApproverFormAction: vi.fn(),
   recomputeCommercialDecisionFormAction: vi.fn(),
   rejectCommercialDecisionFormAction: vi.fn(),
-  submitCommercialDecisionForReviewFormAction: vi.fn()
+  submitCommercialDecisionForReviewFormAction: vi.fn(),
+  submitCommercialDecisionForReviewWithApproverFormAction: vi.fn()
 }));
 
 afterEach(() => cleanup());
@@ -111,18 +115,32 @@ const snapshots: CommercialDecisionSnapshot[] = [
 ];
 
 describe("CommercialDecisionWorkbenchPanel", () => {
-  it("renders the decision truth users need to act", () => {
-    render(
+  function renderPanel(overrides: Partial<CommercialDecision> = {}, options: { currentUserId?: string; canAct?: boolean; canReassignApprover?: boolean } = {}) {
+    return render(
       <CommercialDecisionWorkbenchPanel
-        decision={decision}
+        decision={{ ...decision, ...overrides }}
         evidenceLinks={evidenceLinks}
         approvalSteps={approvals}
         snapshots={snapshots}
         ownerLabel="Alex Owner"
         approverLabel="Priya Approver"
-        canAct
+        approverOptions={[{ userId: "approver-1", label: "Priya Approver" }]}
+        currentUserId={options.currentUserId ?? "approver-1"}
+        canAct={options.canAct ?? true}
+        canReassignApprover={options.canReassignApprover ?? true}
+        negotiationWorkflow={{
+          brief: null,
+          evidenceLinks: [],
+          drafts: [],
+          approvalSteps: [],
+          playbookItems: []
+        }}
       />
     );
+  }
+
+  it("renders the decision truth users need to act", () => {
+    renderPanel();
 
     expect(screen.getByText("Commercial Decision Workbench")).toBeInTheDocument();
     expect(screen.getAllByText("renegotiate").length).toBeGreaterThanOrEqual(1);
@@ -133,22 +151,39 @@ describe("CommercialDecisionWorkbenchPanel", () => {
     expect(screen.getByText("Critical renewal price increase")).toBeInTheDocument();
     expect(screen.getByText("pending")).toBeInTheDocument();
     expect(screen.getByText("Approve")).toBeInTheDocument();
+    expect(screen.getByText("Alex Owner")).toBeInTheDocument();
   });
 
   it("hides mutation actions from read-only viewers", () => {
-    render(
-      <CommercialDecisionWorkbenchPanel
-        decision={decision}
-        evidenceLinks={evidenceLinks}
-        approvalSteps={approvals}
-        snapshots={snapshots}
-        ownerLabel="Alex Owner"
-        approverLabel="Priya Approver"
-        canAct={false}
-      />
-    );
+    renderPanel({}, { canAct: false });
 
     expect(screen.queryByText("Approve")).not.toBeInTheDocument();
     expect(screen.getByText("Commercial Decision Workbench")).toBeInTheDocument();
+  });
+
+  it("shows only assigned-approver controls while in approval", () => {
+    renderPanel({}, { currentUserId: "reviewer-2" });
+
+    expect(screen.queryByText("Approve")).not.toBeInTheDocument();
+    expect(screen.queryByText("Reject")).not.toBeInTheDocument();
+    expect(screen.getByText("Only the assigned approver can approve or reject this decision.")).toBeInTheDocument();
+  });
+
+  it("shows finalize only after approval and hides mutating controls for finalized decisions", () => {
+    renderPanel({ decision_status: "approved", blocker_codes: [] });
+    expect(screen.getByText("Finalize")).toBeInTheDocument();
+    cleanup();
+
+    renderPanel({ decision_status: "finalized", blocker_codes: [] });
+    expect(screen.queryByText("Finalize")).not.toBeInTheDocument();
+    expect(screen.queryByText("Archive")).not.toBeInTheDocument();
+    expect(screen.queryByText("Record note snapshot")).not.toBeInTheDocument();
+  });
+
+  it("renders a read-only empty state with explicit creation action", () => {
+    render(<CommercialDecisionEmptyState contractId="contract-1" canCreate />);
+
+    expect(screen.getByText("No commercial decision has been created yet")).toBeInTheDocument();
+    expect(screen.getByText("Create decision")).toBeInTheDocument();
   });
 });

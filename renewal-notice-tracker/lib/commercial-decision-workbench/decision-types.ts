@@ -41,6 +41,13 @@ export type CommercialRiskLevel = (typeof COMMERCIAL_RISK_LEVELS)[number];
 export type CommercialApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 export type EvidenceConfidence = "missing" | "weak" | "medium" | "strong";
 export type ReadinessStatus = "blocked" | "evidence_pending" | "ready_for_review";
+export type TrustedReminderReadinessStatus =
+  | "not_configured"
+  | "configured_ready"
+  | "configured_blocked_by_review"
+  | "configured_blocked_by_owner"
+  | "configured_blocked_by_dates"
+  | "not_applicable";
 
 export type CommercialDecisionBlockerCode =
   | "missing_owner"
@@ -56,7 +63,8 @@ export type CommercialDecisionWarningCode =
   | "high_savings_opportunity"
   | "quote_not_reviewed"
   | "notice_deadline_near"
-  | "missing_notice_deadline";
+  | "missing_notice_deadline"
+  | "trusted_reminder_not_configured";
 
 export type CommercialDecisionEvidenceType =
   | "contract_metadata"
@@ -190,9 +198,10 @@ export type CommercialDecisionScoreInput = {
     status: string;
   }>;
   trustedReminderGate?: {
-    status?: string | null;
+    status?: TrustedReminderReadinessStatus | string | null;
     blocked?: boolean;
     blockerCodes?: string[];
+    warningCodes?: string[];
   } | null;
   now?: string | Date;
 };
@@ -207,6 +216,8 @@ export type CommercialDecisionScore = {
   currency: string | null;
   renewalDeadline: string | null;
   noticeDeadline: string | null;
+  ownerUserId: string | null;
+  trustedReminderReadinessStatus: TrustedReminderReadinessStatus;
   blockerCodes: CommercialDecisionBlockerCode[];
   warningCodes: CommercialDecisionWarningCode[];
   readinessStatus: ReadinessStatus;

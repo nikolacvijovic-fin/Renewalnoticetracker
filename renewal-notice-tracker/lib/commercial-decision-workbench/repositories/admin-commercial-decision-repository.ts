@@ -86,12 +86,21 @@ export async function updateAdminCommercialDecision(input: {
     .single() as unknown as Promise<{ data: CommercialDecision | null; error: Error | null }>;
 }
 
-export function updateAdminCommercialDecisionStatus(input: {
+export async function updateAdminCommercialDecisionStatus(input: {
   organizationId: string;
   decisionId: string;
+  expectedStatus?: string;
   values: Record<string, unknown>;
 }) {
-  return updateAdminCommercialDecision(input);
+  let query = admin()
+    .from("renewal_commercial_decisions")
+    .update({ ...input.values, updated_at: new Date().toISOString() } as never)
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.decisionId);
+  if (input.expectedStatus) query = query.eq("decision_status", input.expectedStatus);
+  return query
+    .select("*")
+    .maybeSingle() as unknown as Promise<{ data: CommercialDecision | null; error: Error | null }>;
 }
 
 export function updateAdminCommercialDecisionRecommendedAction(input: {
@@ -128,6 +137,62 @@ export async function insertAdminCommercialDecisionEvidenceLink(input: {
     } as never)
     .select("*")
     .single() as unknown as Promise<{ data: CommercialDecisionEvidenceLink | null; error: Error | null }>;
+}
+
+export async function upsertAdminCommercialDecisionEvidenceLink(input: {
+  organizationId: string;
+  contractId: string;
+  decisionId: string;
+  createdByUserId?: string | null;
+  values: {
+    evidence_type: string;
+    evidence_id?: string | null;
+    evidence_label: string;
+    confidence?: number | null;
+    risk_level?: string | null;
+    metadata?: Record<string, unknown>;
+  };
+}) {
+  let existing = admin()
+    .from("renewal_decision_evidence_links")
+    .select("*")
+    .eq("organization_id", input.organizationId)
+    .eq("decision_id", input.decisionId)
+    .eq("evidence_type", input.values.evidence_type)
+    .eq("evidence_label", input.values.evidence_label);
+
+  existing = input.values.evidence_id
+    ? existing.eq("evidence_id", input.values.evidence_id)
+    : existing.is("evidence_id", null);
+
+  const current = (await existing.maybeSingle()) as unknown as {
+    data: CommercialDecisionEvidenceLink | null;
+    error: Error | null;
+  };
+  if (current.error) return current;
+
+  if (current.data) {
+    return admin()
+      .from("renewal_decision_evidence_links")
+      .update({
+        confidence: input.values.confidence ?? null,
+        risk_level: input.values.risk_level ?? null,
+        metadata: input.values.metadata ?? {},
+        updated_at: new Date().toISOString()
+      } as never)
+      .eq("organization_id", input.organizationId)
+      .eq("id", current.data.id)
+      .select("*")
+      .single() as unknown as Promise<{ data: CommercialDecisionEvidenceLink | null; error: Error | null }>;
+  }
+
+  return insertAdminCommercialDecisionEvidenceLink({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    decisionId: input.decisionId,
+    createdByUserId: input.createdByUserId ?? null,
+    values: input.values
+  });
 }
 
 export async function insertAdminCommercialDecisionApprovalStep(input: {

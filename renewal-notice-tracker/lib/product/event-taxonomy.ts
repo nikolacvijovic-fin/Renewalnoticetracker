@@ -114,7 +114,124 @@ const commercialDecisionSafeMetadata = [
   "evidence_type",
   "snapshot_id",
   "snapshot_type",
-  "reviewer_note_recorded"
+  "reviewer_note_recorded",
+  "assigned_approver_user_id",
+  "acting_approver_user_id",
+  "previous_approver_user_id",
+  "new_approver_user_id",
+  "approval_authority_mode",
+  "reason_code",
+  "resolution",
+  "refreshed_evidence_count",
+  "refreshed_evidence_types"
+] as const;
+
+const negotiationWorkflowSafeMetadata = [
+  ...commonSafeMetadata,
+  "brief_id",
+  "briefId",
+  "draft_id",
+  "draftId",
+  "commercial_decision_id",
+  "commercialDecisionId",
+  "contract_id",
+  "contractId",
+  "strategy",
+  "previous_status",
+  "previousStatus",
+  "new_status",
+  "newStatus",
+  "confidence_score",
+  "confidenceScore",
+  "blocker_codes",
+  "blockerCodes",
+  "warning_codes",
+  "warningCodes",
+  "approval_actor",
+  "approvalActor",
+  "reviewer_note_recorded",
+  "reviewerNoteRecorded",
+  "channel",
+  "tone",
+  "evidence_count",
+  "evidenceCount",
+  "playbook_item_id",
+  "playbookItemId"
+] as const;
+
+const internalOutreachSafeMetadata = [
+  ...commonSafeMetadata,
+  "opportunity_id",
+  "opportunityId",
+  "draft_id",
+  "draftId",
+  "suppression_id",
+  "suppressionId",
+  "playbook_item_id",
+  "playbookItemId",
+  "contract_id",
+  "contractId",
+  "commercial_decision_id",
+  "commercialDecisionId",
+  "negotiation_brief_id",
+  "negotiationBriefId",
+  "opportunity_type",
+  "opportunityType",
+  "audience",
+  "channel",
+  "priority",
+  "previous_status",
+  "previousStatus",
+  "new_status",
+  "newStatus",
+  "evidence_confidence",
+  "evidenceConfidence",
+  "evidence_count",
+  "evidenceCount",
+  "safety_status",
+  "safetyStatus",
+  "safety_reasons",
+  "safetyReasons",
+  "blocker_codes",
+  "blockerCodes",
+  "warning_codes",
+  "warningCodes",
+  "reason_code",
+  "reasonCode",
+  "reviewer_note_recorded",
+  "reviewerNoteRecorded",
+  "notes_recorded",
+  "notesRecorded",
+  "approval_actor",
+  "approvalActor",
+  "draft_status",
+  "draftStatus",
+  "draft_safety_status",
+  "draftSafetyStatus",
+  "draft_safety_reasons",
+  "draftSafetyReasons",
+  "priority_score",
+  "priorityScore",
+  "priority_band",
+  "priorityBand",
+  "confidence_score",
+  "confidenceScore",
+  "audience_role",
+  "audienceRole",
+  "resolution_confidence",
+  "resolutionConfidence",
+  "sequence_step_count",
+  "sequenceStepCount",
+  "sync_status",
+  "syncStatus",
+  "blocked_phrase_count",
+  "blockedPhraseCount",
+  "unsupported_claim_count",
+  "unsupportedClaimCount",
+  "duplicate_of_opportunity_id",
+  "duplicateOfOpportunityId",
+  "expires_at",
+  "expiresAt"
 ] as const;
 
 function taxonomyEvent(input: Omit<ProductEventTaxonomyEntry, "forbiddenMetadataFields">) {
@@ -724,6 +841,15 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: commercialDecisionSafeMetadata,
     owningProductModule: "financial_exposure_intelligence"
   }),
+  "commercial_decision.evidence_refreshed": taxonomyEvent({
+    name: "commercial_decision.evidence_refreshed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/commercial-decision-workbench/commercial-decision-workbench.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: commercialDecisionSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
   "commercial_decision.snapshot_created": taxonomyEvent({
     name: "commercial_decision.snapshot_created",
     type: "audit",
@@ -731,6 +857,348 @@ export const PRODUCT_EVENT_TAXONOMY = {
     source: "lib/commercial-decision-workbench/commercial-decision-workbench.ts",
     privacySensitivity: "high",
     safeMetadataFields: commercialDecisionSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "commercial_decision.approver_reassigned": taxonomyEvent({
+    name: "commercial_decision.approver_reassigned",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/commercial-decision-workbench/commercial-decision-workbench.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: commercialDecisionSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "commercial_decision.approval_blocked": taxonomyEvent({
+    name: "commercial_decision.approval_blocked",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/commercial-decision-workbench/commercial-decision-workbench.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: commercialDecisionSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "commercial_decision.duplicate_create_resolved": taxonomyEvent({
+    name: "commercial_decision.duplicate_create_resolved",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/commercial-decision-workbench/commercial-decision-workbench.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: commercialDecisionSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.created": taxonomyEvent({
+    name: "negotiation_brief.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.recomputed": taxonomyEvent({
+    name: "negotiation_brief.recomputed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.submitted_for_review": taxonomyEvent({
+    name: "negotiation_brief.submitted_for_review",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.approved": taxonomyEvent({
+    name: "negotiation_brief.approved",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.rejected": taxonomyEvent({
+    name: "negotiation_brief.rejected",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.archived": taxonomyEvent({
+    name: "negotiation_brief.archived",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_brief.evidence_attached": taxonomyEvent({
+    name: "negotiation_brief.evidence_attached",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "vendor_communication_draft.created": taxonomyEvent({
+    name: "vendor_communication_draft.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "vendor_communication_draft.regenerated": taxonomyEvent({
+    name: "vendor_communication_draft.regenerated",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "vendor_communication_draft.submitted_for_approval": taxonomyEvent({
+    name: "vendor_communication_draft.submitted_for_approval",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "vendor_communication_draft.approved_for_copy": taxonomyEvent({
+    name: "vendor_communication_draft.approved_for_copy",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "vendor_communication_draft.rejected": taxonomyEvent({
+    name: "vendor_communication_draft.rejected",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "vendor_communication_draft.archived": taxonomyEvent({
+    name: "vendor_communication_draft.archived",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "negotiation_playbook_item.created": taxonomyEvent({
+    name: "negotiation_playbook_item.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/negotiation-workflow/negotiation-workflow.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: negotiationWorkflowSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_opportunity.detected": taxonomyEvent({
+    name: "internal_outreach_opportunity.detected",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_opportunity.created": taxonomyEvent({
+    name: "internal_outreach_opportunity.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_opportunity.recomputed": taxonomyEvent({
+    name: "internal_outreach_opportunity.recomputed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_opportunity.dismissed": taxonomyEvent({
+    name: "internal_outreach_opportunity.dismissed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_opportunity.archived": taxonomyEvent({
+    name: "internal_outreach_opportunity.archived",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.evidence_attached": taxonomyEvent({
+    name: "internal_outreach.evidence_attached",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_draft.created": taxonomyEvent({
+    name: "internal_outreach_draft.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_draft.regenerated": taxonomyEvent({
+    name: "internal_outreach_draft.regenerated",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_draft.submitted_for_approval": taxonomyEvent({
+    name: "internal_outreach_draft.submitted_for_approval",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_draft.approved_for_copy": taxonomyEvent({
+    name: "internal_outreach_draft.approved_for_copy",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_draft.rejected": taxonomyEvent({
+    name: "internal_outreach_draft.rejected",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_draft.archived": taxonomyEvent({
+    name: "internal_outreach_draft.archived",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_suppression.created": taxonomyEvent({
+    name: "internal_outreach_suppression.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach_playbook_item.created": taxonomyEvent({
+    name: "internal_outreach_playbook_item.created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.safety_blocked": taxonomyEvent({
+    name: "internal_outreach.safety_blocked",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.priority_scored": taxonomyEvent({
+    name: "internal_outreach.priority_scored",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.audience_resolved": taxonomyEvent({
+    name: "internal_outreach.audience_resolved",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.sequence_planned": taxonomyEvent({
+    name: "internal_outreach.sequence_planned",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.crm_note_generated": taxonomyEvent({
+    name: "internal_outreach.crm_note_generated",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.safety_reviewed": taxonomyEvent({
+    name: "internal_outreach.safety_reviewed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "internal_outreach.duplicate_dismissed": taxonomyEvent({
+    name: "internal_outreach.duplicate_dismissed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/internal-outreach-intelligence/internal-outreach-intelligence.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: internalOutreachSafeMetadata,
     owningProductModule: "financial_exposure_intelligence"
   }),
   "renewal_decision.created": taxonomyEvent({

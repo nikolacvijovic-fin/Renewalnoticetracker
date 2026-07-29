@@ -47,6 +47,7 @@ describe("commercial decision scoring", () => {
     expect(score.readinessStatus).toBe("blocked");
     expect(score.decisionStatus).toBe("evidence_pending");
     expect(score.recommendedAction).toBe("needs_review");
+    expect(score.ownerUserId).toBeNull();
     expect(score.blockerCodes).toEqual(expect.arrayContaining(["missing_owner", "missing_renewal_date"]));
   });
 
@@ -148,5 +149,24 @@ describe("commercial decision scoring", () => {
     expect(score.commercialRiskLevel).toBe("critical");
     expect(score.recommendedAction).toBe("escalate");
     expect(score.negotiationPosture).toBe("legal_review_required");
+  });
+
+  it.each([
+    ["not_configured", false, true],
+    ["configured_ready", false, false],
+    ["configured_blocked_by_review", true, false],
+    ["configured_blocked_by_owner", true, false],
+    ["configured_blocked_by_dates", true, false],
+    ["not_applicable", false, false]
+  ] as const)("scores trusted reminder readiness state %s precisely", (status, blocked, warningOnly) => {
+    const score = scoreCommercialDecision(
+      baseInput({
+        trustedReminderGate: { status }
+      })
+    );
+
+    expect(score.trustedReminderReadinessStatus).toBe(status);
+    expect(score.blockerCodes.includes("trusted_reminder_blocked")).toBe(blocked);
+    expect(score.warningCodes.includes("trusted_reminder_not_configured")).toBe(warningOnly);
   });
 });
