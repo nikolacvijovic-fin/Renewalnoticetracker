@@ -195,6 +195,18 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["processing_errors"]["Insert"]>;
         Relationships: [];
       };
+      saas_renewal_import_batches: {
+        Row: { id: string; organization_id: string; actor_user_id: string | null; uploaded_by_user_id: string | null; file_name: string; status: string; row_count: number; ready_count: number; needs_review_count: number; rejected_count: number; summary_json: Json; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; actor_user_id?: string | null; uploaded_by_user_id?: string | null; file_name: string; status?: string; row_count?: number; ready_count?: number; needs_review_count?: number; rejected_count?: number; summary_json?: Json; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_renewal_import_batches"]["Insert"]>;
+        Relationships: [];
+      };
+      saas_renewal_import_rows: {
+        Row: { id: string; organization_id: string; batch_id: string; row_number: number; status: string; review_notes: string | null; raw_row_json: Json; normalized_row_json: Json; issues_json: Json; accepted_weak_evidence: boolean; duplicate_confirmed: boolean; activated_at: string | null; activated_by: string | null; corrected_at: string | null; corrected_by: string | null; reviewed_at: string | null; reviewed_by_user_id: string | null; dismissed_at: string | null; dismissed_by: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; batch_id: string; row_number: number; status: string; review_notes?: string | null; raw_row_json?: Json; normalized_row_json?: Json; issues_json?: Json; accepted_weak_evidence?: boolean; duplicate_confirmed?: boolean; activated_at?: string | null; activated_by?: string | null; corrected_at?: string | null; corrected_by?: string | null; reviewed_at?: string | null; reviewed_by_user_id?: string | null; dismissed_at?: string | null; dismissed_by?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_renewal_import_rows"]["Insert"]>;
+        Relationships: [];
+      };
       saas_software_inventory: {
         Row: { id: string; organization_id: string; name: string; vendor_name: string | null; category: string | null; owner_user_id: string | null; status: string; source_contract_id: string | null; created_by: string | null; created_at: string; updated_at: string };
         Insert: { id?: string; organization_id: string; name: string; vendor_name?: string | null; category?: string | null; owner_user_id?: string | null; status?: string; source_contract_id?: string | null; created_by?: string | null; created_at?: string; updated_at?: string };

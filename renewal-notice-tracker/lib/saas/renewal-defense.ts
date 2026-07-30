@@ -241,6 +241,10 @@ export function buildSafeSaasRenewalDefenseAuditMetadata(input: {
   softwareId?: string | null;
   saasTermId?: string | null;
   optOutWindowId?: string | null;
+  importBatchId?: string | null;
+  importRowId?: string | null;
+  rowNumber?: number | null;
+  issueCodes?: string[] | null;
   findingId?: string | null;
   fromStatus?: string | null;
   toStatus?: string | null;
@@ -255,6 +259,10 @@ export function buildSafeSaasRenewalDefenseAuditMetadata(input: {
     softwareId: input.softwareId ?? null,
     saasTermId: input.saasTermId ?? null,
     optOutWindowId: input.optOutWindowId ?? null,
+    importBatchId: input.importBatchId ?? null,
+    importRowId: input.importRowId ?? null,
+    rowNumber: input.rowNumber ?? null,
+    issueCodes: input.issueCodes ?? [],
     findingId: input.findingId ?? null,
     fromStatus: input.fromStatus ?? null,
     toStatus: input.toStatus ?? null,

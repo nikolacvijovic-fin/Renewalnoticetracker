@@ -127,6 +127,7 @@ export type RenewalCommandCenter = {
   recommendedActions: RenewalCommandAction[];
   riskSegments: RenewalRiskSegment[];
   saasOptOutSummary: RenewalCommandSaasOptOutSummary;
+  saasImportReviewSummary: RenewalCommandSaasImportReviewSummary;
   filteredSegment: RenewalRiskSegment | null;
 };
 
@@ -149,6 +150,23 @@ export type RenewalCommandSaasOptOutSummary = {
   assignedOwnerCount: number;
   unassignedOwnerCount: number;
   spendAtRiskAmount: number;
+};
+
+export type RenewalCommandSaasImportReviewSummary = {
+  latestBatchId: string | null;
+  blockedRowCount: number;
+  needsReviewCount: number;
+  rejectedCount: number;
+  correctedCount: number;
+  readyCount: number;
+};
+
+export type RenewalCommandSaasImportReviewInput = {
+  latestBatchId?: string | null;
+  readyCount?: number;
+  needsReviewCount?: number;
+  rejectedCount?: number;
+  correctedCount?: number;
 };
 
 type RenewalCommandCenterContractRow = {
@@ -327,6 +345,23 @@ function buildSaasOptOutSummary(items: RenewalCommandSaasOptOutInput[] = []): Re
   };
 }
 
+function buildSaasImportReviewSummary(
+  input: RenewalCommandSaasImportReviewInput | null | undefined
+): RenewalCommandSaasImportReviewSummary {
+  const needsReviewCount = Math.max(0, input?.needsReviewCount ?? 0);
+  const rejectedCount = Math.max(0, input?.rejectedCount ?? 0);
+  const correctedCount = Math.max(0, input?.correctedCount ?? 0);
+  const readyCount = Math.max(0, input?.readyCount ?? 0);
+  return {
+    latestBatchId: input?.latestBatchId ?? null,
+    blockedRowCount: needsReviewCount + rejectedCount,
+    needsReviewCount,
+    rejectedCount,
+    correctedCount,
+    readyCount
+  };
+}
+
 function buildSegments(
   contracts: RenewalCommandContractSummary[],
   saasOptOutItems: RenewalCommandSaasOptOutInput[] = []
@@ -433,6 +468,7 @@ export function buildRenewalCommandCenter(input: {
   organizationId: string;
   contracts: RenewalCommandContractInput[];
   saasOptOutItems?: RenewalCommandSaasOptOutInput[];
+  saasImportReview?: RenewalCommandSaasImportReviewInput | null;
   segment?: RenewalRiskSegmentId | null;
   now?: Date;
 }): RenewalCommandCenter {
@@ -449,6 +485,7 @@ export function buildRenewalCommandCenter(input: {
     activeContracts.map((contract) => [contract.id, contract.noticeDeadlineDate])
   );
   const saasOptOutSummary = buildSaasOptOutSummary(input.saasOptOutItems);
+  const saasImportReviewSummary = buildSaasImportReviewSummary(input.saasImportReview);
   const riskSegments = buildSegments(activeContracts, input.saasOptOutItems);
   const recommendedActions = buildRenewalCommandActions({
     pastNoticeDeadlineContractIds: riskSegments.find((item) => item.id === "past_notice_deadline")?.contracts.map((contract) => contract.id) ?? [],
@@ -469,6 +506,7 @@ export function buildRenewalCommandCenter(input: {
     highValueAutoRenewRiskContractIds: activeContracts
       .filter((contract) => contract.highValueRisk && contract.autoRenewRisk)
       .map((contract) => contract.id),
+    saasImportReviewBlockedCount: saasImportReviewSummary.blockedRowCount,
     spendByContractId,
     nearestDueDateByContractId: dueDates
   });
@@ -512,6 +550,7 @@ export function buildRenewalCommandCenter(input: {
     recommendedActions,
     riskSegments,
     saasOptOutSummary,
+    saasImportReviewSummary,
     filteredSegment: input.segment ? riskSegments.find((segment) => segment.id === input.segment) ?? null : null
   };
 }

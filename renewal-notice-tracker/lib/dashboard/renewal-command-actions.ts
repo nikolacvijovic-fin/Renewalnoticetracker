@@ -6,7 +6,8 @@ export type RenewalCommandActionId =
   | "approve_pending_trust_exceptions"
   | "review_auto_renew_high_value_contracts"
   | "resolve_past_notice_deadlines"
-  | "import_missing_contract_metadata";
+  | "import_missing_contract_metadata"
+  | "review_saas_renewal_imports";
 
 export type RenewalCommandActionSeverity = "critical" | "high" | "medium" | "low";
 
@@ -35,6 +36,7 @@ export type RenewalCommandActionInput = {
   highValueAutoRenewRiskContractIds: string[];
   spendByContractId: Record<string, number>;
   nearestDueDateByContractId?: Record<string, string | null>;
+  saasImportReviewBlockedCount?: number;
 };
 
 function sumSpend(contractIds: string[], spendByContractId: Record<string, number>) {
@@ -59,8 +61,10 @@ function action(input: {
   reason: string;
   spendByContractId: Record<string, number>;
   nearestDueDateByContractId?: Record<string, string | null>;
+  countOverride?: number;
 }): RenewalCommandAction {
   const estimatedSpendAtRisk = sumSpend(input.affectedContractIds, input.spendByContractId);
+  const affectedCount = input.countOverride ?? input.affectedContractIds.length;
   return {
     id: input.id,
     label: input.label,
@@ -68,7 +72,7 @@ function action(input: {
     priority: input.basePriority + Math.min(30, Math.floor(estimatedSpendAtRisk / 10000)),
     severity: input.severity,
     affectedContractIds: input.affectedContractIds,
-    affectedCount: input.affectedContractIds.length,
+    affectedCount,
     estimatedSpendAtRisk,
     targetHref: input.targetHref,
     reason: input.reason,
@@ -80,6 +84,24 @@ export function buildRenewalCommandActions(
   input: RenewalCommandActionInput
 ): RenewalCommandAction[] {
   const actions: RenewalCommandAction[] = [];
+
+  if ((input.saasImportReviewBlockedCount ?? 0) > 0) {
+    actions.push(
+      action({
+        id: "review_saas_renewal_imports",
+        label: "Review blocked SaaS import rows",
+        description: "Correct or dismiss SaaS renewal import rows before they become trusted opt-out records.",
+        basePriority: 82,
+        severity: "high",
+        affectedContractIds: [],
+        countOverride: input.saasImportReviewBlockedCount,
+        targetHref: "/dashboard/saas-opt-out-clock#import-review-queue",
+        reason: "Messy SaaS import rows cannot enter the CFO Opt-Out Clock without review evidence.",
+        spendByContractId: input.spendByContractId,
+        nearestDueDateByContractId: input.nearestDueDateByContractId
+      })
+    );
+  }
 
   if (input.pastNoticeDeadlineContractIds.length > 0) {
     actions.push(

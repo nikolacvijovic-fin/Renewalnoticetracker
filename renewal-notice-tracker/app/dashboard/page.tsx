@@ -9,7 +9,7 @@ import {
   type RenewalCommandSeverity,
   type RenewalRiskSegmentId
 } from "@/lib/dashboard/renewal-command-center";
-import { getSaasOptOutClock } from "@/lib/saas/queries";
+import { getSaasOptOutClock, getSaasRenewalImportReviewQueue } from "@/lib/saas/queries";
 
 const SEVERITY_TONE: Record<RenewalCommandSeverity, "critical" | "urgent" | "warning" | "success"> = {
   critical: "critical",
@@ -39,10 +39,12 @@ export default async function DashboardPage({
   searchParams?: { segment?: string };
 }) {
   const { organizationId } = await requireOrganization();
-  const [contracts, saasClock] = await Promise.all([
+  const [contracts, saasClock, saasImportBatches] = await Promise.all([
     getRenewalCommandCenterContracts(organizationId),
-    getSaasOptOutClock(organizationId)
+    getSaasOptOutClock(organizationId),
+    getSaasRenewalImportReviewQueue(organizationId)
   ]);
+  const latestImportBatch = saasImportBatches[0] ?? null;
   const commandCenter = buildRenewalCommandCenter({
     organizationId,
     contracts,
@@ -53,6 +55,15 @@ export default async function DashboardPage({
       ownerUserId: item.ownerUserId,
       spendAtRiskAmount: item.spendAtRiskAmount
     })),
+    saasImportReview: latestImportBatch
+      ? {
+          latestBatchId: latestImportBatch.id,
+          readyCount: latestImportBatch.rows.filter((row) => row.status === "ready").length,
+          correctedCount: latestImportBatch.rows.filter((row) => row.status === "corrected").length,
+          needsReviewCount: latestImportBatch.rows.filter((row) => row.status === "needs_review").length,
+          rejectedCount: latestImportBatch.rows.filter((row) => row.status === "rejected").length
+        }
+      : null,
     segment: (searchParams?.segment as RenewalRiskSegmentId | undefined) ?? null
   });
   const topAction = commandCenter.recommendedActions[0] ?? null;
@@ -154,6 +165,35 @@ export default async function DashboardPage({
             </div>
             <Button asChild>
               <Link href={topAction.targetHref}>Open action queue</Link>
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {commandCenter.saasImportReviewSummary.blockedRowCount > 0 ? (
+        <section className="rounded-3xl border border-warning/30 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="warning">Import review</Badge>
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                  SaaS renewal data quality
+                </span>
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold">SaaS import rows are blocked from activation</h2>
+              <p className="mt-2 max-w-3xl text-sm text-muted">
+                {commandCenter.saasImportReviewSummary.blockedRowCount} row
+                {commandCenter.saasImportReviewSummary.blockedRowCount === 1 ? "" : "s"} need correction or dismissal before
+                they can become trusted CFO Opt-Out Clock records.
+              </p>
+              <p className="mt-2 text-sm text-slate-700">
+                Needs review: {commandCenter.saasImportReviewSummary.needsReviewCount}. Rejected:{" "}
+                {commandCenter.saasImportReviewSummary.rejectedCount}. Corrected and ready:{" "}
+                {commandCenter.saasImportReviewSummary.correctedCount + commandCenter.saasImportReviewSummary.readyCount}.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href="/dashboard/saas-opt-out-clock#import-review-queue">Open import review</Link>
             </Button>
           </div>
         </section>

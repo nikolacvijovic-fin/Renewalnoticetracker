@@ -205,6 +205,66 @@ describe("SaaS renewal import cleanup", () => {
     ]);
   });
 
+  it("requires explicit weak evidence acceptance before manual-only evidence can become ready", () => {
+    const withoutAcceptance = assessSaasRenewalImportRows([
+      row({ source_notes: "Manual spreadsheet only" })
+    ], { ownersByEmail: owners });
+    const withAcceptance = assessSaasRenewalImportRows([
+      row({ source_notes: "Manual spreadsheet only" })
+    ], {
+      ownersByEmail: owners,
+      acceptedWeakEvidenceRowNumbers: new Set([2])
+    });
+
+    expect(withoutAcceptance.results[0]).toMatchObject({
+      status: "needs_review",
+      issues: expect.arrayContaining([expect.objectContaining({ code: "weak_evidence" })])
+    });
+    expect(withAcceptance.results[0]).toMatchObject({
+      status: "ready",
+      issues: []
+    });
+  });
+
+  it("requires explicit duplicate confirmation before duplicate rows can become ready", () => {
+    const withoutConfirmation = assessSaasRenewalImportRows([
+      row(),
+      row({ vendor_name: "Acme LLC" })
+    ], { ownersByEmail: owners });
+    const withConfirmation = assessSaasRenewalImportRows([
+      row(),
+      row({ vendor_name: "Acme LLC" })
+    ], {
+      ownersByEmail: owners,
+      acceptedDuplicateRowNumbers: new Set([2, 3])
+    });
+
+    expect(withoutConfirmation.results.map((result) => result.status)).toEqual(["needs_review", "needs_review"]);
+    expect(withoutConfirmation.results.flatMap((result) => result.issues.map((issue) => issue.code))).toContain("duplicate_suspected");
+    expect(withConfirmation.results.map((result) => result.status)).toEqual(["ready", "ready"]);
+    expect(withConfirmation.results.flatMap((result) => result.issues.map((issue) => issue.code))).not.toContain("duplicate_suspected");
+  });
+
+  it("keeps review queue migration scoped and free of notice-sending behavior", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const migration = fs.readFileSync(
+      path.join(process.cwd(), "supabase/migrations/202607300004_saas_renewal_import_review_queue.sql"),
+      "utf8"
+    );
+
+    expect(migration).toContain("saas_renewal_import_batches");
+    expect(migration).toContain("saas_renewal_import_rows");
+    expect(migration).toContain("uploaded_by_user_id");
+    expect(migration).toContain("review_notes");
+    expect(migration).toContain("duplicate_confirmed");
+    expect(migration).toContain("reviewed_by_user_id");
+    expect(migration).toContain("'corrected'");
+    expect(migration).toContain("'dismissed'");
+    expect(migration).toContain("memberships.organization_id = saas_renewal_import_rows.organization_id");
+    expect(migration).not.toMatch(/send|email provider|slack|teams|crm/i);
+  });
+
   it("feeds imported ready records into command-center SaaS opt-out metrics", () => {
     const assessment = assessSaasRenewalImportRows([row()], { ownersByEmail: owners });
     const plan = buildSaasRenewalActivationPlan(assessment);
@@ -227,5 +287,32 @@ describe("SaaS renewal import cleanup", () => {
       assignedOwnerCount: 1,
       spendAtRiskAmount: 50000
     });
+  });
+
+  it("surfaces blocked SaaS import review rows in command-center actions without trusting them", () => {
+    const commandCenter = buildRenewalCommandCenter({
+      organizationId: "org-1",
+      now: new Date("2026-07-30T00:00:00Z"),
+      contracts: [],
+      saasImportReview: {
+        latestBatchId: "batch-1",
+        readyCount: 1,
+        correctedCount: 1,
+        needsReviewCount: 2,
+        rejectedCount: 1
+      }
+    });
+
+    expect(commandCenter.saasImportReviewSummary).toMatchObject({
+      blockedRowCount: 3,
+      needsReviewCount: 2,
+      rejectedCount: 1
+    });
+    expect(commandCenter.saasOptOutSummary.totalRiskItems).toBe(0);
+    expect(commandCenter.recommendedActions[0]).toEqual(expect.objectContaining({
+      id: "review_saas_renewal_imports",
+      affectedCount: 3,
+      targetHref: "/dashboard/saas-opt-out-clock#import-review-queue"
+    }));
   });
 });

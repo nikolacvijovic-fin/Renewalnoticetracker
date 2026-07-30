@@ -181,6 +181,8 @@ export function assessSaasRenewalImportRows(
     organizationId?: string;
     ownersByEmail?: Map<string, SaasRenewalImportOwner> | Record<string, SaasRenewalImportOwner>;
     existingDuplicateKeys?: Set<string>;
+    acceptedWeakEvidenceRowNumbers?: Set<number>;
+    acceptedDuplicateRowNumbers?: Set<number>;
   }
 ): SaasRenewalImportAssessment {
   const ownersByEmail = normalizeOwnersByEmail(options?.ownersByEmail);
@@ -237,10 +239,14 @@ export function assessSaasRenewalImportRows(
     } else if (!row.ownerUserId) {
       issues.push(issue("owner_email_unmapped", "owner_email", "warning", "Owner email does not match an active organization member."));
     }
-    if (row.duplicateKey && ((duplicateCounts.get(row.duplicateKey) ?? 0) > 1 || options?.existingDuplicateKeys?.has(row.duplicateKey))) {
+    if (
+      row.duplicateKey &&
+      !options?.acceptedDuplicateRowNumbers?.has(index + 2) &&
+      ((duplicateCounts.get(row.duplicateKey) ?? 0) > 1 || options?.existingDuplicateKeys?.has(row.duplicateKey))
+    ) {
       issues.push(issue("duplicate_suspected", "row", "warning", "This vendor/product/renewal combination looks like a duplicate."));
     }
-    if (row.evidenceConfidence < 0.75) {
+    if (row.evidenceConfidence < 0.75 && !options?.acceptedWeakEvidenceRowNumbers?.has(index + 2)) {
       issues.push(issue("weak_evidence", "source_notes", "warning", "Evidence is manual-only or weak and needs review before activation."));
     }
 
@@ -276,6 +282,13 @@ export function assessSaasRenewalImportRows(
       spendAtRiskAmount: readyRows.reduce((total, row) => total + Math.max(0, row.normalized.contractValueAmount ?? 0), 0),
       spendAtRiskCurrency: riskyCurrency
     }
+  };
+}
+
+export function buildSaasRenewalImportRow(overrides: Partial<SaasRenewalImportRow> = {}): SaasRenewalImportRow {
+  return {
+    ...emptyRow(),
+    ...overrides
   };
 }
 

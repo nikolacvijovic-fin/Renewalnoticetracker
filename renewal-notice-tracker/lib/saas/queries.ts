@@ -11,6 +11,10 @@ import {
   type SaasMetadataConflict,
   type SaasOptOutWorkflowStatus
 } from "@/lib/saas/renewal-defense";
+import type {
+  NormalizedSaasRenewalImportRow,
+  SaasRenewalImportCleanupIssue
+} from "@/lib/saas/import-cleanup";
 
 export type SaasSoftwareRow =
   Database["public"]["Tables"]["saas_software_inventory"]["Row"];
@@ -20,6 +24,10 @@ export type SaasOptOutWindowRow =
   Database["public"]["Tables"]["saas_opt_out_windows"]["Row"];
 export type SaasRiskFindingRow =
   Database["public"]["Tables"]["saas_contract_risk_findings"]["Row"];
+export type SaasRenewalImportBatchRow =
+  Database["public"]["Tables"]["saas_renewal_import_batches"]["Row"];
+export type SaasRenewalImportQueueRow =
+  Database["public"]["Tables"]["saas_renewal_import_rows"]["Row"];
 
 export type SaasOptOutClockItem = {
   software: SaasSoftwareRow;
@@ -72,6 +80,15 @@ export type SaasContractOptOutStatus = {
   spendAtRiskCurrency: string | null;
   openFindingCount: number;
   metadataConflictCount: number;
+};
+
+export type SaasRenewalImportReviewRow = SaasRenewalImportQueueRow & {
+  normalized: NormalizedSaasRenewalImportRow | null;
+  issues: SaasRenewalImportCleanupIssue[];
+};
+
+export type SaasRenewalImportReviewBatch = SaasRenewalImportBatchRow & {
+  rows: SaasRenewalImportReviewRow[];
 };
 
 type ContractMetadataForConflict = {
@@ -307,6 +324,48 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
   };
 }
 
+export async function getSaasRenewalImportReviewQueue(
+  organizationId: string
+): Promise<SaasRenewalImportReviewBatch[]> {
+  const supabase = createServerSupabaseClient();
+  const { data: batches, error: batchesError } = await supabase
+    .from("saas_renewal_import_batches")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .in("status", ["ready", "needs_review", "rejected", "corrected", "partially_activated", "dismissed"])
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (batchesError) throw batchesError;
+  const typedBatches = (batches ?? []) as SaasRenewalImportBatchRow[];
+  if (typedBatches.length === 0) return [];
+
+  const { data: rows, error: rowsError } = await supabase
+    .from("saas_renewal_import_rows")
+    .select("*")
+    .eq("organization_id", organizationId)
+    .in("batch_id", typedBatches.map((batch) => batch.id))
+    .order("row_number", { ascending: true });
+
+  if (rowsError) throw rowsError;
+  const rowsByBatch = new Map<string, SaasRenewalImportReviewRow[]>();
+  for (const row of (rows ?? []) as SaasRenewalImportQueueRow[]) {
+    rowsByBatch.set(row.batch_id, [
+      ...(rowsByBatch.get(row.batch_id) ?? []),
+      {
+        ...row,
+        normalized: parseImportNormalized(row.normalized_row_json),
+        issues: parseImportIssues(row.issues_json)
+      }
+    ]);
+  }
+
+  return typedBatches.map((batch) => ({
+    ...batch,
+    rows: rowsByBatch.get(batch.id) ?? []
+  }));
+}
+
 export async function getSaasOptOutStatusesForContracts(
   organizationId: string,
   contractIds: string[]
@@ -339,6 +398,21 @@ export async function getSaasOptOutStatusesForContracts(
     };
   }
   return statuses;
+}
+
+function parseImportNormalized(value: unknown): NormalizedSaasRenewalImportRow | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as NormalizedSaasRenewalImportRow;
+}
+
+function parseImportIssues(value: unknown): SaasRenewalImportCleanupIssue[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is SaasRenewalImportCleanupIssue =>
+    Boolean(item) &&
+    typeof item === "object" &&
+    "code" in item &&
+    "message" in item
+  );
 }
 
 export async function getSaasOptOutStatusForContract(
