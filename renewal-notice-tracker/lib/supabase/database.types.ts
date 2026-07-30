@@ -208,8 +208,8 @@ export type Database = {
         Relationships: [];
       };
       saas_opt_out_windows: {
-        Row: { id: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on: string | null; window_closes_on: string | null; status: string; source: string; created_at: string; updated_at: string };
-        Insert: { id?: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on?: string | null; window_closes_on?: string | null; status?: string; source?: string; created_at?: string; updated_at?: string };
+        Row: { id: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on: string | null; window_closes_on: string | null; status: string; source: string; owner_user_id: string | null; workflow_status: string; next_action: string | null; next_action_due_at: string | null; resolved_at: string | null; accepted_risk_at: string | null; ignored_at: string | null; decision_recorded_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on?: string | null; window_closes_on?: string | null; status?: string; source?: string; owner_user_id?: string | null; workflow_status?: string; next_action?: string | null; next_action_due_at?: string | null; resolved_at?: string | null; accepted_risk_at?: string | null; ignored_at?: string | null; decision_recorded_at?: string | null; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["saas_opt_out_windows"]["Insert"]>;
         Relationships: [];
       };

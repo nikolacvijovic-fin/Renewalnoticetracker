@@ -367,11 +367,11 @@ function DraftPanel({
     return (
       <div className="rounded-xl border border-slate-200 p-4">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-sm font-semibold text-ink">Internal outreach draft</p>
+          <p className="text-sm font-semibold text-ink">Outreach draft workbench</p>
           <Badge tone="locked">no sending</Badge>
         </div>
         <p className="mt-2 text-sm text-slate-600">
-          Create a draft for manual review and copy only. The system will not send or deliver external messages.
+          Create evidence-backed variants for manual review and copy only. The system will not send or deliver external messages.
         </p>
         {canCreateDraft ? (
           <ServerActionForm serverAction={createOutreachDraftFormAction.bind(null, opportunity.id, opportunity.contract_id)} className="mt-3 flex flex-wrap gap-2">
@@ -401,7 +401,7 @@ function DraftPanel({
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 p-4">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-ink">Internal outreach draft</p>
+        <p className="text-sm font-semibold text-ink">Outreach draft workbench</p>
         <Badge tone="locked">manual copy only</Badge>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -411,7 +411,7 @@ function DraftPanel({
       </div>
       <p className="text-sm font-semibold text-ink">{draft.subject_or_heading ?? draft.title}</p>
       <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-xs text-slate-100">{draft.body_preview}</pre>
-      <p className="text-xs text-muted">Approval means the text can be manually copied. It does not send, sync, or deliver anything.</p>
+      <p className="text-xs text-muted">Approval means reviewed text can be manually copied. It does not send, sync, or deliver anything.</p>
       <ul className="space-y-1 text-sm text-slate-600">
         {approvalSteps.length ? (
           approvalSteps.map((step) => <li key={step.id}>{step.status} {step.approver_user_id ? `by ${step.approver_user_id}` : ""}</li>)

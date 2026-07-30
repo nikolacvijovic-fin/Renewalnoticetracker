@@ -18,6 +18,7 @@ import {
   getFeatureAccessResult
 } from "@/lib/billing/entitlements";
 import { getIntelligenceSurfaceAccessMap } from "@/lib/intelligence/access";
+import { getSaasOptOutStatusesForContracts } from "@/lib/saas/queries";
 
 export default async function ContractsPage({
   searchParams
@@ -71,6 +72,10 @@ export default async function ContractsPage({
   );
   const riskBadgeAccess = intelligenceAccess.accessBySurface.risk_badge;
   const riskExplanationAccess = intelligenceAccess.accessBySurface.risk_explanation;
+  const saasOptOutStatusByContractId = await getSaasOptOutStatusesForContracts(
+    organizationId,
+    filteredContracts.map((contract) => contract.id).filter((id): id is string => Boolean(id))
+  );
 
   return (
     <section className="space-y-5">
@@ -123,6 +128,7 @@ export default async function ContractsPage({
       />
       <ContractsTable
         contracts={filteredContracts as never[]}
+        saasOptOutStatusByContractId={saasOptOutStatusByContractId}
         riskViewer={{
           userId: context.user.id,
           role: context.role,

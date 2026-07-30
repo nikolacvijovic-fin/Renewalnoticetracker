@@ -9,6 +9,7 @@ import {
   type RenewalCommandSeverity,
   type RenewalRiskSegmentId
 } from "@/lib/dashboard/renewal-command-center";
+import { getSaasOptOutClock } from "@/lib/saas/queries";
 
 const SEVERITY_TONE: Record<RenewalCommandSeverity, "critical" | "urgent" | "warning" | "success"> = {
   critical: "critical",
@@ -38,10 +39,20 @@ export default async function DashboardPage({
   searchParams?: { segment?: string };
 }) {
   const { organizationId } = await requireOrganization();
-  const contracts = await getRenewalCommandCenterContracts(organizationId);
+  const [contracts, saasClock] = await Promise.all([
+    getRenewalCommandCenterContracts(organizationId),
+    getSaasOptOutClock(organizationId)
+  ]);
   const commandCenter = buildRenewalCommandCenter({
     organizationId,
     contracts,
+    saasOptOutItems: saasClock.items.map((item) => ({
+      contractId: item.contractId,
+      deadlineWindow: item.deadlineWindow,
+      workflowStatus: item.workflowStatus,
+      ownerUserId: item.ownerUserId,
+      spendAtRiskAmount: item.spendAtRiskAmount
+    })),
     segment: (searchParams?.segment as RenewalRiskSegmentId | undefined) ?? null
   });
   const topAction = commandCenter.recommendedActions[0] ?? null;
@@ -143,6 +154,36 @@ export default async function DashboardPage({
             </div>
             <Button asChild>
               <Link href={topAction.targetHref}>Open action queue</Link>
+            </Button>
+          </div>
+        </section>
+      ) : null}
+
+      {commandCenter.saasOptOutSummary.totalRiskItems > 0 ? (
+        <section className="rounded-3xl border border-critical/20 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="critical">CFO Opt-Out Clock</Badge>
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                  SaaS renewal defense
+                </span>
+              </div>
+              <h2 className="mt-3 text-2xl font-semibold">SaaS renewals that can still be stopped</h2>
+              <p className="mt-2 max-w-3xl text-sm text-muted">
+                {commandCenter.saasOptOutSummary.totalRiskItems} SaaS opt-out item
+                {commandCenter.saasOptOutSummary.totalRiskItems === 1 ? "" : "s"} need review,
+                including {commandCenter.saasOptOutSummary.expiredCount} expired and{" "}
+                {commandCenter.saasOptOutSummary.dueIn30DaysCount + commandCenter.saasOptOutSummary.dueIn7DaysCount} inside 30 days.
+              </p>
+              <p className="mt-2 text-sm text-slate-700">
+                Owner coverage: {commandCenter.saasOptOutSummary.assignedOwnerCount} assigned /{" "}
+                {commandCenter.saasOptOutSummary.unassignedOwnerCount} unassigned. Spend at risk:{" "}
+                {money(commandCenter.saasOptOutSummary.spendAtRiskAmount)}.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href="/dashboard/saas-opt-out-clock">Open Opt-Out Clock</Link>
             </Button>
           </div>
         </section>

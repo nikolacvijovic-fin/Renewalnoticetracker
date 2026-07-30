@@ -9,6 +9,7 @@ const redirectMock = vi.fn((location: string) => {
 });
 const getContracts = vi.fn();
 const getContractFacets = vi.fn();
+const getSaasOptOutStatusesForContracts = vi.fn();
 const getBillingSnapshot = vi.fn();
 const auditFinancialIntelligenceViewed = vi.fn();
 const contractsTableSpy = vi.fn();
@@ -40,6 +41,10 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContracts,
   getContractFacets
+}));
+
+vi.mock("@/lib/saas/queries", () => ({
+  getSaasOptOutStatusesForContracts
 }));
 
 vi.mock("@/lib/billing/entitlements", async () => {
@@ -105,6 +110,7 @@ function makeContract(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getSaasOptOutStatusesForContracts.mockResolvedValue({});
 });
 
 describe("FinancialIntelligencePage", () => {

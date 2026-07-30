@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildInternalOutreachDraft } from "@/lib/internal-outreach-intelligence/outreach-draft-generator";
-import type { InternalOutreachOpportunity } from "@/lib/internal-outreach-intelligence/outreach-types";
+import {
+  buildInternalOutreachDraft,
+  buildOutreachDraftWorkbenchInput
+} from "@/lib/internal-outreach-intelligence/outreach-draft-generator";
+import type {
+  InternalOutreachOpportunity,
+  OutreachDraftWorkbenchInput
+} from "@/lib/internal-outreach-intelligence/outreach-types";
 
 function opportunity(overrides: Partial<InternalOutreachOpportunity> = {}): InternalOutreachOpportunity {
   return {
@@ -37,7 +43,7 @@ function opportunity(overrides: Partial<InternalOutreachOpportunity> = {}): Inte
 }
 
 describe("internal outreach draft generator", () => {
-  it("creates bounded internal draft-only copy with evidence references", () => {
+  it("creates bounded draft-only workbench copy with evidence-backed variants", () => {
     const draft = buildInternalOutreachDraft({
       opportunity: opportunity(),
       tone: "executive",
@@ -45,11 +51,66 @@ describe("internal outreach draft generator", () => {
     });
 
     expect(draft.copyAllowed).toBe(false);
-    expect(draft.bodyPreview).toContain("INTERNAL DRAFT ONLY");
-    expect(draft.bodyPreview).toContain("manual copy only");
+    expect(draft.bodyPreview).toContain("INTERNAL DRAFT WORKBENCH");
+    expect(draft.bodyPreview).toContain("Manual copy is blocked until reviewer approval");
     expect(draft.evidenceReferences).toEqual(expect.arrayContaining(["commercial_decision:decision-1", "contract:contract-1"]));
+    expect(draft.variants.map((variant) => variant.variantType)).toEqual([
+      "concise_email",
+      "consultative_email",
+      "founder_led_email",
+      "linkedin_note",
+      "internal_reviewer_summary"
+    ]);
+    for (const variant of draft.variants) {
+      expect(variant.bodyPreview.length).toBeLessThanOrEqual(900);
+      expect(variant.evidenceReferencesUsed).toEqual(expect.arrayContaining(["commercial_decision:decision-1"]));
+      expect(variant.claimsRequiringReviewerApproval.length).toBeGreaterThan(0);
+      expect(variant.qualityScore.overallApprovalReadiness).toBeGreaterThanOrEqual(0);
+    }
     expect(draft.bodyPreview.length).toBeLessThanOrEqual(4000);
     expect(draft.bodyPreview).not.toMatch(/\b(send now|sendgrid|smtp|deliver externally)\b/i);
+  });
+
+  it("separates verified evidence, low-confidence signals, and unknown facts", () => {
+    const model = buildOutreachDraftWorkbenchInput({
+      opportunity: opportunity({
+        warning_codes: ["weak_contract_evidence"],
+        evidence_confidence: 0.62
+      }),
+      unavailableFacts: ["met at a conference", "requested a demo"]
+    });
+    const draft = buildInternalOutreachDraft({
+      opportunity: opportunity(),
+      workbenchInput: model
+    });
+
+    expect(model.productOffer.name).toBe("NoticeControl Renewal Defense");
+    expect(model.verifiedEvidence.some((item) => item.importedSourceLabel)).toBe(true);
+    expect(model.lowConfidenceSignals.length).toBeGreaterThan(0);
+    expect(model.unavailableFacts).toContain("requested a demo");
+    expect(draft.variants.map((variant) => variant.bodyPreview).join("\n")).not.toContain("requested a demo");
+    expect(draft.bodyPreview).toContain("Unknown/unavailable facts not used");
+  });
+
+  it("blocks personalization that lacks a source URL or imported-source label", () => {
+    const unsafeModel: OutreachDraftWorkbenchInput = {
+      ...buildOutreachDraftWorkbenchInput({ opportunity: opportunity() }),
+      verifiedEvidence: [{
+        id: "prospect-signal-1",
+        label: "Prospect signal",
+        summary: "The company may have renewal risk.",
+        sourceType: "system_record",
+        confidence: 0.7,
+        supportsPersonalization: true
+      }]
+    };
+    const draft = buildInternalOutreachDraft({
+      opportunity: opportunity(),
+      workbenchInput: unsafeModel
+    });
+
+    expect(draft.safetyStatus).toBe("blocked");
+    expect(draft.safetyReasons).toContain("personalization_without_approved_source");
   });
 
   it("preserves opportunity safety blockers on generated drafts", () => {

@@ -9,6 +9,7 @@ import {
 import { RiskExplanationDrawer } from "@/components/contracts/risk-explanation-drawer";
 import { RiskBadge } from "@/components/contracts/risk-badge";
 import { formatDate } from "@/lib/utils";
+import type { SaasContractOptOutStatus } from "@/lib/saas/queries";
 
 type ContractRow = {
   id: string;
@@ -40,10 +41,12 @@ type RiskViewer = {
 
 export function ContractsTable({
   contracts,
-  riskViewer
+  riskViewer,
+  saasOptOutStatusByContractId = {}
 }: {
   contracts: ContractRow[];
   riskViewer?: RiskViewer | null;
+  saasOptOutStatusByContractId?: Record<string, SaasContractOptOutStatus>;
 }) {
   return (
     <div className="panel overflow-hidden">
@@ -60,7 +63,10 @@ export function ContractsTable({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {contracts.map((contract) => (
+          {contracts.map((contract) => {
+            const saasOptOutStatus = saasOptOutStatusByContractId[contract.id];
+
+            return (
             <tr key={contract.id} className="bg-white transition hover:bg-slate-50/70">
               <td className="px-4 py-4">
                 <Link href={`/dashboard/contracts/${contract.id}`} className="font-medium text-brand-700 hover:text-brand-800">
@@ -76,7 +82,28 @@ export function ContractsTable({
                 {formatDate(contract.contract_metadata?.renewal_date ?? contract.contract_metadata?.expiration_date)}
               </td>
               <td className="px-4 py-4 text-slate-600">
-                {formatDate(contract.contract_metadata?.notice_deadline_date)}
+                <div className="space-y-1">
+                  <div>{formatDate(contract.contract_metadata?.notice_deadline_date)}</div>
+                  {saasOptOutStatus ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        tone={
+                          saasOptOutStatus.deadlineWindow === "expired"
+                            ? "critical"
+                            : saasOptOutStatus.deadlineWindow === "due_7_days" ||
+                                saasOptOutStatus.deadlineWindow === "due_30_days"
+                              ? "urgent"
+                              : "warning"
+                        }
+                      >
+                        SaaS opt-out {saasOptOutStatus.deadlineWindow.replaceAll("_", " ")}
+                      </Badge>
+                      {saasOptOutStatus.metadataConflictCount > 0 ? (
+                        <Badge tone="warning">Conflict</Badge>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </td>
               <td className="px-4 py-4">
                 {(() => {
@@ -158,7 +185,8 @@ export function ContractsTable({
                 })()}
               </td>
             </tr>
-          ))}
+          );
+          })}
           {contracts.length === 0 ? (
             <tr>
               <td colSpan={7} className="px-4 py-10 text-center text-slate-500">

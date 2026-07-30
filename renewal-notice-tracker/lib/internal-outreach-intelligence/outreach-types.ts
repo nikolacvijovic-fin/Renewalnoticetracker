@@ -84,6 +84,86 @@ export type OutreachSuppressionReasonCode = (typeof OUTREACH_SUPPRESSION_REASON_
 
 export type OutreachPriorityBand = OutreachPriority | "blocked";
 
+export const OUTREACH_DRAFT_VARIANT_TYPES = [
+  "concise_email",
+  "consultative_email",
+  "founder_led_email",
+  "linkedin_note",
+  "internal_reviewer_summary"
+] as const;
+
+export type OutreachDraftVariantType = (typeof OUTREACH_DRAFT_VARIANT_TYPES)[number];
+
+export type OutreachVerifiedEvidence = {
+  id: string;
+  label: string;
+  summary: string;
+  sourceType: "source_url" | "imported_source" | "system_record";
+  sourceUrl?: string | null;
+  importedSourceLabel?: string | null;
+  confidence: number;
+  supportsPersonalization?: boolean;
+};
+
+export type OutreachLowConfidenceSignal = {
+  label: string;
+  rationale: string;
+  confidence: number;
+};
+
+export type OutreachDraftWorkbenchInput = {
+  productOffer: {
+    name: string;
+    valueProposition: string;
+    proofPoints: string[];
+  };
+  targetIcp: {
+    segment: string;
+    buyerRole: string;
+    painPoints: string[];
+  };
+  leadCompanyAttributes: {
+    companyName?: string | null;
+    industry?: string | null;
+    role?: string | null;
+    renewalContext?: string | null;
+  };
+  verifiedEvidence: OutreachVerifiedEvidence[];
+  lowConfidenceSignals: OutreachLowConfidenceSignal[];
+  unavailableFacts: string[];
+  compliance: {
+    suppressionActive: boolean;
+    suppressionReasons: string[];
+    reviewerApproved: boolean;
+  };
+  intendedAudience: OutreachAudience;
+  intendedChannel: OutreachChannel | "linkedin_note";
+};
+
+export type OutreachDraftQualityScore = {
+  personalizationStrength: number;
+  evidenceSupport: number;
+  claimRisk: number;
+  clarity: number;
+  ctaQuality: number;
+  complianceRisk: number;
+  overallApprovalReadiness: number;
+};
+
+export type OutreachDraftVariant = {
+  variantType: OutreachDraftVariantType;
+  subjectOrHeading: string;
+  openingLine: string;
+  problemHypothesis: string;
+  valueProposition: string;
+  reasonToCare: string;
+  lowFrictionCta: string;
+  bodyPreview: string;
+  evidenceReferencesUsed: string[];
+  claimsRequiringReviewerApproval: string[];
+  qualityScore: OutreachDraftQualityScore;
+};
+
 export type OutreachPriorityScore = {
   priorityScore: number;
   priorityBand: OutreachPriorityBand;
@@ -330,4 +410,7 @@ export type OutreachDraftGenerationResult = {
   safetyStatus: OutreachSafetyStatus;
   safetyReasons: string[];
   copyAllowed: boolean;
+  workbenchInput: OutreachDraftWorkbenchInput;
+  variants: OutreachDraftVariant[];
+  qualityScore: OutreachDraftQualityScore;
 };

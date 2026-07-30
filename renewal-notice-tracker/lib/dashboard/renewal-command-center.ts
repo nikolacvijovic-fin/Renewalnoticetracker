@@ -20,6 +20,7 @@ export type RenewalRiskSegmentId =
   | "safe"
   | "needs_review"
   | "blocked"
+  | "saas_opt_out_risk"
   | "urgent_notice_deadline"
   | "past_notice_deadline"
   | "weak_evidence"
@@ -125,7 +126,29 @@ export type RenewalCommandCenter = {
   upcomingDeadlines: RenewalCommandContractSummary[];
   recommendedActions: RenewalCommandAction[];
   riskSegments: RenewalRiskSegment[];
+  saasOptOutSummary: RenewalCommandSaasOptOutSummary;
   filteredSegment: RenewalRiskSegment | null;
+};
+
+export type RenewalCommandSaasOptOutInput = {
+  contractId: string | null;
+  deadlineWindow: "expired" | "due_7_days" | "due_30_days" | "due_60_days" | "future" | "missing";
+  workflowStatus: string;
+  ownerUserId: string | null;
+  spendAtRiskAmount: number;
+};
+
+export type RenewalCommandSaasOptOutSummary = {
+  totalRiskItems: number;
+  linkedContractCount: number;
+  expiredCount: number;
+  dueIn7DaysCount: number;
+  dueIn30DaysCount: number;
+  dueIn60DaysCount: number;
+  missingOrWeakNoticeDataCount: number;
+  assignedOwnerCount: number;
+  unassignedOwnerCount: number;
+  spendAtRiskAmount: number;
 };
 
 type RenewalCommandCenterContractRow = {
@@ -267,7 +290,8 @@ function segment(
   label: string,
   severity: RenewalCommandSeverity,
   contracts: RenewalCommandContractSummary[],
-  recommendedAction: string
+  recommendedAction: string,
+  targetHref?: string
 ): RenewalRiskSegment {
   return {
     id,
@@ -276,11 +300,48 @@ function segment(
     contracts,
     severity,
     recommendedAction,
-    targetHref: `/dashboard?segment=${id}`
+    targetHref: targetHref ?? `/dashboard?segment=${id}`
   };
 }
 
-function buildSegments(contracts: RenewalCommandContractSummary[]) {
+function buildSaasOptOutSummary(items: RenewalCommandSaasOptOutInput[] = []): RenewalCommandSaasOptOutSummary {
+  const riskyItems = items.filter((item) =>
+    item.workflowStatus !== "resolved" &&
+    item.workflowStatus !== "accepted_risk" &&
+    item.workflowStatus !== "ignored" &&
+    (item.deadlineWindow !== "future")
+  );
+  return {
+    totalRiskItems: riskyItems.length,
+    linkedContractCount: riskyItems.filter((item) => Boolean(item.contractId)).length,
+    expiredCount: riskyItems.filter((item) => item.deadlineWindow === "expired").length,
+    dueIn7DaysCount: riskyItems.filter((item) => item.deadlineWindow === "due_7_days").length,
+    dueIn30DaysCount: riskyItems.filter((item) => item.deadlineWindow === "due_30_days").length,
+    dueIn60DaysCount: riskyItems.filter((item) => item.deadlineWindow === "due_60_days").length,
+    missingOrWeakNoticeDataCount: riskyItems.filter((item) =>
+      item.deadlineWindow === "missing" || item.workflowStatus === "needs_review"
+    ).length,
+    assignedOwnerCount: riskyItems.filter((item) => Boolean(item.ownerUserId)).length,
+    unassignedOwnerCount: riskyItems.filter((item) => !item.ownerUserId).length,
+    spendAtRiskAmount: riskyItems.reduce((total, item) => total + Math.max(0, item.spendAtRiskAmount), 0)
+  };
+}
+
+function buildSegments(
+  contracts: RenewalCommandContractSummary[],
+  saasOptOutItems: RenewalCommandSaasOptOutInput[] = []
+) {
+  const saasRiskContractIds = new Set(
+    saasOptOutItems
+      .filter((item) =>
+        item.contractId &&
+        item.workflowStatus !== "resolved" &&
+        item.workflowStatus !== "accepted_risk" &&
+        item.workflowStatus !== "ignored" &&
+        item.deadlineWindow !== "future"
+      )
+      .map((item) => item.contractId)
+  );
   return [
     segment("safe", "Safe renewals", "low", contracts.filter((contract) =>
       contract.hasActiveTrustedReminder && contract.trustedReminderReady && !contract.weakEvidence
@@ -291,6 +352,9 @@ function buildSegments(contracts: RenewalCommandContractSummary[]) {
     segment("blocked", "Blocked reminders", "high", contracts.filter((contract) =>
       !contract.trustedReminderReady
     ), "Clear the blocker preventing trusted reminder activation."),
+    segment("saas_opt_out_risk", "SaaS opt-out risk", "critical", contracts.filter((contract) =>
+      saasRiskContractIds.has(contract.id)
+    ), "Open the CFO Opt-Out Clock and resolve linked SaaS renewal-defense risk.", "/dashboard/saas-opt-out-clock"),
     segment("urgent_notice_deadline", "Urgent notice deadline", "critical", contracts.filter((contract) =>
       contract.upcomingNoticeDeadline
     ), "Resolve near opt-out windows this week."),
@@ -368,6 +432,7 @@ function readinessScore(contracts: RenewalCommandContractSummary[]) {
 export function buildRenewalCommandCenter(input: {
   organizationId: string;
   contracts: RenewalCommandContractInput[];
+  saasOptOutItems?: RenewalCommandSaasOptOutInput[];
   segment?: RenewalRiskSegmentId | null;
   now?: Date;
 }): RenewalCommandCenter {
@@ -383,7 +448,8 @@ export function buildRenewalCommandCenter(input: {
   const dueDates = Object.fromEntries(
     activeContracts.map((contract) => [contract.id, contract.noticeDeadlineDate])
   );
-  const riskSegments = buildSegments(activeContracts);
+  const saasOptOutSummary = buildSaasOptOutSummary(input.saasOptOutItems);
+  const riskSegments = buildSegments(activeContracts, input.saasOptOutItems);
   const recommendedActions = buildRenewalCommandActions({
     pastNoticeDeadlineContractIds: riskSegments.find((item) => item.id === "past_notice_deadline")?.contracts.map((contract) => contract.id) ?? [],
     upcomingNoticeDeadlineContractIds: activeContracts
@@ -445,6 +511,7 @@ export function buildRenewalCommandCenter(input: {
       .slice(0, 10),
     recommendedActions,
     riskSegments,
+    saasOptOutSummary,
     filteredSegment: input.segment ? riskSegments.find((segment) => segment.id === input.segment) ?? null : null
   };
 }

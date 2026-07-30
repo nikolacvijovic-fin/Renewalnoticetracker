@@ -26,8 +26,10 @@ const DECEPTIVE_PATTERNS = [
   /per our conversation/i,
   /you requested/i,
   /guaranteed savings/i,
+  /guaranteed\s+roi/i,
   /guarantee(d)? discount/i,
   /promise(d)?\s+(roi|savings|discount)/i,
+  /\b\d+%\s+(roi|return)\b/i,
   /will save\s+[$€£]?\d/i
 ];
 
@@ -47,7 +49,9 @@ const UNSCOPED_PERSONAL_DATA_PATTERNS = [
   /personal mobile/i,
   /private email/i,
   /linkedin profile/i,
-  /scraped contact/i
+  /scraped contact/i,
+  /scraped source/i,
+  /unapproved source/i
 ];
 
 const EXTERNAL_COLD_AUDIENCES: OutreachAudience[] = ["vendor_contact_placeholder"];
@@ -68,7 +72,7 @@ export function sanitizeOutreachText(value: string | null | undefined, maxLength
   const normalized = value?.replace(/\s+/g, " ").trim();
   if (!normalized) return "";
   if (containsSensitiveOutreachMarker(normalized)) return "[redacted: sensitive source content removed]";
-  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}...` : normalized;
+  return normalized.length > maxLength ? `${normalized.slice(0, Math.max(0, maxLength - 3))}...` : normalized;
 }
 
 export function sanitizeOutreachMetadata(input: Record<string, unknown>) {
@@ -84,6 +88,11 @@ export function evaluateOutreachSafety(input: {
   draftText?: string | null;
   hasEvidenceForSavingsClaim?: boolean;
   suppressions?: InternalOutreachSuppression[];
+  usesPersonalization?: boolean;
+  hasApprovedPersonalizationSource?: boolean;
+  suppressionCheckCompleted?: boolean;
+  reviewerApproved?: boolean;
+  copyRequested?: boolean;
 }): OutreachSafetyEvaluation {
   const reasons = new Set<string>();
   const draftText = input.draftText ?? "";
@@ -117,6 +126,15 @@ export function evaluateOutreachSafety(input: {
   if (UNSCOPED_PERSONAL_DATA_PATTERNS.some((pattern) => pattern.test(draftText))) {
     reasons.add("unscoped_personal_data_detected");
   }
+  if (input.usesPersonalization && !input.hasApprovedPersonalizationSource) {
+    reasons.add("personalization_without_approved_source");
+  }
+  if (input.copyRequested && !input.suppressionCheckCompleted) {
+    reasons.add("suppression_check_required_before_copy");
+  }
+  if (input.copyRequested && !input.reviewerApproved) {
+    reasons.add("copy_requires_human_approval");
+  }
 
   const reasonList = Array.from(reasons);
   const status: OutreachSafetyStatus = reasonList.some((reason) =>
@@ -125,7 +143,10 @@ export function evaluateOutreachSafety(input: {
       "sensitive_content_marker_detected",
       "unsupported_or_deceptive_claim",
       "external_send_action_detected",
-      "unscoped_personal_data_detected"
+      "unscoped_personal_data_detected",
+      "personalization_without_approved_source",
+      "suppression_check_required_before_copy",
+      "copy_requires_human_approval"
     ].includes(reason)
   )
     ? "blocked"
@@ -143,6 +164,22 @@ export function evaluateOutreachSafety(input: {
         : status === "needs_review"
           ? "Confirm evidence, audience scope, and reviewer approval before manual copy."
           : null
+  };
+}
+
+export function evaluateOutreachCopyApproval(input: {
+  safetyStatus: OutreachSafetyStatus;
+  suppressionActive: boolean;
+  reviewerApproved: boolean;
+}) {
+  const blockers = [
+    input.safetyStatus === "blocked" ? "safety_status_blocked" : null,
+    input.suppressionActive ? "active_suppression" : null,
+    !input.reviewerApproved ? "reviewer_approval_required" : null
+  ].filter((value): value is string => Boolean(value));
+  return {
+    copyAllowed: blockers.length === 0,
+    blockers
   };
 }
 

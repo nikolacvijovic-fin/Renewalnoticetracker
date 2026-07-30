@@ -41,6 +41,7 @@ import {
   listQuoteFindings,
   listSavingsOpportunities
 } from "@/lib/quote-comparison/quote-comparison";
+import { getSaasOptOutStatusForContract } from "@/lib/saas/queries";
 
 export default async function ContractDetailPage({
   params
@@ -64,7 +65,8 @@ export default async function ContractDetailPage({
     extractedFields,
     quoteComparisons,
     quoteFindings,
-    savingsOpportunities
+    savingsOpportunities,
+    saasOptOutStatus
   ] = await Promise.all([
     buildContractDetailViewModel({
       context,
@@ -100,7 +102,8 @@ export default async function ContractDetailPage({
       organizationId,
       contractId: contract.id,
       limit: 25
-    })
+    }),
+    getSaasOptOutStatusForContract(organizationId, contract.id)
   ]);
   const canReviewExtraction = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
@@ -207,6 +210,49 @@ export default async function ContractDetailPage({
                   <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.reminderStatus}</p>
                   <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.reminderHelp}</p>
                 </div>
+                {saasOptOutStatus ? (
+                  <div className="rounded-2xl border border-urgent/20 bg-urgent/5 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        tone={
+                          saasOptOutStatus.deadlineWindow === "expired"
+                            ? "critical"
+                            : saasOptOutStatus.deadlineWindow === "due_7_days" ||
+                                saasOptOutStatus.deadlineWindow === "due_30_days"
+                              ? "urgent"
+                              : "warning"
+                        }
+                      >
+                        SaaS opt-out {saasOptOutStatus.deadlineWindow.replaceAll("_", " ")}
+                      </Badge>
+                      <Badge>{saasOptOutStatus.workflowStatus.replaceAll("_", " ")}</Badge>
+                    </div>
+                    <p className="mt-3 text-base font-semibold text-ink">
+                      {saasOptOutStatus.softwareName} | {formatDate(saasOptOutStatus.optOutDeadline)}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Owner: {saasOptOutStatus.ownerLabel}. Spend at risk:{" "}
+                      {new Intl.NumberFormat("en-US", {
+                        style: "currency",
+                        currency: saasOptOutStatus.spendAtRiskCurrency ?? "USD",
+                        maximumFractionDigits: 0
+                      }).format(saasOptOutStatus.spendAtRiskAmount)}.
+                    </p>
+                    {saasOptOutStatus.nextAction ? (
+                      <p className="mt-2 text-sm text-slate-700">Next action: {saasOptOutStatus.nextAction}</p>
+                    ) : null}
+                    {saasOptOutStatus.openFindingCount > 0 || saasOptOutStatus.metadataConflictCount > 0 ? (
+                      <p className="mt-2 text-xs text-slate-600">
+                        Review blockers: {saasOptOutStatus.openFindingCount} open finding
+                        {saasOptOutStatus.openFindingCount === 1 ? "" : "s"}
+                        {saasOptOutStatus.metadataConflictCount > 0
+                          ? `, ${saasOptOutStatus.metadataConflictCount} contract/SaaS metadata conflict${saasOptOutStatus.metadataConflictCount === 1 ? "" : "s"}`
+                          : ""}
+                        .
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             </div>
             <ReminderTimeline

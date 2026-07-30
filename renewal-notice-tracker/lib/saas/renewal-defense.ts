@@ -1,11 +1,26 @@
 export type NoticePeriodUnit = "days" | "weeks" | "months";
 export type OptOutUrgency = "expired" | "critical" | "high" | "medium" | "low";
+export type OptOutDeadlineWindow = "expired" | "due_7_days" | "due_30_days" | "due_60_days" | "future" | "missing";
 export type SaasRiskFindingType =
   | "auto_renewal"
   | "missing_notice_deadline"
   | "expired_opt_out"
-  | "critical_opt_out";
+  | "critical_opt_out"
+  | "deadline_soon"
+  | "weak_evidence"
+  | "missing_owner"
+  | "high_spend_at_risk"
+  | "contract_saas_metadata_conflict";
 export type SaasRiskSeverity = "low" | "medium" | "high" | "critical";
+export type SaasRiskFindingStatus = "open" | "resolved" | "accepted_risk" | "ignored";
+export type SaasOptOutWorkflowStatus =
+  | "needs_review"
+  | "ready"
+  | "owner_assigned"
+  | "decision_needed"
+  | "resolved"
+  | "accepted_risk"
+  | "ignored";
 
 export type SaasTermInput = {
   renewalDate?: string | null;
@@ -18,6 +33,18 @@ export type SaasTermInput = {
 
 export type SaasRiskFindingInput = SaasTermInput & {
   today?: string;
+  ownerUserId?: string | null;
+  evidenceConfidence?: number | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  contractMetadata?: {
+    renewalDate?: string | null;
+    expirationDate?: string | null;
+    noticeDeadlineDate?: string | null;
+    autoRenewal?: boolean | null;
+    contractValueAmount?: number | null;
+    contractValueCurrency?: string | null;
+  } | null;
 };
 
 export type CalculatedSaasRiskFinding = {
@@ -25,6 +52,15 @@ export type CalculatedSaasRiskFinding = {
   severity: SaasRiskSeverity;
   evidence: Record<string, string | number | boolean | null>;
 };
+
+export type SaasMetadataConflict = {
+  field: "renewal_date" | "expiration_date" | "notice_deadline_date" | "auto_renewal" | "contract_value_amount" | "contract_value_currency";
+  contractValue: string | number | boolean | null;
+  saasValue: string | number | boolean | null;
+};
+
+const HIGH_SPEND_AT_RISK_THRESHOLD = 25000;
+const WEAK_EVIDENCE_THRESHOLD = 0.75;
 
 function parseDateOnly(value: string | null | undefined) {
   if (!value) return null;
@@ -94,6 +130,19 @@ export function getOptOutUrgency(
   return "low";
 }
 
+export function getOptOutDeadlineWindow(
+  deadline: string | null | undefined,
+  today?: string
+): OptOutDeadlineWindow {
+  const days = daysUntilOptOut(deadline, today);
+  if (days === null) return "missing";
+  if (days < 0) return "expired";
+  if (days <= 7) return "due_7_days";
+  if (days <= 30) return "due_30_days";
+  if (days <= 60) return "due_60_days";
+  return "future";
+}
+
 function severityForUrgency(urgency: OptOutUrgency): SaasRiskSeverity {
   if (urgency === "expired" || urgency === "critical") return "critical";
   if (urgency === "high") return "high";
@@ -101,11 +150,126 @@ function severityForUrgency(urgency: OptOutUrgency): SaasRiskSeverity {
   return "low";
 }
 
+function normalizeDate(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : null;
+}
+
+function normalizedMoney(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return null;
+  return Number(value);
+}
+
+export function detectSaasContractMetadataConflicts(input: {
+  saas: SaasTermInput & {
+    contractValueAmount?: number | null;
+    contractValueCurrency?: string | null;
+  };
+  contractMetadata?: SaasRiskFindingInput["contractMetadata"];
+}): SaasMetadataConflict[] {
+  const metadata = input.contractMetadata;
+  if (!metadata) return [];
+
+  const comparisons: SaasMetadataConflict[] = [
+    {
+      field: "renewal_date",
+      contractValue: normalizeDate(metadata.renewalDate),
+      saasValue: normalizeDate(input.saas.renewalDate)
+    },
+    {
+      field: "expiration_date",
+      contractValue: normalizeDate(metadata.expirationDate),
+      saasValue: normalizeDate(input.saas.expirationDate)
+    },
+    {
+      field: "notice_deadline_date",
+      contractValue: normalizeDate(metadata.noticeDeadlineDate),
+      saasValue: normalizeDate(calculateNoticeDeadline(input.saas))
+    },
+    {
+      field: "auto_renewal",
+      contractValue: metadata.autoRenewal ?? null,
+      saasValue: input.saas.autoRenewal ?? null
+    },
+    {
+      field: "contract_value_amount",
+      contractValue: normalizedMoney(metadata.contractValueAmount),
+      saasValue: normalizedMoney(input.saas.contractValueAmount)
+    },
+    {
+      field: "contract_value_currency",
+      contractValue: metadata.contractValueCurrency?.toUpperCase() ?? null,
+      saasValue: input.saas.contractValueCurrency?.toUpperCase() ?? null
+    }
+  ];
+
+  return comparisons.filter((comparison) =>
+    comparison.contractValue !== null &&
+    comparison.saasValue !== null &&
+    comparison.contractValue !== comparison.saasValue
+  );
+}
+
+export function deriveSaasOptOutWorkflowStatus(input: {
+  noticeDeadline: string | null;
+  ownerUserId?: string | null;
+  openFindingTypes?: SaasRiskFindingType[];
+  currentStatus?: SaasOptOutWorkflowStatus | null;
+  today?: string;
+}): SaasOptOutWorkflowStatus {
+  if (input.currentStatus && ["resolved", "accepted_risk", "ignored"].includes(input.currentStatus)) {
+    return input.currentStatus;
+  }
+
+  const findingTypes = new Set(input.openFindingTypes ?? []);
+  if (!input.noticeDeadline || findingTypes.has("missing_notice_deadline") || findingTypes.has("weak_evidence") || findingTypes.has("contract_saas_metadata_conflict")) {
+    return "needs_review";
+  }
+  if (!input.ownerUserId || findingTypes.has("missing_owner")) {
+    return "owner_assigned";
+  }
+  const window = getOptOutDeadlineWindow(input.noticeDeadline, input.today);
+  if (window === "expired" || window === "due_7_days" || window === "due_30_days") {
+    return "decision_needed";
+  }
+  return "ready";
+}
+
+export function buildSafeSaasRenewalDefenseAuditMetadata(input: {
+  organizationId: string;
+  actorUserId?: string | null;
+  contractId?: string | null;
+  softwareId?: string | null;
+  saasTermId?: string | null;
+  optOutWindowId?: string | null;
+  findingId?: string | null;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  deadlineWindow?: OptOutDeadlineWindow | null;
+  amount?: number | null;
+  currency?: string | null;
+}) {
+  return {
+    organizationId: input.organizationId,
+    actorUserId: input.actorUserId ?? null,
+    contractId: input.contractId ?? null,
+    softwareId: input.softwareId ?? null,
+    saasTermId: input.saasTermId ?? null,
+    optOutWindowId: input.optOutWindowId ?? null,
+    findingId: input.findingId ?? null,
+    fromStatus: input.fromStatus ?? null,
+    toStatus: input.toStatus ?? null,
+    deadlineWindow: input.deadlineWindow ?? null,
+    amount: input.amount ?? null,
+    currency: input.currency ?? null
+  };
+}
+
 export function calculateSaasContractRiskFindings(
   input: SaasRiskFindingInput
 ): CalculatedSaasRiskFinding[] {
   const noticeDeadline = calculateNoticeDeadline(input);
   const urgency = getOptOutUrgency(noticeDeadline, input.today);
+  const deadlineWindow = getOptOutDeadlineWindow(noticeDeadline, input.today);
   const findings: CalculatedSaasRiskFinding[] = [];
 
   if (input.autoRenewal) {
@@ -150,6 +314,76 @@ export function calculateSaasContractRiskFindings(
       evidence: {
         notice_deadline_date: noticeDeadline,
         days_until_opt_out: daysUntilOptOut(noticeDeadline, input.today)
+      }
+    });
+  }
+
+  if (deadlineWindow === "due_30_days" || deadlineWindow === "due_60_days") {
+    findings.push({
+      findingType: "deadline_soon",
+      severity: deadlineWindow === "due_30_days" ? "high" : "medium",
+      evidence: {
+        notice_deadline_date: noticeDeadline,
+        days_until_opt_out: daysUntilOptOut(noticeDeadline, input.today),
+        deadline_window: deadlineWindow
+      }
+    });
+  }
+
+  if (input.evidenceConfidence !== null && input.evidenceConfidence !== undefined && input.evidenceConfidence < WEAK_EVIDENCE_THRESHOLD) {
+    findings.push({
+      findingType: "weak_evidence",
+      severity: "high",
+      evidence: {
+        evidence_confidence: input.evidenceConfidence,
+        threshold: WEAK_EVIDENCE_THRESHOLD
+      }
+    });
+  }
+
+  if (!input.ownerUserId) {
+    findings.push({
+      findingType: "missing_owner",
+      severity: "medium",
+      evidence: {
+        owner_user_id: null
+      }
+    });
+  }
+
+  if (Number(input.contractValueAmount ?? 0) >= HIGH_SPEND_AT_RISK_THRESHOLD && noticeDeadline) {
+    findings.push({
+      findingType: "high_spend_at_risk",
+      severity: urgency === "expired" || urgency === "critical" ? "critical" : "high",
+      evidence: {
+        contract_value_amount: Number(input.contractValueAmount),
+        contract_value_currency: input.contractValueCurrency ?? null,
+        threshold: HIGH_SPEND_AT_RISK_THRESHOLD,
+        deadline_window: deadlineWindow
+      }
+    });
+  }
+
+  const conflicts = detectSaasContractMetadataConflicts({
+    saas: {
+      renewalDate: input.renewalDate,
+      expirationDate: input.expirationDate,
+      noticeDeadlineDate: input.noticeDeadlineDate,
+      noticePeriodValue: input.noticePeriodValue,
+      noticePeriodUnit: input.noticePeriodUnit,
+      autoRenewal: input.autoRenewal,
+      contractValueAmount: input.contractValueAmount,
+      contractValueCurrency: input.contractValueCurrency
+    },
+    contractMetadata: input.contractMetadata
+  });
+  if (conflicts.length > 0) {
+    findings.push({
+      findingType: "contract_saas_metadata_conflict",
+      severity: "high",
+      evidence: {
+        conflict_count: conflicts.length,
+        first_conflict_field: conflicts[0]?.field ?? null
       }
     });
   }
