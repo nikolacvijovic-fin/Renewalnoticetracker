@@ -75,13 +75,22 @@ export type SaasConflictResolutionInput = {
   trustedSource: SaasTrustedSource;
   manualOverride?: string | number | boolean | null;
   resolutionReason?: string | null;
+  resolvedByUserId?: string | null;
+  resolvedByLabel?: string | null;
+  resolvedAt?: string | null;
   reopenedAt?: string | null;
 };
 export type ResolvedSaasTrustedField = {
   field: SaasConflictField;
+  contractValue: string | number | boolean | null;
+  saasValue: string | number | boolean | null;
   effectiveValue: string | number | boolean | null;
   trustedSource: SaasTrustedSource;
   resolved: boolean;
+  resolutionReason: string | null;
+  resolvedByUserId: string | null;
+  resolvedByLabel: string | null;
+  resolvedAt: string | null;
   explanation: string;
 };
 export const SAAS_CONFLICT_FIELDS: SaasConflictField[] = [
@@ -297,9 +306,15 @@ export function resolveSaasTrustedField(input: {
     const trustedSource = input.conflict.recommendedTrustedSource;
     return {
       field: input.conflict.field,
+      contractValue: input.conflict.contractValue,
+      saasValue: input.conflict.saasValue,
       effectiveValue: trustedSource === "saas_term" ? input.conflict.saasValue : input.conflict.contractValue,
       trustedSource,
       resolved: false,
+      resolutionReason: null,
+      resolvedByUserId: null,
+      resolvedByLabel: null,
+      resolvedAt: null,
       explanation: "Unresolved conflict; showing the recommended source until a reviewer records a trust decision."
     };
   }
@@ -313,9 +328,15 @@ export function resolveSaasTrustedField(input: {
 
   return {
     field: input.conflict.field,
+    contractValue: input.conflict.contractValue,
+    saasValue: input.conflict.saasValue,
     effectiveValue,
     trustedSource: activeResolution.trustedSource,
     resolved: true,
+    resolutionReason: activeResolution.resolutionReason ?? null,
+    resolvedByUserId: activeResolution.resolvedByUserId ?? null,
+    resolvedByLabel: activeResolution.resolvedByLabel ?? null,
+    resolvedAt: activeResolution.resolvedAt ?? null,
     explanation:
       activeResolution.trustedSource === "manual_override"
         ? "Manual override is trusted because a reviewer recorded an explicit resolution reason."
@@ -324,7 +345,15 @@ export function resolveSaasTrustedField(input: {
 }
 
 export function explainSaasTrustedValue(input: ResolvedSaasTrustedField) {
-  return `${input.field.replaceAll("_", " ")} uses ${input.trustedSource.replace("_", " ")}${input.resolved ? "" : " recommendation"}: ${input.explanation}`;
+  const field = input.field.replaceAll("_", " ");
+  const source = input.trustedSource.replace("_", " ");
+  if (!input.resolved) {
+    return `${field} uses ${source} recommendation only: ${input.explanation} Contract value: ${String(input.contractValue)}. SaaS value: ${String(input.saasValue)}.`;
+  }
+  const actor = input.resolvedByLabel ?? input.resolvedByUserId ?? "recorded reviewer";
+  const resolvedAt = input.resolvedAt ? ` on ${input.resolvedAt.slice(0, 10)}` : "";
+  const reason = input.resolutionReason ? ` Reason: ${input.resolutionReason}` : "";
+  return `${field} uses ${source}: ${input.explanation} Resolved by ${actor}${resolvedAt}.${reason} Contract value: ${String(input.contractValue)}. SaaS value: ${String(input.saasValue)}.`;
 }
 
 export function deriveSaasOptOutWorkflowStatus(input: {

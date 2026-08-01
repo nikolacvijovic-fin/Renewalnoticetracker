@@ -51,18 +51,86 @@ create index if not exists saas_metadata_conflict_resolution_org_state_idx
 
 alter table public.saas_contract_metadata_conflict_resolutions enable row level security;
 
-create policy "members can access saas metadata conflict resolutions"
+create policy "members can read saas metadata conflict resolutions"
 on public.saas_contract_metadata_conflict_resolutions
-for all using (
+for select using (
   exists (
     select 1 from public.memberships
     where memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
       and memberships.user_id = auth.uid()
   )
+);
+
+create policy "review roles can insert saas metadata conflict resolutions"
+on public.saas_contract_metadata_conflict_resolutions
+for insert with check (
+  exists (
+    select 1 from public.saas_contract_terms
+    where saas_contract_terms.id = saas_contract_metadata_conflict_resolutions.saas_term_id
+      and saas_contract_terms.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+      and saas_contract_terms.contract_id = saas_contract_metadata_conflict_resolutions.contract_id
+      and saas_contract_terms.software_id = saas_contract_metadata_conflict_resolutions.software_id
+  )
+  and (
+    exists (
+      select 1 from public.memberships
+      where memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+        and memberships.user_id = auth.uid()
+        and memberships.role in ('admin', 'operator', 'reviewer')
+    )
+    or exists (
+      select 1 from public.contracts
+      where contracts.id = saas_contract_metadata_conflict_resolutions.contract_id
+        and contracts.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+        and contracts.owner_user_id = auth.uid()
+    )
+  )
+);
+
+create policy "review roles can update saas metadata conflict resolutions"
+on public.saas_contract_metadata_conflict_resolutions
+for update using (
+  exists (
+    select 1 from public.saas_contract_terms
+    where saas_contract_terms.id = saas_contract_metadata_conflict_resolutions.saas_term_id
+      and saas_contract_terms.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+      and saas_contract_terms.contract_id = saas_contract_metadata_conflict_resolutions.contract_id
+      and saas_contract_terms.software_id = saas_contract_metadata_conflict_resolutions.software_id
+  )
+  and (
+    exists (
+      select 1 from public.memberships
+      where memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+        and memberships.user_id = auth.uid()
+        and memberships.role in ('admin', 'operator', 'reviewer')
+    )
+    or exists (
+      select 1 from public.contracts
+      where contracts.id = saas_contract_metadata_conflict_resolutions.contract_id
+        and contracts.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+        and contracts.owner_user_id = auth.uid()
+    )
+  )
 ) with check (
   exists (
-    select 1 from public.memberships
-    where memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
-      and memberships.user_id = auth.uid()
+    select 1 from public.saas_contract_terms
+    where saas_contract_terms.id = saas_contract_metadata_conflict_resolutions.saas_term_id
+      and saas_contract_terms.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+      and saas_contract_terms.contract_id = saas_contract_metadata_conflict_resolutions.contract_id
+      and saas_contract_terms.software_id = saas_contract_metadata_conflict_resolutions.software_id
+  )
+  and (
+    exists (
+      select 1 from public.memberships
+      where memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+        and memberships.user_id = auth.uid()
+        and memberships.role in ('admin', 'operator', 'reviewer')
+    )
+    or exists (
+      select 1 from public.contracts
+      where contracts.id = saas_contract_metadata_conflict_resolutions.contract_id
+        and contracts.organization_id = saas_contract_metadata_conflict_resolutions.organization_id
+        and contracts.owner_user_id = auth.uid()
+    )
   )
 );

@@ -8,6 +8,7 @@ import {
   daysUntilOptOut,
   deriveSaasOptOutWorkflowStatus,
   detectSaasContractMetadataConflicts,
+  explainSaasTrustedValue,
   getOptOutDeadlineWindow,
   getOptOutUrgency,
   resolveSaasTrustedField
@@ -157,12 +158,20 @@ describe("SaaS Renewal Defense runtime slice", () => {
       resolution: {
         fieldName: "notice_deadline_date",
         trustedSource: "saas_term",
-        resolutionReason: "SaaS import was reviewed against the signed order form."
+        resolutionReason: "SaaS import was reviewed against the signed order form.",
+        resolvedByUserId: "reviewer-1",
+        resolvedByLabel: "Ava Reviewer",
+        resolvedAt: "2026-07-30T10:00:00.000Z"
       }
     })).toEqual(expect.objectContaining({
       effectiveValue: "2026-08-01",
       trustedSource: "saas_term",
-      resolved: true
+      resolved: true,
+      contractValue: "2026-08-15",
+      saasValue: "2026-08-01",
+      resolutionReason: "SaaS import was reviewed against the signed order form.",
+      resolvedByLabel: "Ava Reviewer",
+      resolvedAt: "2026-07-30T10:00:00.000Z"
     }));
     expect(resolveSaasTrustedField({
       conflict,
@@ -177,6 +186,37 @@ describe("SaaS Renewal Defense runtime slice", () => {
       trustedSource: "manual_override",
       resolved: true
     }));
+  });
+
+  it("distinguishes recommended overlays from human-resolved trusted decisions", () => {
+    const [conflict] = detectSaasContractMetadataConflicts({
+      saas: {
+        noticeDeadlineDate: "2026-08-01"
+      },
+      contractMetadata: {
+        noticeDeadlineDate: "2026-08-15"
+      }
+    });
+    if (!conflict) throw new Error("Expected notice deadline conflict");
+
+    const recommended = resolveSaasTrustedField({ conflict });
+    const resolved = resolveSaasTrustedField({
+      conflict,
+      resolution: {
+        fieldName: "notice_deadline_date",
+        trustedSource: "manual_override",
+        manualOverride: "2026-08-10",
+        resolutionReason: "Finance confirmed the corrected deadline from reviewed evidence.",
+        resolvedByLabel: "Ava Reviewer",
+        resolvedAt: "2026-07-30T10:00:00.000Z"
+      }
+    });
+
+    expect(explainSaasTrustedValue(recommended)).toContain("recommendation only");
+    expect(explainSaasTrustedValue(resolved)).toContain("Resolved by Ava Reviewer on 2026-07-30");
+    expect(explainSaasTrustedValue(resolved)).toContain("Reason: Finance confirmed");
+    expect(explainSaasTrustedValue(resolved)).toContain("Contract value: 2026-08-15");
+    expect(explainSaasTrustedValue(resolved)).toContain("SaaS value: 2026-08-01");
   });
 
   it("derives owner and next-action workflow status", () => {
@@ -335,6 +375,16 @@ describe("SaaS Renewal Defense runtime slice", () => {
     expect(conflictMigration).toContain("saas_metadata_conflict_resolution_active_unique_idx");
     expect(conflictMigration).toContain("where reopened_at is null");
     expect(conflictMigration).toContain("alter table public.saas_contract_metadata_conflict_resolutions enable row level security");
+    expect(conflictMigration).toContain("for select using");
+    expect(conflictMigration).toContain("for insert with check");
+    expect(conflictMigration).toContain("for update using");
     expect(conflictMigration).toContain("memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id");
+    expect(conflictMigration).toContain("memberships.role in ('admin', 'operator', 'reviewer')");
+    expect(conflictMigration).toContain("contracts.owner_user_id = auth.uid()");
+    expect(conflictMigration).toContain("saas_contract_terms.id = saas_contract_metadata_conflict_resolutions.saas_term_id");
+    expect(conflictMigration).toContain("saas_contract_terms.contract_id = saas_contract_metadata_conflict_resolutions.contract_id");
+    expect(conflictMigration).toContain("saas_contract_terms.software_id = saas_contract_metadata_conflict_resolutions.software_id");
+    expect(conflictMigration).not.toContain("for delete");
+    expect(conflictMigration).not.toContain("for all");
   });
 });

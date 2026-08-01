@@ -85,26 +85,33 @@ export function ContractsTable({
                 <div className="space-y-1">
                   <div>{formatDate(contract.contract_metadata?.notice_deadline_date)}</div>
                   {saasOptOutStatus ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge
-                        tone={
-                          saasOptOutStatus.deadlineWindow === "expired"
-                            ? "critical"
-                            : saasOptOutStatus.deadlineWindow === "due_7_days" ||
-                                saasOptOutStatus.deadlineWindow === "due_30_days"
-                              ? "urgent"
-                              : "warning"
-                        }
-                      >
-                        SaaS opt-out {saasOptOutStatus.deadlineWindow.replaceAll("_", " ")}
-                      </Badge>
-                      {saasOptOutStatus.metadataConflictCount > 0 ? (
-                        <Badge tone="warning">Conflict</Badge>
-                      ) : null}
+                    <>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge
+                          tone={
+                            saasOptOutStatus.deadlineWindow === "expired"
+                              ? "critical"
+                              : saasOptOutStatus.deadlineWindow === "due_7_days" ||
+                                  saasOptOutStatus.deadlineWindow === "due_30_days"
+                                ? "urgent"
+                                : "warning"
+                          }
+                        >
+                          SaaS opt-out {saasOptOutStatus.deadlineWindow.replaceAll("_", " ")}
+                        </Badge>
+                        {saasOptOutStatus.metadataConflictCount > 0 ? (
+                          <Badge tone="warning">Conflict</Badge>
+                        ) : null}
+                        {saasOptOutStatus.trustedValueExplanations.length > 0 ? (
+                          <Badge tone="success">Trusted overlay</Badge>
+                        ) : null}
+                      </div>
                       {saasOptOutStatus.trustedValueExplanations.length > 0 ? (
-                        <Badge tone="success">Trusted overlay</Badge>
+                        <p className="mt-1 max-w-xs text-xs text-slate-500">
+                          {saasOptOutStatus.trustedValueExplanations[0]}
+                        </p>
                       ) : null}
-                    </div>
+                    </>
                   ) : null}
                 </div>
               </td>

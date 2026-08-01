@@ -42,6 +42,7 @@ export type SaasOptOutClockItem = {
   optOutWindow: SaasOptOutWindowRow | null;
   openFindings: SaasRiskFindingRow[];
   ownerUserId: string | null;
+  linkedContractOwnerUserId: string | null;
   ownerLabel: string;
   workflowStatus: SaasOptOutWorkflowStatus;
   nextAction: string | null;
@@ -55,6 +56,7 @@ export type SaasOptOutClockItem = {
   contractId: string | null;
   metadataConflicts: SaasMetadataConflict[];
   resolvedMetadataConflicts: ResolvedSaasTrustedField[];
+  trustedValueDetails: ResolvedSaasTrustedField[];
   trustedValueExplanations: string[];
 };
 
@@ -90,6 +92,7 @@ export type SaasContractOptOutStatus = {
   spendAtRiskCurrency: string | null;
   openFindingCount: number;
   metadataConflictCount: number;
+  trustedValueDetails: ResolvedSaasTrustedField[];
   trustedValueExplanations: string[];
 };
 
@@ -136,12 +139,18 @@ function memberLabels(
   ]));
 }
 
-function resolutionInputFromRow(row: SaasMetadataConflictResolutionRow): SaasConflictResolutionInput {
+function resolutionInputFromRow(
+  row: SaasMetadataConflictResolutionRow,
+  labelsByUserId: Map<string, string>
+): SaasConflictResolutionInput {
   return {
     fieldName: row.field_name as SaasConflictField,
     trustedSource: row.trusted_source as SaasConflictResolutionInput["trustedSource"],
     manualOverride: row.manual_override_json as string | number | boolean | null,
     resolutionReason: row.resolution_reason,
+    resolvedByUserId: row.resolved_by_user_id,
+    resolvedByLabel: row.resolved_by_user_id ? labelsByUserId.get(row.resolved_by_user_id) ?? row.resolved_by_user_id : null,
+    resolvedAt: row.resolved_at,
     reopenedAt: row.reopened_at
   };
 }
@@ -308,13 +317,14 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
         : null;
       const trustedValue = resolveSaasTrustedField({
         conflict,
-        resolution: resolution ? resolutionInputFromRow(resolution) : null
+        resolution: resolution ? resolutionInputFromRow(resolution, ownerLabels) : null
       });
       trustedValues.set(conflict.field, trustedValue);
     }
     const metadataConflicts = detectedMetadataConflicts.filter((conflict) => !trustedValues.get(conflict.field)?.resolved);
     const resolvedMetadataConflicts = Array.from(trustedValues.values()).filter((value) => value.resolved);
-    const trustedValueExplanations = Array.from(trustedValues.values()).map(explainSaasTrustedValue);
+    const trustedValueDetails = Array.from(trustedValues.values());
+    const trustedValueExplanations = trustedValueDetails.map(explainSaasTrustedValue);
     const effectiveNoticeDeadline =
       (trustedScalar(trustedValues, "notice_deadline_date") as string | null) ??
       optOutWindow?.opt_out_deadline ??
@@ -351,6 +361,7 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       optOutWindow,
       openFindings: unresolvedOpenFindings,
       ownerUserId,
+      linkedContractOwnerUserId: linkedContract?.owner_user_id ?? null,
       ownerLabel: ownerUserId ? ownerLabels.get(ownerUserId) ?? "Assigned" : "Unassigned",
       workflowStatus,
       nextAction: optOutWindow?.next_action ?? null,
@@ -364,6 +375,7 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       contractId: latestTerm?.contract_id ?? software.source_contract_id ?? null,
       metadataConflicts,
       resolvedMetadataConflicts,
+      trustedValueDetails,
       trustedValueExplanations
     };
   });
@@ -470,6 +482,7 @@ export async function getSaasOptOutStatusesForContracts(
       spendAtRiskCurrency: item.spendAtRiskCurrency,
       openFindingCount: item.openFindings.length,
       metadataConflictCount: item.metadataConflicts.length,
+      trustedValueDetails: item.trustedValueDetails,
       trustedValueExplanations: item.trustedValueExplanations
     };
   }

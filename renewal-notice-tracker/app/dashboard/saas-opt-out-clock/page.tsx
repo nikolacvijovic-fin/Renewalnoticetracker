@@ -58,6 +58,11 @@ function money(amount: number, currency: string | null) {
   }).format(amount);
 }
 
+function displayTrustedValue(value: string | number | boolean | null) {
+  if (value === null || value === undefined || value === "") return "Not captured";
+  return String(value);
+}
+
 const IMPORT_REVIEW_GROUPS = [
   { id: "ready", label: "Ready", statuses: ["ready", "corrected"] },
   { id: "needs_review", label: "Needs review", statuses: ["needs_review"] },
@@ -79,7 +84,7 @@ export default async function SaasOptOutClockPage() {
   const canWrite = ["admin", "operator"].includes(context.role);
   const canResolveConflict = (item: SaasOptOutClockItem) =>
     ["admin", "operator", "reviewer"].includes(context.role) ||
-    (context.role === "owner" && item.ownerUserId === context.user.id);
+    (context.role === "owner" && item.linkedContractOwnerUserId === context.user.id);
 
   return (
     <section className="space-y-6">
@@ -509,8 +514,33 @@ export default async function SaasOptOutClockPage() {
                             </li>
                           ) : null}
                           {item.trustedValueExplanations.length > 0 ? (
-                            <li className="text-xs text-slate-500">
-                              Trusted overlay: {item.resolvedMetadataConflicts.length} resolved.
+                            <li className="space-y-2 rounded-2xl border border-success/20 bg-success/5 p-3 text-xs text-slate-600">
+                              <p className="font-semibold text-slate-900">
+                                Trusted overlay evidence: {item.resolvedMetadataConflicts.length} human-resolved,{" "}
+                                {item.metadataConflicts.length} recommended only.
+                              </p>
+                              <div className="space-y-2">
+                                {item.trustedValueDetails.slice(0, 4).map((detail) => (
+                                  <div key={`${item.software.id}-${detail.field}-${detail.trustedSource}`} className="rounded-xl bg-white/70 p-2">
+                                    <p className="font-semibold text-slate-800">
+                                      {detail.field.replaceAll("_", " ")} uses {detail.trustedSource.replaceAll("_", " ")}
+                                      {detail.resolved ? " as trusted" : " recommendation"}
+                                    </p>
+                                    <p>
+                                      Contract: {displayTrustedValue(detail.contractValue)} | SaaS: {displayTrustedValue(detail.saasValue)}
+                                    </p>
+                                    {detail.resolved ? (
+                                      <p>
+                                        Resolved by {detail.resolvedByLabel ?? "recorded reviewer"}
+                                        {detail.resolvedAt ? ` on ${detail.resolvedAt.slice(0, 10)}` : ""}.
+                                        {detail.resolutionReason ? ` Reason: ${detail.resolutionReason}` : ""}
+                                      </p>
+                                    ) : (
+                                      <p>Recommended only. A permitted reviewer has not recorded a trust decision yet.</p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
                             </li>
                           ) : null}
                         </ul>

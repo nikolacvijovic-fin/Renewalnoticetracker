@@ -260,57 +260,38 @@ describe("SaaS renewal import actions", () => {
     expect(inserts.saas_software_inventory).toHaveLength(0);
   });
 
-  it("activates only ready rows and preserves organization scope on every insert", async () => {
-    const { activateReadySaasRenewalImportRowsAction } = await import("@/lib/actions/saas-renewal-defense");
-
-    const result = await activateReadySaasRenewalImportRowsAction(formDataWith(fileFromCsv([
-      "Acme Inc.,Acme Cloud,2026-10-01,2026-08-15,,50000,USD,owner@example.com,Finance,Imported source: order form",
-      "Beta Ltd,Beta Suite,2026-11-01,,,,12000,EUR,missing@example.com,Ops,Manual spreadsheet only"
-    ])));
-
-    expect(result).toMatchObject({
-      activatedCount: 1,
-      blockedCount: 1
-    });
-    expect(inserts.saas_software_inventory).toHaveLength(1);
-    expect(inserts.saas_contract_terms).toHaveLength(1);
-    expect(inserts.saas_opt_out_windows).toHaveLength(1);
-    expect(insertBucket("saas_software_inventory")[0]).toEqual(expect.objectContaining({
-      organization_id: "org-1",
-      name: "Acme Cloud",
-      owner_user_id: "member-1"
-    }));
-    expect(insertBucket("saas_contract_terms")[0]).toEqual(expect.objectContaining({
-      organization_id: "org-1",
-      notice_deadline_date: "2026-08-15",
-      contract_value_amount: 50000
-    }));
-    expect(insertBucket("saas_opt_out_windows")[0]).toEqual(expect.objectContaining({
-      organization_id: "org-1",
-      opt_out_deadline: "2026-08-15",
-      workflow_status: "ready"
-    }));
-    expect(JSON.stringify(inserts)).not.toContain("Beta Suite");
-    expect(revalidatePath).toHaveBeenCalledWith("/dashboard/saas-opt-out-clock");
-    expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
-  });
-
-  it("blocks non-admin/operator imports before parsing payloads into records", async () => {
-    requireOrganization.mockResolvedValue({
-      user: { id: "user-1", email: "viewer@example.com" },
-      organizationId: "org-1",
-      role: "reviewer"
-    });
+  it("blocks direct uploaded-file activation so trusted SaaS records require persisted review batches", async () => {
     const { activateReadySaasRenewalImportRowsAction } = await import("@/lib/actions/saas-renewal-defense");
 
     await expect(
       activateReadySaasRenewalImportRowsAction(formDataWith(fileFromCsv([
         "Acme Inc.,Acme Cloud,2026-10-01,2026-08-15,,50000,USD,owner@example.com,Finance,Imported source: order form"
       ])))
-    ).rejects.toThrow("Only admins and operators");
+    ).rejects.toThrow("Direct SaaS import activation is disabled");
 
+    expect(requireOrganization).not.toHaveBeenCalled();
     expect(getOrganizationMembers).not.toHaveBeenCalled();
     expect(inserts.saas_software_inventory).toHaveLength(0);
+    expect(inserts.saas_contract_terms).toHaveLength(0);
+    expect(inserts.saas_opt_out_windows).toHaveLength(0);
+    expect(createAuditLog).not.toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+
+  it("keeps the legacy direct activation form action as a disabled compatibility shell", async () => {
+    const { activateReadySaasRenewalImportRowsFormAction } = await import("@/lib/actions/saas-renewal-defense");
+
+    await expect(
+      activateReadySaasRenewalImportRowsFormAction(formDataWith(fileFromCsv([
+        "Acme Inc.,Acme Cloud,2026-10-01,2026-08-15,,50000,USD,owner@example.com,Finance,Imported source: order form"
+      ])))
+    ).rejects.toThrow("Direct SaaS import activation is disabled");
+
+    expect(requireOrganization).not.toHaveBeenCalled();
+    expect(getOrganizationMembers).not.toHaveBeenCalled();
+    expect(inserts.saas_software_inventory).toHaveLength(0);
+    expect(inserts.saas_contract_terms).toHaveLength(0);
+    expect(inserts.saas_opt_out_windows).toHaveLength(0);
   });
 
   it("corrects a review row into ready status without activating it automatically", async () => {

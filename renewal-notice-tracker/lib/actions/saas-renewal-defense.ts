@@ -453,16 +453,26 @@ function parseManualOverride(fieldName: SaasConflictField, value: string | null)
   const text = value?.trim() ?? "";
   if (!text) return null;
   if (fieldName === "auto_renewal") {
-    if (["true", "yes", "1", "on"].includes(text.toLowerCase())) return true;
-    if (["false", "no", "0", "off"].includes(text.toLowerCase())) return false;
-    throw new Error("Manual auto-renewal override must be true or false.");
+    if (text === "true") return true;
+    if (text === "false") return false;
+    throw new Error("Manual auto-renewal override must be exactly true or false.");
   }
   if (fieldName === "contract_value_amount") {
     const amount = Number(text);
     if (!Number.isFinite(amount) || amount < 0) throw new Error("Manual amount override must be a valid non-negative number.");
     return amount;
   }
-  if (fieldName === "contract_value_currency") return text.toUpperCase();
+  if (fieldName === "contract_value_currency") {
+    if (!/^[A-Z]{3}$/.test(text)) throw new Error("Manual currency override must be exactly 3 uppercase letters.");
+    return text;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new Error("Manual date override must use YYYY-MM-DD.");
+  }
+  const parsed = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    throw new Error("Manual date override must be a valid YYYY-MM-DD date.");
+  }
   return text.slice(0, 10);
 }
 
@@ -505,31 +515,6 @@ async function updateConflictRiskFindingLifecycle(input: {
     .eq("status", "open");
 
   if (error) throw error;
-}
-
-async function parseAndAssessSaasRenewalImport(context: Awaited<ReturnType<typeof requireOrganization>>, formData: FormData) {
-  requireSaasWriteRole(context.role);
-  const file = formData.get("file");
-  if (!(file instanceof File)) {
-    throw new Error("Upload a SaaS renewal CSV or XLSX file.");
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const rows = parseSaasRenewalImportFile(file.name, buffer);
-  if (rows.length > MAX_SAAS_RENEWAL_IMPORT_ROWS) {
-    throw new Error(`SaaS renewal import is limited to ${MAX_SAAS_RENEWAL_IMPORT_ROWS} rows per cleanup batch.`);
-  }
-
-  const [members, clock] = await Promise.all([
-    getOrganizationMembers(context.organizationId),
-    getSaasOptOutClock(context.organizationId)
-  ]);
-
-  return assessSaasRenewalImportRows(rows, {
-    organizationId: context.organizationId,
-    ownersByEmail: ownersByEmail(members),
-    existingDuplicateKeys: existingSaasDuplicateKeys(clock)
-  });
 }
 
 async function persistSaasRenewalImportAssessment(input: {
@@ -995,36 +980,10 @@ export async function getSaasRenewalImportBatchDetailAction(batchId: string): Pr
 }
 
 export async function activateReadySaasRenewalImportRowsAction(
-  formData: FormData
+  _formData: FormData
 ): Promise<SaasRenewalImportActivationResult> {
-  const context = await requireOrganization();
-  const assessment = await parseAndAssessSaasRenewalImport(context, formData);
-  const plan = buildSaasRenewalActivationPlan(assessment);
-  let activatedCount = 0;
-
-  for (const readyRow of plan.readyRows) {
-    await createTrustedSaasOptOutRecordFromImportRow(context, readyRow);
-    activatedCount += 1;
-  }
-
-  await auditSaasRenewalDefense({
-    organizationId: context.organizationId,
-    actorUserId: context.user.id,
-    action: "saas.import_ready_rows_activated",
-    entityType: "saas_renewal_import",
-    toStatus: plan.blockedRows.length > 0 ? "needs_review" : "ready",
-    amount: assessment.summary.spendAtRiskAmount,
-    currency: assessment.summary.spendAtRiskCurrency
-  });
-
-  revalidatePath("/dashboard/saas-opt-out-clock");
-  revalidatePath("/dashboard");
-
-  return {
-    assessment,
-    activatedCount,
-    blockedCount: plan.blockedRows.length
-  };
+  void _formData;
+  throw new Error("Direct SaaS import activation is disabled. Upload imports into a persisted review batch and activate reviewed rows.");
 }
 
 export async function activateReadySaasRenewalImportRowsFormAction(formData: FormData) {
