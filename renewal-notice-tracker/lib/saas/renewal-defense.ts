@@ -54,10 +54,44 @@ export type CalculatedSaasRiskFinding = {
 };
 
 export type SaasMetadataConflict = {
-  field: "renewal_date" | "expiration_date" | "notice_deadline_date" | "auto_renewal" | "contract_value_amount" | "contract_value_currency";
+  field: SaasConflictField;
   contractValue: string | number | boolean | null;
   saasValue: string | number | boolean | null;
+  severity: SaasRiskSeverity;
+  recommendedTrustedSource: SaasTrustedSource;
+  recommendationReason: string;
 };
+
+export type SaasConflictField =
+  | "renewal_date"
+  | "expiration_date"
+  | "notice_deadline_date"
+  | "auto_renewal"
+  | "contract_value_amount"
+  | "contract_value_currency";
+export type SaasTrustedSource = "contract_metadata" | "saas_term" | "manual_override";
+export type SaasConflictResolutionInput = {
+  fieldName: SaasConflictField;
+  trustedSource: SaasTrustedSource;
+  manualOverride?: string | number | boolean | null;
+  resolutionReason?: string | null;
+  reopenedAt?: string | null;
+};
+export type ResolvedSaasTrustedField = {
+  field: SaasConflictField;
+  effectiveValue: string | number | boolean | null;
+  trustedSource: SaasTrustedSource;
+  resolved: boolean;
+  explanation: string;
+};
+export const SAAS_CONFLICT_FIELDS: SaasConflictField[] = [
+  "renewal_date",
+  "expiration_date",
+  "notice_deadline_date",
+  "auto_renewal",
+  "contract_value_amount",
+  "contract_value_currency"
+];
 
 const HIGH_SPEND_AT_RISK_THRESHOLD = 25000;
 const WEAK_EVIDENCE_THRESHOLD = 0.75;
@@ -159,6 +193,51 @@ function normalizedMoney(value: number | null | undefined) {
   return Number(value);
 }
 
+export function classifySaasMetadataConflictSeverity(field: SaasConflictField): SaasRiskSeverity {
+  if (field === "notice_deadline_date" || field === "auto_renewal") return "high";
+  if (field === "renewal_date" || field === "contract_value_amount" || field === "contract_value_currency") return "medium";
+  return "low";
+}
+
+export function deriveRecommendedSaasTrustedSource(conflict: {
+  field: SaasConflictField;
+  contractValue: string | number | boolean | null;
+  saasValue: string | number | boolean | null;
+}): { trustedSource: SaasTrustedSource; reason: string } {
+  if (conflict.field === "notice_deadline_date" || conflict.field === "renewal_date" || conflict.field === "expiration_date") {
+    return {
+      trustedSource: "contract_metadata",
+      reason: "Contract metadata is the primary reviewed renewal evidence for date fields."
+    };
+  }
+
+  if (conflict.field === "contract_value_amount" || conflict.field === "contract_value_currency") {
+    return {
+      trustedSource: "contract_metadata",
+      reason: "Contract metadata is the reviewed commercial source unless finance explicitly overrides it."
+    };
+  }
+
+  return {
+    trustedSource: "contract_metadata",
+    reason: "Auto-renewal should default to reviewed contract metadata until an operator records a manual trust decision."
+  };
+}
+
+function buildSaasMetadataConflict(input: {
+  field: SaasConflictField;
+  contractValue: string | number | boolean | null;
+  saasValue: string | number | boolean | null;
+}): SaasMetadataConflict {
+  const recommendation = deriveRecommendedSaasTrustedSource(input);
+  return {
+    ...input,
+    severity: classifySaasMetadataConflictSeverity(input.field),
+    recommendedTrustedSource: recommendation.trustedSource,
+    recommendationReason: recommendation.reason
+  };
+}
+
 export function detectSaasContractMetadataConflicts(input: {
   saas: SaasTermInput & {
     contractValueAmount?: number | null;
@@ -170,36 +249,36 @@ export function detectSaasContractMetadataConflicts(input: {
   if (!metadata) return [];
 
   const comparisons: SaasMetadataConflict[] = [
-    {
+    buildSaasMetadataConflict({
       field: "renewal_date",
       contractValue: normalizeDate(metadata.renewalDate),
       saasValue: normalizeDate(input.saas.renewalDate)
-    },
-    {
+    }),
+    buildSaasMetadataConflict({
       field: "expiration_date",
       contractValue: normalizeDate(metadata.expirationDate),
       saasValue: normalizeDate(input.saas.expirationDate)
-    },
-    {
+    }),
+    buildSaasMetadataConflict({
       field: "notice_deadline_date",
       contractValue: normalizeDate(metadata.noticeDeadlineDate),
       saasValue: normalizeDate(calculateNoticeDeadline(input.saas))
-    },
-    {
+    }),
+    buildSaasMetadataConflict({
       field: "auto_renewal",
       contractValue: metadata.autoRenewal ?? null,
       saasValue: input.saas.autoRenewal ?? null
-    },
-    {
+    }),
+    buildSaasMetadataConflict({
       field: "contract_value_amount",
       contractValue: normalizedMoney(metadata.contractValueAmount),
       saasValue: normalizedMoney(input.saas.contractValueAmount)
-    },
-    {
+    }),
+    buildSaasMetadataConflict({
       field: "contract_value_currency",
       contractValue: metadata.contractValueCurrency?.toUpperCase() ?? null,
       saasValue: input.saas.contractValueCurrency?.toUpperCase() ?? null
-    }
+    })
   ];
 
   return comparisons.filter((comparison) =>
@@ -207,6 +286,45 @@ export function detectSaasContractMetadataConflicts(input: {
     comparison.saasValue !== null &&
     comparison.contractValue !== comparison.saasValue
   );
+}
+
+export function resolveSaasTrustedField(input: {
+  conflict: Pick<SaasMetadataConflict, "field" | "contractValue" | "saasValue" | "recommendedTrustedSource">;
+  resolution?: SaasConflictResolutionInput | null;
+}): ResolvedSaasTrustedField {
+  const activeResolution = input.resolution?.reopenedAt ? null : input.resolution;
+  if (!activeResolution) {
+    const trustedSource = input.conflict.recommendedTrustedSource;
+    return {
+      field: input.conflict.field,
+      effectiveValue: trustedSource === "saas_term" ? input.conflict.saasValue : input.conflict.contractValue,
+      trustedSource,
+      resolved: false,
+      explanation: "Unresolved conflict; showing the recommended source until a reviewer records a trust decision."
+    };
+  }
+
+  const effectiveValue =
+    activeResolution.trustedSource === "manual_override"
+      ? activeResolution.manualOverride ?? null
+      : activeResolution.trustedSource === "saas_term"
+        ? input.conflict.saasValue
+        : input.conflict.contractValue;
+
+  return {
+    field: input.conflict.field,
+    effectiveValue,
+    trustedSource: activeResolution.trustedSource,
+    resolved: true,
+    explanation:
+      activeResolution.trustedSource === "manual_override"
+        ? "Manual override is trusted because a reviewer recorded an explicit resolution reason."
+        : `${activeResolution.trustedSource.replace("_", " ")} is trusted by recorded conflict resolution.`
+  };
+}
+
+export function explainSaasTrustedValue(input: ResolvedSaasTrustedField) {
+  return `${input.field.replaceAll("_", " ")} uses ${input.trustedSource.replace("_", " ")}${input.resolved ? "" : " recommendation"}: ${input.explanation}`;
 }
 
 export function deriveSaasOptOutWorkflowStatus(input: {
@@ -246,6 +364,9 @@ export function buildSafeSaasRenewalDefenseAuditMetadata(input: {
   rowNumber?: number | null;
   issueCodes?: string[] | null;
   findingId?: string | null;
+  fieldName?: SaasConflictField | null;
+  trustedSource?: SaasTrustedSource | null;
+  hasManualOverride?: boolean | null;
   fromStatus?: string | null;
   toStatus?: string | null;
   deadlineWindow?: OptOutDeadlineWindow | null;
@@ -264,6 +385,9 @@ export function buildSafeSaasRenewalDefenseAuditMetadata(input: {
     rowNumber: input.rowNumber ?? null,
     issueCodes: input.issueCodes ?? [],
     findingId: input.findingId ?? null,
+    fieldName: input.fieldName ?? null,
+    trustedSource: input.trustedSource ?? null,
+    hasManualOverride: Boolean(input.hasManualOverride),
     fromStatus: input.fromStatus ?? null,
     toStatus: input.toStatus ?? null,
     deadlineWindow: input.deadlineWindow ?? null,

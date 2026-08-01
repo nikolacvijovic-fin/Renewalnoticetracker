@@ -95,7 +95,7 @@ export function buildRenewalCommandActions(
         severity: "high",
         affectedContractIds: [],
         countOverride: input.saasImportReviewBlockedCount,
-        targetHref: "/dashboard/saas-opt-out-clock#import-review-queue",
+        targetHref: "/dashboard/saas-opt-out-clock#import-review",
         reason: "Messy SaaS import rows cannot enter the CFO Opt-Out Clock without review evidence.",
         spendByContractId: input.spendByContractId,
         nearestDueDateByContractId: input.nearestDueDateByContractId

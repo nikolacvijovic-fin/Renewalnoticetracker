@@ -256,9 +256,20 @@ describe("SaaS renewal import cleanup", () => {
     expect(migration).toContain("saas_renewal_import_batches");
     expect(migration).toContain("saas_renewal_import_rows");
     expect(migration).toContain("uploaded_by_user_id");
-    expect(migration).toContain("review_notes");
+    expect(migration).toContain("original_filename");
+    expect(migration).toContain("total_rows");
+    expect(migration).toContain("activated_count");
+    expect(migration).toContain("dismissed_count");
+    expect(migration).toContain("review_note");
+    expect(migration).toContain("original_row_json");
+    expect(migration).toContain("normalized_row_json");
+    expect(migration).toContain("issue_codes");
+    expect(migration).toContain("correction_json");
+    expect(migration).toContain("weak_evidence_accepted");
     expect(migration).toContain("duplicate_confirmed");
     expect(migration).toContain("reviewed_by_user_id");
+    expect(migration).toContain("activated_at");
+    expect(migration).toContain("dismissed_at");
     expect(migration).toContain("'corrected'");
     expect(migration).toContain("'dismissed'");
     expect(migration).toContain("memberships.organization_id = saas_renewal_import_rows.organization_id");
@@ -296,6 +307,7 @@ describe("SaaS renewal import cleanup", () => {
       contracts: [],
       saasImportReview: {
         latestBatchId: "batch-1",
+        blockedBatchCount: 1,
         readyCount: 1,
         correctedCount: 1,
         needsReviewCount: 2,
@@ -304,6 +316,7 @@ describe("SaaS renewal import cleanup", () => {
     });
 
     expect(commandCenter.saasImportReviewSummary).toMatchObject({
+      blockedBatchCount: 1,
       blockedRowCount: 3,
       needsReviewCount: 2,
       rejectedCount: 1
@@ -312,7 +325,7 @@ describe("SaaS renewal import cleanup", () => {
     expect(commandCenter.recommendedActions[0]).toEqual(expect.objectContaining({
       id: "review_saas_renewal_imports",
       affectedCount: 3,
-      targetHref: "/dashboard/saas-opt-out-clock#import-review-queue"
+      targetHref: "/dashboard/saas-opt-out-clock#import-review"
     }));
   });
 });

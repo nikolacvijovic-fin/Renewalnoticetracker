@@ -196,14 +196,14 @@ export type Database = {
         Relationships: [];
       };
       saas_renewal_import_batches: {
-        Row: { id: string; organization_id: string; actor_user_id: string | null; uploaded_by_user_id: string | null; file_name: string; status: string; row_count: number; ready_count: number; needs_review_count: number; rejected_count: number; summary_json: Json; created_at: string; updated_at: string };
-        Insert: { id?: string; organization_id: string; actor_user_id?: string | null; uploaded_by_user_id?: string | null; file_name: string; status?: string; row_count?: number; ready_count?: number; needs_review_count?: number; rejected_count?: number; summary_json?: Json; created_at?: string; updated_at?: string };
+        Row: { id: string; organization_id: string; uploaded_by_user_id: string | null; original_filename: string; status: string; total_rows: number; ready_count: number; needs_review_count: number; rejected_count: number; activated_count: number; dismissed_count: number; spend_at_risk_amount: number | null; spend_at_risk_currency: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; uploaded_by_user_id?: string | null; original_filename: string; status?: string; total_rows?: number; ready_count?: number; needs_review_count?: number; rejected_count?: number; activated_count?: number; dismissed_count?: number; spend_at_risk_amount?: number | null; spend_at_risk_currency?: string | null; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["saas_renewal_import_batches"]["Insert"]>;
         Relationships: [];
       };
       saas_renewal_import_rows: {
-        Row: { id: string; organization_id: string; batch_id: string; row_number: number; status: string; review_notes: string | null; raw_row_json: Json; normalized_row_json: Json; issues_json: Json; accepted_weak_evidence: boolean; duplicate_confirmed: boolean; activated_at: string | null; activated_by: string | null; corrected_at: string | null; corrected_by: string | null; reviewed_at: string | null; reviewed_by_user_id: string | null; dismissed_at: string | null; dismissed_by: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; organization_id: string; batch_id: string; row_number: number; status: string; review_notes?: string | null; raw_row_json?: Json; normalized_row_json?: Json; issues_json?: Json; accepted_weak_evidence?: boolean; duplicate_confirmed?: boolean; activated_at?: string | null; activated_by?: string | null; corrected_at?: string | null; corrected_by?: string | null; reviewed_at?: string | null; reviewed_by_user_id?: string | null; dismissed_at?: string | null; dismissed_by?: string | null; created_at?: string; updated_at?: string };
+        Row: { id: string; organization_id: string; batch_id: string; row_number: number; status: string; review_note: string | null; original_row_json: Json; normalized_row_json: Json; issue_codes: string[]; correction_json: Json; weak_evidence_accepted: boolean; duplicate_confirmed: boolean; activated_at: string | null; reviewed_at: string | null; reviewed_by_user_id: string | null; dismissed_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; batch_id: string; row_number: number; status: string; review_note?: string | null; original_row_json?: Json; normalized_row_json?: Json; issue_codes?: string[]; correction_json?: Json; weak_evidence_accepted?: boolean; duplicate_confirmed?: boolean; activated_at?: string | null; reviewed_at?: string | null; reviewed_by_user_id?: string | null; dismissed_at?: string | null; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["saas_renewal_import_rows"]["Insert"]>;
         Relationships: [];
       };
@@ -229,6 +229,12 @@ export type Database = {
         Row: { id: string; organization_id: string; software_id: string; contract_term_id: string | null; opt_out_window_id: string | null; finding_type: string; severity: string; status: string; evidence_json: Json; created_at: string; updated_at: string };
         Insert: { id?: string; organization_id: string; software_id: string; contract_term_id?: string | null; opt_out_window_id?: string | null; finding_type: string; severity: string; status?: string; evidence_json?: Json; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["saas_contract_risk_findings"]["Insert"]>;
+        Relationships: [];
+      };
+      saas_contract_metadata_conflict_resolutions: {
+        Row: { id: string; organization_id: string; contract_id: string; software_id: string; saas_term_id: string; field_name: string; contract_value_json: Json; saas_value_json: Json; trusted_source: string; manual_override_json: Json | null; resolution_reason: string; resolved_by_user_id: string | null; resolved_at: string; reopened_by_user_id: string | null; reopened_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; contract_id: string; software_id: string; saas_term_id: string; field_name: string; contract_value_json?: Json; saas_value_json?: Json; trusted_source: string; manual_override_json?: Json | null; resolution_reason: string; resolved_by_user_id?: string | null; resolved_at?: string; reopened_by_user_id?: string | null; reopened_at?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["saas_contract_metadata_conflict_resolutions"]["Insert"]>;
         Relationships: [];
       };
       reminders: {

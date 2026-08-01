@@ -9,7 +9,8 @@ import {
   deriveSaasOptOutWorkflowStatus,
   detectSaasContractMetadataConflicts,
   getOptOutDeadlineWindow,
-  getOptOutUrgency
+  getOptOutUrgency,
+  resolveSaasTrustedField
 } from "@/lib/saas/renewal-defense";
 import { buildRenewalCommandCenter } from "@/lib/dashboard/renewal-command-center";
 
@@ -107,8 +108,7 @@ describe("SaaS Renewal Defense runtime slice", () => {
   });
 
   it("detects contract/SaaS metadata conflicts deterministically", () => {
-    expect(
-      detectSaasContractMetadataConflicts({
+    const conflicts = detectSaasContractMetadataConflicts({
         saas: {
           renewalDate: "2026-10-01",
           noticeDeadlineDate: "2026-08-01",
@@ -124,8 +124,59 @@ describe("SaaS Renewal Defense runtime slice", () => {
           contractValueAmount: 42000,
           contractValueCurrency: "USD"
         }
-      }).map((conflict) => conflict.field)
-    ).toEqual(["notice_deadline_date", "auto_renewal"]);
+      });
+
+    expect(conflicts.map((conflict) => conflict.field)).toEqual(["notice_deadline_date", "auto_renewal"]);
+    expect(conflicts[0]).toEqual(expect.objectContaining({
+      severity: "high",
+      recommendedTrustedSource: "contract_metadata",
+      recommendationReason: expect.stringContaining("Contract metadata")
+    }));
+  });
+
+  it("resolves effective trusted values without mutating raw SaaS or contract values", () => {
+    const [conflict] = detectSaasContractMetadataConflicts({
+      saas: {
+        noticeDeadlineDate: "2026-08-01"
+      },
+      contractMetadata: {
+        noticeDeadlineDate: "2026-08-15"
+      }
+    });
+    expect(conflict).toBeDefined();
+    if (!conflict) throw new Error("Expected notice deadline conflict");
+
+    expect(resolveSaasTrustedField({ conflict })).toEqual(expect.objectContaining({
+      field: "notice_deadline_date",
+      effectiveValue: "2026-08-15",
+      trustedSource: "contract_metadata",
+      resolved: false
+    }));
+    expect(resolveSaasTrustedField({
+      conflict,
+      resolution: {
+        fieldName: "notice_deadline_date",
+        trustedSource: "saas_term",
+        resolutionReason: "SaaS import was reviewed against the signed order form."
+      }
+    })).toEqual(expect.objectContaining({
+      effectiveValue: "2026-08-01",
+      trustedSource: "saas_term",
+      resolved: true
+    }));
+    expect(resolveSaasTrustedField({
+      conflict,
+      resolution: {
+        fieldName: "notice_deadline_date",
+        trustedSource: "manual_override",
+        manualOverride: "2026-08-10",
+        resolutionReason: "Finance reviewed both sources and selected corrected deadline."
+      }
+    })).toEqual(expect.objectContaining({
+      effectiveValue: "2026-08-10",
+      trustedSource: "manual_override",
+      resolved: true
+    }));
   });
 
   it("derives owner and next-action workflow status", () => {
@@ -217,6 +268,22 @@ describe("SaaS Renewal Defense runtime slice", () => {
     expect(JSON.stringify(metadata)).not.toMatch(/raw contract|full note|provider payload|secret/i);
   });
 
+  it("keeps SaaS conflict resolution actions scoped, permissioned, audited, and non-mutating", () => {
+    const actions = readProjectFile("lib/actions/saas-renewal-defense.ts");
+
+    expect(actions).toContain("resolveSaasMetadataConflictAction");
+    expect(actions).toContain("bulkResolveSaasMetadataConflictsWithRecommendedDefaultsAction");
+    expect(actions).toContain("reopenSaasMetadataConflictResolutionAction");
+    expect(actions).toContain("Only admins, operators, reviewers, or the linked contract owner");
+    expect(actions).toContain("context.role === \"owner\" && conflictContext.contract.owner_user_id === context.user.id");
+    expect(actions).toContain(".eq(\"organization_id\", context.organizationId)");
+    expect(actions).toContain("Manual override requires a resolution reason.");
+    expect(actions).toContain("saas.metadata_conflict_resolved");
+    expect(actions).toContain("saas.metadata_manual_override_recorded");
+    expect(actions).toContain("saas.metadata_conflict_reopened");
+    expect(actions).not.toMatch(/from\\(\"contract_metadata\"\\)\\s*\\.update|from\\(\"saas_contract_terms\"\\)\\s*\\.update/);
+  });
+
   it("keeps the new SaaS runtime module scoped and away from the admin service-role client", () => {
     for (const relativePath of [
       "lib/saas/queries.ts",
@@ -244,6 +311,7 @@ describe("SaaS Renewal Defense runtime slice", () => {
   it("adds RLS-aware organization-scoped SaaS tables", () => {
     const migration = readProjectFile("supabase/migrations/202607070001_saas_renewal_defense.sql");
     const migrationV15 = readProjectFile("supabase/migrations/202607300003_saas_renewal_defense_v15.sql");
+    const conflictMigration = readProjectFile("supabase/migrations/202607300005_saas_metadata_conflict_resolutions.sql");
     for (const table of [
       "saas_software_inventory",
       "saas_contract_terms",
@@ -258,5 +326,15 @@ describe("SaaS Renewal Defense runtime slice", () => {
     expect(migrationV15).toContain("next_action text");
     expect(migrationV15).toContain("'accepted_risk'");
     expect(migrationV15).toContain("'contract_saas_metadata_conflict'");
+    expect(conflictMigration).toContain("create table if not exists public.saas_contract_metadata_conflict_resolutions");
+    expect(conflictMigration).toContain("trusted_source text not null check");
+    expect(conflictMigration).toContain("'contract_metadata'");
+    expect(conflictMigration).toContain("'saas_term'");
+    expect(conflictMigration).toContain("'manual_override'");
+    expect(conflictMigration).toContain("char_length(resolution_reason) between 1 and 500");
+    expect(conflictMigration).toContain("saas_metadata_conflict_resolution_active_unique_idx");
+    expect(conflictMigration).toContain("where reopened_at is null");
+    expect(conflictMigration).toContain("alter table public.saas_contract_metadata_conflict_resolutions enable row level security");
+    expect(conflictMigration).toContain("memberships.organization_id = saas_contract_metadata_conflict_resolutions.organization_id");
   });
 });

@@ -101,6 +101,9 @@ export function ContractsTable({
                       {saasOptOutStatus.metadataConflictCount > 0 ? (
                         <Badge tone="warning">Conflict</Badge>
                       ) : null}
+                      {saasOptOutStatus.trustedValueExplanations.length > 0 ? (
+                        <Badge tone="success">Trusted overlay</Badge>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

@@ -241,6 +241,16 @@ export default async function ContractDetailPage({
                     {saasOptOutStatus.nextAction ? (
                       <p className="mt-2 text-sm text-slate-700">Next action: {saasOptOutStatus.nextAction}</p>
                     ) : null}
+                    {saasOptOutStatus.trustedValueExplanations.length > 0 ? (
+                      <div className="mt-2 rounded-2xl border border-success/20 bg-success/5 p-3 text-xs text-slate-600">
+                        <p className="font-semibold text-slate-900">Trusted SaaS field overlay</p>
+                        <ul className="mt-1 space-y-1">
+                          {saasOptOutStatus.trustedValueExplanations.slice(0, 3).map((explanation) => (
+                            <li key={explanation}>{explanation}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
                     {saasOptOutStatus.openFindingCount > 0 || saasOptOutStatus.metadataConflictCount > 0 ? (
                       <p className="mt-2 text-xs text-slate-600">
                         Review blockers: {saasOptOutStatus.openFindingCount} open finding

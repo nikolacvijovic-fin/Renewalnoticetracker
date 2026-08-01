@@ -154,6 +154,7 @@ export type RenewalCommandSaasOptOutSummary = {
 
 export type RenewalCommandSaasImportReviewSummary = {
   latestBatchId: string | null;
+  blockedBatchCount: number;
   blockedRowCount: number;
   needsReviewCount: number;
   rejectedCount: number;
@@ -163,6 +164,7 @@ export type RenewalCommandSaasImportReviewSummary = {
 
 export type RenewalCommandSaasImportReviewInput = {
   latestBatchId?: string | null;
+  blockedBatchCount?: number;
   readyCount?: number;
   needsReviewCount?: number;
   rejectedCount?: number;
@@ -354,6 +356,7 @@ function buildSaasImportReviewSummary(
   const readyCount = Math.max(0, input?.readyCount ?? 0);
   return {
     latestBatchId: input?.latestBatchId ?? null,
+    blockedBatchCount: Math.max(0, input?.blockedBatchCount ?? (needsReviewCount + rejectedCount > 0 ? 1 : 0)),
     blockedRowCount: needsReviewCount + rejectedCount,
     needsReviewCount,
     rejectedCount,

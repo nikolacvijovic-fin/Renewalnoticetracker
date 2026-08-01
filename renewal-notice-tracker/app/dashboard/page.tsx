@@ -58,6 +58,7 @@ export default async function DashboardPage({
     saasImportReview: latestImportBatch
       ? {
           latestBatchId: latestImportBatch.id,
+          blockedBatchCount: saasImportBatches.filter((batch) => batch.needs_review_count + batch.rejected_count > 0).length,
           readyCount: latestImportBatch.rows.filter((row) => row.status === "ready").length,
           correctedCount: latestImportBatch.rows.filter((row) => row.status === "corrected").length,
           needsReviewCount: latestImportBatch.rows.filter((row) => row.status === "needs_review").length,
@@ -184,7 +185,9 @@ export default async function DashboardPage({
               <p className="mt-2 max-w-3xl text-sm text-muted">
                 {commandCenter.saasImportReviewSummary.blockedRowCount} row
                 {commandCenter.saasImportReviewSummary.blockedRowCount === 1 ? "" : "s"} need correction or dismissal before
-                they can become trusted CFO Opt-Out Clock records.
+                they can become trusted CFO Opt-Out Clock records across{" "}
+                {commandCenter.saasImportReviewSummary.blockedBatchCount} blocked batch
+                {commandCenter.saasImportReviewSummary.blockedBatchCount === 1 ? "" : "es"}.
               </p>
               <p className="mt-2 text-sm text-slate-700">
                 Needs review: {commandCenter.saasImportReviewSummary.needsReviewCount}. Rejected:{" "}
@@ -193,7 +196,7 @@ export default async function DashboardPage({
               </p>
             </div>
             <Button asChild>
-              <Link href="/dashboard/saas-opt-out-clock#import-review-queue">Open import review</Link>
+              <Link href="/dashboard/saas-opt-out-clock#import-review">Open import review</Link>
             </Button>
           </div>
         </section>
