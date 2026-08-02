@@ -13,6 +13,10 @@ import {
   buildRenewalCommandActions,
   type RenewalCommandAction
 } from "@/lib/dashboard/renewal-command-actions";
+import { createDecisionRecord } from "@/lib/decision-intelligence/decision-records";
+import type { DecisionRecord } from "@/lib/decision-intelligence/decision-types";
+import { buildRenewalDefenseIntelligence } from "@/lib/intelligence/renewal-intelligence";
+import type { UnifiedIntelligenceSummary } from "@/lib/intelligence/intelligence-types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -128,6 +132,7 @@ export type RenewalCommandCenter = {
   riskSegments: RenewalRiskSegment[];
   saasOptOutSummary: RenewalCommandSaasOptOutSummary;
   saasImportReviewSummary: RenewalCommandSaasImportReviewSummary;
+  unifiedIntelligenceSummary: UnifiedIntelligenceSummary;
   filteredSegment: RenewalRiskSegment | null;
 };
 
@@ -513,6 +518,27 @@ export function buildRenewalCommandCenter(input: {
     spendByContractId,
     nearestDueDateByContractId: dueDates
   });
+  const decisionRecords = buildCommandCenterDecisionRecords({
+    organizationId: input.organizationId,
+    generatedAt,
+    recommendedActions,
+    saasImportReviewSummary,
+    riskSegments
+  });
+  const unifiedIntelligenceSummary = buildRenewalDefenseIntelligence({
+    organizationId: input.organizationId,
+    generatedAt,
+    contracts: activeContracts.map((contract) => ({
+      id: contract.id,
+      title: contract.title,
+      ownerUserId: contract.ownerUserId,
+      noticeDeadlineDate: contract.noticeDeadlineDate,
+      renewalDate: contract.renewalDate,
+      contractValueAmount: contract.contractValueAmount
+    })),
+    saasOptOutItems: input.saasOptOutItems,
+    decisionRecords
+  });
   const workloads = ownerWorkload(activeContracts);
 
   return {
@@ -554,8 +580,115 @@ export function buildRenewalCommandCenter(input: {
     riskSegments,
     saasOptOutSummary,
     saasImportReviewSummary,
+    unifiedIntelligenceSummary,
     filteredSegment: input.segment ? riskSegments.find((segment) => segment.id === input.segment) ?? null : null
   };
+}
+
+function buildCommandCenterDecisionRecords(input: {
+  organizationId: string;
+  generatedAt: string;
+  recommendedActions: RenewalCommandAction[];
+  saasImportReviewSummary: RenewalCommandSaasImportReviewSummary;
+  riskSegments: RenewalRiskSegment[];
+}): DecisionRecord[] {
+  const actionDecisions = input.recommendedActions.slice(0, 6).map((action) =>
+    createDecisionRecord({
+      organizationId: input.organizationId,
+      entityType: "organization",
+      entityId: input.organizationId,
+      decisionType: "next_action",
+      title: action.label,
+      summary: `${action.description} ${action.reason}`,
+      severity: action.severity === "low" ? "low" : action.severity,
+      source: "system",
+      ruleId: action.id,
+      aiFactId: null,
+      confidence: null,
+      trustStatus: "trusted",
+      evidenceRefs: [
+        {
+          code: action.id,
+          source: "system_rule",
+          value: action.affectedCount
+        }
+      ],
+      allowedActions: ["open_source_record", "acknowledge"],
+      blockedReason: null,
+      ownerUserId: null,
+      dueAt: null,
+      metadata: {
+        affectedCount: action.affectedCount,
+        targetHref: action.targetHref
+      }
+    }, input.generatedAt)
+  );
+
+  const importDecision = input.saasImportReviewSummary.blockedRowCount > 0
+    ? createDecisionRecord({
+        organizationId: input.organizationId,
+        entityType: "saas_import_batch",
+        entityId: input.saasImportReviewSummary.latestBatchId,
+        decisionType: "blocker",
+        title: "SaaS import rows blocked from activation",
+        summary: "Imported SaaS renewal rows need correction, dismissal, or explicit review before becoming trusted Opt-Out Clock records.",
+        severity: "high",
+        source: "import_review",
+        ruleId: "import_row_blocked",
+        aiFactId: null,
+        confidence: null,
+        trustStatus: "blocked",
+        evidenceRefs: [
+          {
+            code: "blocked_row_count",
+            source: "saas_import",
+            value: input.saasImportReviewSummary.blockedRowCount
+          }
+        ],
+        allowedActions: ["review_evidence", "open_source_record"],
+        blockedReason: "Import review rows are not ready/corrected.",
+        ownerUserId: null,
+        dueAt: null,
+        metadata: {
+          needsReviewCount: input.saasImportReviewSummary.needsReviewCount,
+          rejectedCount: input.saasImportReviewSummary.rejectedCount
+        }
+      }, input.generatedAt)
+    : null;
+
+  const segmentDecisions = input.riskSegments
+    .filter((segment) => segment.count > 0 && segment.severity !== "low")
+    .slice(0, 4)
+    .map((segment) => createDecisionRecord({
+      organizationId: input.organizationId,
+      entityType: "organization",
+      entityId: input.organizationId,
+      decisionType: "risk_segment",
+      title: segment.label,
+      summary: segment.recommendedAction,
+      severity: segment.severity,
+      source: "system",
+      ruleId: segment.id,
+      aiFactId: null,
+      confidence: null,
+      trustStatus: segment.id.includes("weak") || segment.id.includes("review") ? "weak" : "trusted",
+      evidenceRefs: [
+        {
+          code: segment.id,
+          source: "system_rule",
+          value: segment.count
+        }
+      ],
+      allowedActions: ["open_source_record", "acknowledge"],
+      blockedReason: null,
+      ownerUserId: null,
+      dueAt: null,
+      metadata: {
+        targetHref: segment.targetHref
+      }
+    }, input.generatedAt));
+
+  return [...actionDecisions, ...(importDecision ? [importDecision] : []), ...segmentDecisions];
 }
 
 export async function getRenewalCommandCenterContracts(

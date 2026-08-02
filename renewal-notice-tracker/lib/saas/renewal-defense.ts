@@ -1,3 +1,6 @@
+import { evaluateSaasRenewalRules } from "@/lib/rules/saas-renewal-rules";
+import type { RuleOutcome } from "@/lib/rules/rule-types";
+
 export type NoticePeriodUnit = "days" | "weeks" | "months";
 export type OptOutUrgency = "expired" | "critical" | "high" | "medium" | "low";
 export type OptOutDeadlineWindow = "expired" | "due_7_days" | "due_30_days" | "due_60_days" | "future" | "missing";
@@ -184,13 +187,6 @@ export function getOptOutDeadlineWindow(
   if (days <= 30) return "due_30_days";
   if (days <= 60) return "due_60_days";
   return "future";
-}
-
-function severityForUrgency(urgency: OptOutUrgency): SaasRiskSeverity {
-  if (urgency === "expired" || urgency === "critical") return "critical";
-  if (urgency === "high") return "high";
-  if (urgency === "medium") return "medium";
-  return "low";
 }
 
 function normalizeDate(value: string | null | undefined) {
@@ -429,102 +425,7 @@ export function calculateSaasContractRiskFindings(
   input: SaasRiskFindingInput
 ): CalculatedSaasRiskFinding[] {
   const noticeDeadline = calculateNoticeDeadline(input);
-  const urgency = getOptOutUrgency(noticeDeadline, input.today);
   const deadlineWindow = getOptOutDeadlineWindow(noticeDeadline, input.today);
-  const findings: CalculatedSaasRiskFinding[] = [];
-
-  if (input.autoRenewal) {
-    findings.push({
-      findingType: "auto_renewal",
-      severity: urgency ? severityForUrgency(urgency) : "medium",
-      evidence: {
-        auto_renewal: true,
-        notice_deadline_date: noticeDeadline,
-        urgency
-      }
-    });
-  }
-
-  if (input.autoRenewal && !noticeDeadline) {
-    findings.push({
-      findingType: "missing_notice_deadline",
-      severity: "high",
-      evidence: {
-        auto_renewal: true,
-        renewal_date: input.renewalDate ?? null,
-        expiration_date: input.expirationDate ?? null,
-        notice_period_value: input.noticePeriodValue ?? null,
-        notice_period_unit: input.noticePeriodUnit ?? null
-      }
-    });
-  }
-
-  if (urgency === "expired") {
-    findings.push({
-      findingType: "expired_opt_out",
-      severity: "critical",
-      evidence: {
-        notice_deadline_date: noticeDeadline,
-        days_until_opt_out: daysUntilOptOut(noticeDeadline, input.today)
-      }
-    });
-  } else if (urgency === "critical") {
-    findings.push({
-      findingType: "critical_opt_out",
-      severity: "critical",
-      evidence: {
-        notice_deadline_date: noticeDeadline,
-        days_until_opt_out: daysUntilOptOut(noticeDeadline, input.today)
-      }
-    });
-  }
-
-  if (deadlineWindow === "due_30_days" || deadlineWindow === "due_60_days") {
-    findings.push({
-      findingType: "deadline_soon",
-      severity: deadlineWindow === "due_30_days" ? "high" : "medium",
-      evidence: {
-        notice_deadline_date: noticeDeadline,
-        days_until_opt_out: daysUntilOptOut(noticeDeadline, input.today),
-        deadline_window: deadlineWindow
-      }
-    });
-  }
-
-  if (input.evidenceConfidence !== null && input.evidenceConfidence !== undefined && input.evidenceConfidence < WEAK_EVIDENCE_THRESHOLD) {
-    findings.push({
-      findingType: "weak_evidence",
-      severity: "high",
-      evidence: {
-        evidence_confidence: input.evidenceConfidence,
-        threshold: WEAK_EVIDENCE_THRESHOLD
-      }
-    });
-  }
-
-  if (!input.ownerUserId) {
-    findings.push({
-      findingType: "missing_owner",
-      severity: "medium",
-      evidence: {
-        owner_user_id: null
-      }
-    });
-  }
-
-  if (Number(input.contractValueAmount ?? 0) >= HIGH_SPEND_AT_RISK_THRESHOLD && noticeDeadline) {
-    findings.push({
-      findingType: "high_spend_at_risk",
-      severity: urgency === "expired" || urgency === "critical" ? "critical" : "high",
-      evidence: {
-        contract_value_amount: Number(input.contractValueAmount),
-        contract_value_currency: input.contractValueCurrency ?? null,
-        threshold: HIGH_SPEND_AT_RISK_THRESHOLD,
-        deadline_window: deadlineWindow
-      }
-    });
-  }
-
   const conflicts = detectSaasContractMetadataConflicts({
     saas: {
       renewalDate: input.renewalDate,
@@ -538,16 +439,101 @@ export function calculateSaasContractRiskFindings(
     },
     contractMetadata: input.contractMetadata
   });
-  if (conflicts.length > 0) {
-    findings.push({
-      findingType: "contract_saas_metadata_conflict",
-      severity: "high",
-      evidence: {
-        conflict_count: conflicts.length,
-        first_conflict_field: conflicts[0]?.field ?? null
-      }
-    });
-  }
 
-  return findings;
+  return evaluateSaasRenewalRules({
+    noticeDeadline,
+    today: input.today,
+    autoRenewal: input.autoRenewal,
+    ownerUserId: input.ownerUserId,
+    evidenceConfidence: input.evidenceConfidence,
+    contractValueAmount: input.contractValueAmount,
+    contractValueCurrency: input.contractValueCurrency,
+    metadataConflictCount: conflicts.length
+  })
+    .filter((outcome) =>
+      outcome.code !== "no_send_boundary" &&
+      (outcome.code !== "missing_notice_deadline" || Boolean(input.autoRenewal))
+    )
+    .map((outcome) => mapSaasRuleOutcomeToFinding(outcome, {
+      input,
+      noticeDeadline,
+      deadlineWindow,
+      conflicts
+    }))
+    .filter((finding): finding is CalculatedSaasRiskFinding => Boolean(finding));
+}
+
+function mapSaasRuleOutcomeToFinding(
+  outcome: RuleOutcome,
+  context: {
+    input: SaasRiskFindingInput;
+    noticeDeadline: string | null;
+    deadlineWindow: OptOutDeadlineWindow;
+    conflicts: SaasMetadataConflict[];
+  }
+): CalculatedSaasRiskFinding | null {
+  const findingTypeByCode: Record<string, SaasRiskFindingType> = {
+    auto_renewal: "auto_renewal",
+    missing_notice_deadline: "missing_notice_deadline",
+    expired_opt_out_window: "expired_opt_out",
+    critical_opt_out_window: "critical_opt_out",
+    deadline_soon: "deadline_soon",
+    weak_evidence: "weak_evidence",
+    missing_owner: "missing_owner",
+    high_spend_at_risk: "high_spend_at_risk",
+    metadata_conflict: "contract_saas_metadata_conflict"
+  };
+  const findingType = findingTypeByCode[outcome.code];
+  if (!findingType || outcome.severity === "info") return null;
+  const severity = outcome.severity === "low" ? "medium" : outcome.severity;
+  const evidenceByFinding: Record<SaasRiskFindingType, CalculatedSaasRiskFinding["evidence"]> = {
+    auto_renewal: {
+      auto_renewal: true,
+      notice_deadline_date: context.noticeDeadline,
+      urgency: getOptOutUrgency(context.noticeDeadline, context.input.today)
+    },
+    missing_notice_deadline: {
+      auto_renewal: true,
+      renewal_date: context.input.renewalDate ?? null,
+      expiration_date: context.input.expirationDate ?? null,
+      notice_period_value: context.input.noticePeriodValue ?? null,
+      notice_period_unit: context.input.noticePeriodUnit ?? null
+    },
+    expired_opt_out: {
+      notice_deadline_date: context.noticeDeadline,
+      days_until_opt_out: daysUntilOptOut(context.noticeDeadline, context.input.today)
+    },
+    critical_opt_out: {
+      notice_deadline_date: context.noticeDeadline,
+      days_until_opt_out: daysUntilOptOut(context.noticeDeadline, context.input.today)
+    },
+    deadline_soon: {
+      notice_deadline_date: context.noticeDeadline,
+      days_until_opt_out: daysUntilOptOut(context.noticeDeadline, context.input.today),
+      deadline_window: context.deadlineWindow
+    },
+    weak_evidence: {
+      evidence_confidence: context.input.evidenceConfidence ?? null,
+      threshold: WEAK_EVIDENCE_THRESHOLD
+    },
+    missing_owner: {
+      owner_user_id: null
+    },
+    high_spend_at_risk: {
+      contract_value_amount: Number(context.input.contractValueAmount),
+      contract_value_currency: context.input.contractValueCurrency ?? null,
+      threshold: HIGH_SPEND_AT_RISK_THRESHOLD,
+      deadline_window: context.deadlineWindow
+    },
+    contract_saas_metadata_conflict: {
+      conflict_count: context.conflicts.length,
+      first_conflict_field: context.conflicts[0]?.field ?? null
+    }
+  };
+
+  return {
+    findingType,
+    severity,
+    evidence: evidenceByFinding[findingType]
+  };
 }

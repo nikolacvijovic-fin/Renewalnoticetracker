@@ -156,6 +156,56 @@ describe("renewal command center", () => {
     expect(center.recommendedActions.at(0)?.id).toBe("resolve_past_notice_deadlines");
   });
 
+  it("feeds Command Center risk into unified decision intelligence without losing existing counts", () => {
+    const center = buildRenewalCommandCenter({
+      organizationId: "org-1",
+      contracts: [
+        contract({
+          id: "past",
+          title: "Past Notice",
+          noticeDeadlineDate: "2026-05-01",
+          reminders: []
+        }),
+        contract({
+          id: "weak",
+          title: "Weak Evidence",
+          hasWeakEvidence: true,
+          fieldConfidence: { renewal_date: 0.4, notice_deadline_date: 0.4 },
+          reminders: []
+        })
+      ],
+      saasOptOutItems: [
+        {
+          contractId: "past",
+          deadlineWindow: "expired",
+          workflowStatus: "needs_review",
+          ownerUserId: null,
+          spendAtRiskAmount: 45000
+        }
+      ],
+      saasImportReview: {
+        latestBatchId: "batch-1",
+        needsReviewCount: 2,
+        rejectedCount: 1,
+        readyCount: 0,
+        correctedCount: 0
+      },
+      now
+    });
+
+    expect(center.contractsPastNoticeDeadline).toBe(1);
+    expect(center.contractsWithWeakEvidence).toBe(1);
+    expect(center.saasOptOutSummary.expiredCount).toBe(1);
+    expect(center.saasImportReviewSummary.blockedRowCount).toBe(3);
+    expect(center.unifiedIntelligenceSummary.blockedActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ruleId: "import_row_blocked", source: "import_review" })
+    ]));
+    expect(center.unifiedIntelligenceSummary.recommendedActions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "system" })
+    ]));
+    expect(center.unifiedIntelligenceSummary.trustScore).toBeLessThan(100);
+  });
+
   it("summarizes owner workload and unassigned risk", () => {
     const center = buildRenewalCommandCenter({
       organizationId: "org-1",

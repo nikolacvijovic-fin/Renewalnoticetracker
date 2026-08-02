@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { requireOrganization } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { createDomainEvent } from "@/lib/events/domain-event-bus";
+import type { DomainEventName } from "@/lib/events/domain-event-types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { Json } from "@/lib/supabase/database.types";
 import {
@@ -203,6 +205,25 @@ async function auditSaasRenewalDefense(input: {
   amount?: number | null;
   currency?: string | null;
 }) {
+  const domainEventName = saasDomainEventNameForAuditAction(input.action);
+  const safeMetadata = buildSafeSaasRenewalDefenseAuditMetadata(input);
+  const domainEvent = domainEventName
+    ? createDomainEvent({
+        name: domainEventName,
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        entityType: input.entityType === "saas_metadata_conflict_resolution"
+          ? "saas_metadata_conflict_resolution"
+          : input.entityType === "saas_renewal_import_row"
+            ? "saas_import_row"
+            : input.entityType === "saas_renewal_import_batch"
+              ? "saas_import_batch"
+              : "saas_contract_term",
+        entityId: input.entityId ?? input.saasTermId ?? input.importRowId ?? input.importBatchId ?? null,
+        correlationKey: input.saasTermId ?? input.importRowId ?? input.importBatchId ?? null,
+        metadata: safeMetadata
+      })
+    : null;
   await createAuditLog(
     {
       organizationId: input.organizationId,
@@ -211,10 +232,30 @@ async function auditSaasRenewalDefense(input: {
       action: input.action,
       entityType: input.entityType,
       entityId: input.entityId ?? null,
-      details: buildSafeSaasRenewalDefenseAuditMetadata(input)
+      details: {
+        ...safeMetadata,
+        domainEventName: domainEvent?.name ?? null,
+        domainEventIdempotencyKey: domainEvent?.idempotencyKey ?? null,
+        domainEventOccurredAt: domainEvent?.occurredAt ?? null
+      }
     },
     { mode: "best_effort" }
   );
+}
+
+function saasDomainEventNameForAuditAction(action: string): DomainEventName | null {
+  const mapping: Record<string, DomainEventName> = {
+    "saas.import_batch_created": "saas.import_batch_created",
+    "saas.import_row_corrected": "saas.import_row_corrected",
+    "saas.import_row_activated": "saas.import_row_activated",
+    "saas.import_row_dismissed": "saas.import_row_dismissed",
+    "saas.import_row_weak_evidence_accepted": "trust.weak_evidence_accepted",
+    "saas.metadata_conflict_resolved": "saas.metadata_conflict_resolved",
+    "saas.metadata_manual_override_recorded": "trust.manual_override_recorded",
+    "saas.metadata_conflict_bulk_resolved": "saas.metadata_conflict_resolved",
+    "saas.metadata_conflict_reopened": "saas.metadata_conflict_reopened"
+  };
+  return mapping[action] ?? null;
 }
 
 function importBatchStatus(summary: SaasRenewalImportAssessment["summary"]) {

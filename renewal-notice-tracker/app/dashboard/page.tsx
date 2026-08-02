@@ -33,6 +33,13 @@ function formatDue(days: number | null) {
   return `${days} days`;
 }
 
+function intelligenceTone(severity: "info" | RenewalCommandSeverity): "critical" | "urgent" | "warning" | "success" {
+  if (severity === "critical") return "critical";
+  if (severity === "high") return "urgent";
+  if (severity === "medium") return "warning";
+  return "success";
+}
+
 export default async function DashboardPage({
   searchParams
 }: {
@@ -145,6 +152,81 @@ export default async function DashboardPage({
           accent="bg-urgent"
           description="Estimated value tied to blocked, urgent, or high-risk contracts."
         />
+      </section>
+
+      <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="warning">Decision Intelligence</Badge>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                Unified operating brain
+              </span>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold">Trusted renewal decisions</h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted">
+              One deterministic view of blockers, recommendations, trust gaps, accepted risks, and SaaS opt-out exposure.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center text-sm">
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Risk</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.overallRiskScore}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Trust</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.trustScore}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Confidence</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.confidenceScore}</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Top blockers</p>
+            <div className="mt-2 space-y-2">
+              {commandCenter.unifiedIntelligenceSummary.blockedActions.slice(0, 3).map((item) => (
+                <div key={item.id} className="rounded-2xl border border-slate-200 p-3 text-sm">
+                  <Badge tone={intelligenceTone(item.severity)}>{item.severity}</Badge>
+                  <p className="mt-2 font-medium text-slate-900">{item.title}</p>
+                  <p className="mt-1 text-xs text-muted">{item.reason ?? "Blocked until review."}</p>
+                </div>
+              ))}
+              {commandCenter.unifiedIntelligenceSummary.blockedActions.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200 p-3 text-sm text-muted">No decision blockers are open.</p>
+              ) : null}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Recommendations</p>
+            <div className="mt-2 space-y-2">
+              {commandCenter.unifiedIntelligenceSummary.recommendedActions.slice(0, 3).map((item) => (
+                <div key={`${item.code}-${item.label}`} className="rounded-2xl border border-slate-200 p-3 text-sm">
+                  <Badge tone={intelligenceTone(item.severity)}>{item.severity}</Badge>
+                  <p className="mt-2 font-medium text-slate-900">{item.label}</p>
+                </div>
+              ))}
+              {commandCenter.unifiedIntelligenceSummary.recommendedActions.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200 p-3 text-sm text-muted">No recommended action is open.</p>
+              ) : null}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Why this matters</p>
+            <ul className="mt-2 space-y-2">
+              {commandCenter.unifiedIntelligenceSummary.whyThisMatters.map((item) => (
+                <li key={item} className="rounded-2xl border border-slate-200 p-3 text-sm text-muted">{item}</li>
+              ))}
+              {commandCenter.unifiedIntelligenceSummary.acceptedRisks.length > 0 ? (
+                <li className="rounded-2xl border border-warning/30 bg-warning/5 p-3 text-sm text-slate-700">
+                  Accepted risks: {commandCenter.unifiedIntelligenceSummary.acceptedRisks.length}
+                </li>
+              ) : null}
+            </ul>
+          </div>
+        </div>
       </section>
 
       {topAction ? (
