@@ -35,6 +35,12 @@ type Metadata = {
   termination_window?: string | null;
   governing_law: string | null;
   payment_terms: string | null;
+  contract_value_amount?: number | null;
+  contract_value_currency?: string | null;
+  contract_value_period?: string | null;
+  price_change_trigger?: string | null;
+  payment_trigger?: string | null;
+  financial_data_trust_status?: string | null;
   extracted_clauses: string[];
   field_confidence: Record<string, number>;
   field_source_snippets: Record<string, string>;
@@ -122,6 +128,56 @@ export function ReviewForm({
             No dirty flags are active. Completing review will activate the trusted schedule once an owner is assigned.
           </p>
         )}
+      </div>
+
+      <div className="space-y-4 rounded-2xl border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-ink">PDF-extracted contract details</h3>
+          <p className="text-xs text-slate-500">
+            Correct extracted values before they become reviewed operational truth.
+          </p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Contract title">
+            <Input name="contract_title" defaultValue={metadata.contract_title ?? ""} />
+          </Field>
+          <Field label="Vendor / counterparty">
+            <Input name="counterparty_name" defaultValue={metadata.counterparty_name ?? ""} />
+          </Field>
+          <Field label="Contract type">
+            <Input name="contract_type" defaultValue={metadata.contract_type ?? ""} />
+          </Field>
+          <Field label="Effective date">
+            <Input name="effective_date" type="date" defaultValue={metadata.effective_date ?? ""} />
+          </Field>
+          <Field label="Notice period value">
+            <Input name="notice_period_value" type="number" min="0" defaultValue={metadata.notice_period_value ?? ""} />
+          </Field>
+          <Field label="Notice period unit">
+            <select
+              name="notice_period_unit"
+              defaultValue={metadata.notice_period_unit ?? ""}
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            >
+              <option value="">Not found</option>
+              <option value="days">Days</option>
+              <option value="weeks">Weeks</option>
+              <option value="months">Months</option>
+            </select>
+          </Field>
+          <Field label="Contract value amount">
+            <Input
+              name="contract_value_amount"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={metadata.contract_value_amount ?? ""}
+            />
+          </Field>
+          <Field label="Contract value currency">
+            <Input name="contract_value_currency" placeholder="USD" defaultValue={metadata.contract_value_currency ?? ""} />
+          </Field>
+        </div>
       </div>
 
       <div className="space-y-4 rounded-2xl border border-slate-200 p-4">
@@ -243,15 +299,13 @@ export function ReviewForm({
         name="changes_previously_verified_p0"
         value={metadata.changes_previously_verified_p0 ? "true" : "false"}
       />
-      <input type="hidden" name="contract_title" value={metadata.contract_title ?? ""} />
-      <input type="hidden" name="counterparty_name" value={metadata.counterparty_name ?? ""} />
-      <input type="hidden" name="contract_type" value={metadata.contract_type ?? ""} />
-      <input type="hidden" name="effective_date" value={metadata.effective_date ?? ""} />
       <input type="hidden" name="renewal_term" value={metadata.renewal_term ?? ""} />
-      <input type="hidden" name="notice_period_value" value={metadata.notice_period_value ?? ""} />
-      <input type="hidden" name="notice_period_unit" value={metadata.notice_period_unit ?? ""} />
       <input type="hidden" name="governing_law" value={metadata.governing_law ?? ""} />
       <input type="hidden" name="payment_terms" value={metadata.payment_terms ?? ""} />
+      <input type="hidden" name="contract_value_period" value={metadata.contract_value_period ?? ""} />
+      <input type="hidden" name="price_change_trigger" value={metadata.price_change_trigger ?? ""} />
+      <input type="hidden" name="payment_trigger" value={metadata.payment_trigger ?? ""} />
+      <input type="hidden" name="financial_data_trust_status" value={metadata.financial_data_trust_status ?? ""} />
       <input type="hidden" name="department" value={metadata.department ?? ""} />
       <input type="hidden" name="status_tag" value={metadata.status_tag ?? "active"} />
       <input
@@ -310,8 +364,8 @@ function FieldCard({ field, metadata }: { field: Phase1P0Field; metadata: Metada
           <option value="true">Confirmed yes</option>
           <option value="false">Confirmed no</option>
         </select>
-        <p className="mt-1 text-xs text-slate-500">
-          Evidence: {metadata.field_source_snippets[field] ?? "No snippet captured"}
+      <p className="mt-1 text-xs text-slate-500">
+          Evidence: {metadata.field_source_snippets[field] ?? "No evidence snippet found"}
         </p>
       </Field>
     );
@@ -325,7 +379,7 @@ function FieldCard({ field, metadata }: { field: Phase1P0Field; metadata: Metada
         defaultValue={(metadata[field] as string | null | undefined) ?? ""}
       />
       <p className="mt-1 text-xs text-slate-500">
-        Evidence: {metadata.field_source_snippets[field] ?? "No snippet captured"}
+        Evidence: {metadata.field_source_snippets[field] ?? "No evidence snippet found"}
       </p>
     </Field>
   );

@@ -5,6 +5,7 @@ export type DomainEventCategory =
   | "ai"
   | "rules"
   | "decision"
+  | "action"
   | "intelligence";
 
 export type DomainEventName =
@@ -41,6 +42,17 @@ export type DomainEventName =
   | "decision.risk_accepted"
   | "decision.reopened"
   | "decision.superseded"
+  | "action.proposed"
+  | "action.blocked"
+  | "action.ready"
+  | "action.approved"
+  | "action.completed_manually"
+  | "action.dismissed"
+  | "action.risk_accepted"
+  | "action.superseded"
+  | "action.reopened"
+  | "action.no_send_boundary_checked"
+  | "action.no_send_boundary_blocked"
   | "intelligence.summary_generated";
 
 export type DomainEventEntityType =
@@ -57,6 +69,7 @@ export type DomainEventEntityType =
   | "ai_fact"
   | "rule_evaluation"
   | "decision_record"
+  | "governed_action"
   | "organization";
 
 export type SafeDomainEventMetadataValue =

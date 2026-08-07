@@ -4,6 +4,7 @@ import { getOcrProvider } from "@/lib/ocr/provider";
 import { normalizeOcrOutput, applyOcrReviewRequirements } from "@/lib/ocr/normalize-ocr-output";
 import { extractContractMetadata } from "@/lib/ai/extract-contract";
 import { buildEvidenceRows } from "@/lib/contracts/evidence";
+import { preparePdfRenewalExtractionForReview } from "@/lib/contracts/pdf-renewal-control";
 import { sanitizeSensitiveProcessingError } from "@/lib/errors";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
 import { getAppConfig } from "@/lib/config";
@@ -262,14 +263,18 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
       }
 
       const normalized = normalizeOcrOutput(result);
-      const metadata = applyOcrReviewRequirements(
+      const metadata = preparePdfRenewalExtractionForReview(applyOcrReviewRequirements(
         await extractContractMetadata(normalized.text),
         {
           provider: result.provider,
           averageConfidence: result.averageConfidence,
           reason: claimed.detection_reason ?? "native extraction quality was too weak"
         }
-      );
+      ), {
+        extractionSource: "ocr",
+        ocrConfidence: normalized.averageConfidence,
+        parserError: null
+      });
 
       const metadataId = await getScopedMetadataIdForAdmin(claimed.contract_id, claimed.organization_id);
 
@@ -299,9 +304,17 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
           renewal_term: metadata.renewal_term,
           notice_period_value: metadata.notice_period_value,
           notice_period_unit: metadata.notice_period_unit,
+          renewal_date: metadata.renewal_date,
           notice_deadline_date: metadata.notice_deadline_date,
+          termination_window: metadata.termination_window,
           governing_law: metadata.governing_law,
           payment_terms: metadata.payment_terms,
+          contract_value_amount: metadata.contract_value_amount,
+          contract_value_currency: metadata.contract_value_currency,
+          contract_value_period: metadata.contract_value_period,
+          price_change_trigger: metadata.price_change_trigger,
+          payment_trigger: metadata.payment_trigger,
+          financial_data_trust_status: metadata.financial_data_trust_status,
           extracted_clauses: metadata.extracted_clauses,
           field_confidence: metadata.field_confidence,
           field_source_snippets: metadata.field_source_snippets,

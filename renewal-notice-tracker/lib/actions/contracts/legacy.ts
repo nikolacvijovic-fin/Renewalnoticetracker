@@ -89,6 +89,10 @@ import {
   sanitizeInternalError,
   sanitizeSensitiveProcessingError
 } from "@/lib/errors";
+import {
+  applyManualPdfRenewalCorrections,
+  preparePdfRenewalExtractionForReview
+} from "@/lib/contracts/pdf-renewal-control";
 import { REMINDER_RETRY_POLICY } from "@/lib/constants";
 import {
   type BillingSnapshot,
@@ -489,6 +493,8 @@ async function insertReminders(params: {
       | "expiration_date"
       | "decision_request"
       | "acknowledgment_request"
+      | "internal_review_needed"
+      | "missed_notice_deadline"
       | "custom";
     remind_at: string;
     recipient_email: string;
@@ -560,14 +566,7 @@ async function regenerateSystemReminders(params: {
 
   if (error) throw error;
 
-  const mergedRecipients = uniqueEmails([
-    ...params.fallbackRecipients,
-    ...((existingReminders ?? []) as Array<{ recipient_emails: unknown; recipient_email: string }>).flatMap((reminder) =>
-      Array.isArray(reminder.recipient_emails)
-        ? reminder.recipient_emails.map(String)
-        : [reminder.recipient_email]
-    )
-  ]);
+  const mergedRecipients = uniqueEmails(params.fallbackRecipients);
   const activeSystemReminders = ((existingReminders ?? []) as Array<{
     id: string;
     source: string;
@@ -604,11 +603,11 @@ async function regenerateSystemReminders(params: {
     recipientCount: mergedRecipients.length
   });
 
-  if (activationState !== "scheduled") {
+  if (mergedRecipients.length === 0) {
     return {
       generatedCount: 0,
       supersededCount: activeSystemReminders.length,
-      activationState
+      activationState: "failed" as const
     };
   }
 
@@ -627,16 +626,28 @@ async function regenerateSystemReminders(params: {
       ical_uid: `${params.contractId}-${reminder.reminder_type}-${reminder.remind_at}`
     })
   );
+  if (generated.length === 0) {
+    return {
+      generatedCount: 0,
+      supersededCount: activeSystemReminders.length,
+      activationState
+    };
+  }
   await insertReminders({
     contractId: params.contractId,
     organizationId: params.organizationId,
     reminders: generated
   });
 
+  const generatedTypes = new Set(generated.map((reminder) => reminder.reminder_type));
+  const nextActivationState = generatedTypes.has("internal_review_needed")
+    ? ("blocked_by_review" as const)
+    : ("scheduled" as const);
+
   return {
     generatedCount: generated.length,
     supersededCount: activeSystemReminders.length,
-    activationState: "scheduled" as const
+    activationState: nextActivationState
   };
 }
 
@@ -808,6 +819,7 @@ export async function createContractAction(formData: FormData) {
     contractTitle,
     resolvedText.error
   );
+  let pdfRenewalReviewReasons: string[] = [];
   let finalStatus: "needs_review" | "extraction_failed" = "needs_review";
 
   if (
@@ -878,9 +890,23 @@ export async function createContractAction(formData: FormData) {
           reason: resolvedText.ocrDecision.reason
         });
       }
+      const assessedMetadata = preparePdfRenewalExtractionForReview(metadata, {
+        extractionSource: resolvedText.source,
+        ocrConfidence: resolvedText.ocrConfidence,
+        parserError: resolvedText.error
+      });
+      pdfRenewalReviewReasons = assessedMetadata.pdf_renewal_review_reasons;
+      metadata = assessedMetadata;
       finalStatus = "needs_review";
     } catch {
       metadata = fallbackMetadata(contractTitle, sanitizeSensitiveProcessingError("extraction"));
+      const assessedMetadata = preparePdfRenewalExtractionForReview(metadata, {
+        extractionSource: resolvedText.source,
+        ocrConfidence: resolvedText.ocrConfidence,
+        parserError: sanitizeSensitiveProcessingError("extraction")
+      });
+      pdfRenewalReviewReasons = assessedMetadata.pdf_renewal_review_reasons;
+      metadata = assessedMetadata;
       finalStatus = "extraction_failed";
       await recordProcessingError({
         organizationId,
@@ -893,11 +919,25 @@ export async function createContractAction(formData: FormData) {
     }
   }
 
+  if (pdfRenewalReviewReasons.length === 0) {
+    const assessedMetadata = preparePdfRenewalExtractionForReview(metadata, {
+      extractionSource: resolvedText.source,
+      ocrConfidence: resolvedText.ocrConfidence,
+      parserError: resolvedText.error
+    });
+    pdfRenewalReviewReasons = assessedMetadata.pdf_renewal_review_reasons;
+    metadata = assessedMetadata;
+  }
+
+  const metadataForInsert = { ...metadata } as typeof metadata & {
+    pdf_renewal_review_reasons?: string[];
+  };
+  delete metadataForInsert.pdf_renewal_review_reasons;
   const { data: metadataRow, error: metadataError } = await admin
     .from("contract_metadata")
     .insert({
       contract_id: contract.id,
-      ...metadata,
+      ...metadataForInsert,
       ...resolvePhase1ReviewAssessment({
         metadata: {
           ...metadata,
@@ -929,6 +969,25 @@ export async function createContractAction(formData: FormData) {
   } else {
     await transitionContractStatus(admin, contract.id, organizationId, "needs_review");
   }
+  let uploadReminderGeneratedCount = 0;
+  let uploadReminderActivationState: ReminderActivationState | null = null;
+  if (finalStatus !== "extraction_failed") {
+    const regeneration = await regenerateSystemReminders({
+      contractId: contract.id,
+      organizationId,
+      actorUserId: user.id,
+      billingSnapshot,
+      metadata: {
+        ...metadata,
+        owner_user_id: ownerUserId,
+        needs_review: metadata.needs_review
+      },
+      templateKey,
+      fallbackRecipients: recipients
+    });
+    uploadReminderGeneratedCount = regeneration.generatedCount;
+    uploadReminderActivationState = regeneration.activationState;
+  }
 
   await createAuditLog({
     organizationId,
@@ -944,7 +1003,10 @@ export async function createContractAction(formData: FormData) {
       extraction_source: resolvedText.source,
       ocr_detected_needed: resolvedText.ocrDetectedNeeded,
       ocr_provider: resolvedText.ocrProvider,
+      pdf_renewal_review_reasons: pdfRenewalReviewReasons,
       recipients,
+      internal_reminder_generated_count: uploadReminderGeneratedCount,
+      internal_reminder_processing_status: uploadReminderActivationState,
       counterparty_id: counterpartyId,
       contract_template_key: templateKey,
       status: finalStatus === "extraction_failed" ? "extraction_failed" : "needs_review"
@@ -1173,7 +1235,7 @@ export async function createManualContractAction(formData: FormData) {
   });
 
   if (
-    !payload.needs_review &&
+    payload.needs_review ||
     canEnterReminderGenerationState({
       needsReview: payload.needs_review,
       ownerUserId: payload.owner_user_id ?? null,
@@ -1192,7 +1254,7 @@ export async function createManualContractAction(formData: FormData) {
         ...payload,
         notice_deadline_date: finalNoticeDeadline,
         owner_user_id: payload.owner_user_id ?? null,
-        needs_review: false
+        needs_review: payload.needs_review
       },
       templateKey,
       fallbackRecipients: recipients
@@ -1298,7 +1360,7 @@ export async function updateContractReviewAction(contractId: string, formData: F
   const { data: currentMetadata, error: currentMetadataError } = await supabase
     .from("contract_metadata")
     .select(
-      "needs_review, notice_deadline_date, renewal_date, expiration_date, termination_window, auto_renewal, is_ocr_assisted"
+      "needs_review, notice_deadline_date, renewal_date, expiration_date, termination_window, auto_renewal, contract_value_amount, contract_value_currency, is_ocr_assisted"
     )
     .eq("id", metadataId)
     .single();
@@ -1363,6 +1425,14 @@ export async function updateContractReviewAction(contractId: string, formData: F
     renewal_decision_status: formData.get("renewal_decision_status") || "undecided",
     renewal_decision_date: formData.get("renewal_decision_date") || null
   });
+  const correctionTrust = applyManualPdfRenewalCorrections({
+    previous: currentMetadata,
+    next: payload,
+    fieldConfidence: payload.field_confidence,
+    fieldSourceSnippets: payload.field_source_snippets
+  });
+  payload.field_confidence = correctionTrust.fieldConfidence;
+  payload.field_source_snippets = correctionTrust.fieldSourceSnippets;
   const reviewAssessment = resolvePhase1ReviewAssessment({
     metadata: {
       ...payload,
@@ -1466,7 +1536,7 @@ export async function updateContractReviewAction(contractId: string, formData: F
   await transitionContractStatus(supabase, contractId, organizationId, reviewedStatus);
 
   if (
-    !payload.needs_review &&
+    payload.needs_review ||
     canEnterReminderGenerationState({
       needsReview: payload.needs_review,
       ownerUserId: payload.owner_user_id ?? null,
@@ -1508,7 +1578,7 @@ export async function updateContractReviewAction(contractId: string, formData: F
         reminder_recommendations: payload.reminder_recommendations,
         reviewer_notes: payload.reviewer_notes,
         owner_user_id: payload.owner_user_id ?? null,
-        needs_review: false
+        needs_review: payload.needs_review
       },
       templateKey: payload.contract_template_key,
       fallbackRecipients: recipients
@@ -1535,6 +1605,7 @@ export async function updateContractReviewAction(contractId: string, formData: F
       needs_review: payload.needs_review,
       review_mode: reviewAssessment.reviewMode,
       dirty_review_flags: reviewAssessment.dirtyFlags,
+      corrected_critical_fields: correctionTrust.correctedFields,
       owner_user_id: payload.owner_user_id,
       department: payload.department,
       status_tag: payload.status_tag,

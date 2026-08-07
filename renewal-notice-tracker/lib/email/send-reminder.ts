@@ -18,6 +18,14 @@ export async function sendReminderEmail(params: {
   remindAt: string;
   reminderType: string;
   userId?: string | null;
+  noticeDeadlineDate?: string | null;
+  renewalDate?: string | null;
+  expirationDate?: string | null;
+  daysRemaining?: number | null;
+  ownerLabel?: string | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  internalReminderTone?: string | null;
 }) {
   const config = getAppConfig();
   const payload = buildReminderEmailPayload({
@@ -30,6 +38,14 @@ export async function sendReminderEmail(params: {
     counterpartyName: params.counterpartyName,
     remindAt: params.remindAt,
     reminderTypeLabel: params.reminderType.replaceAll("_", " "),
+    noticeDeadlineDate: params.noticeDeadlineDate,
+    renewalDate: params.renewalDate,
+    expirationDate: params.expirationDate,
+    daysRemaining: params.daysRemaining,
+    ownerLabel: params.ownerLabel,
+    contractValueAmount: params.contractValueAmount,
+    contractValueCurrency: params.contractValueCurrency,
+    internalReminderTone: params.internalReminderTone,
     appUrl: config.public.appUrl,
     legalDisclaimer: LEGAL_DISCLAIMER,
     replyToEmail: config.email.replyToEmail ?? undefined

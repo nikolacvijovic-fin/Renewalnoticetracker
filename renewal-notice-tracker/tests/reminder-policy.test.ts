@@ -17,13 +17,15 @@ describe("shipped reminder policy", () => {
       "renewal",
       "expiration",
       "decision_request",
-      "acknowledgment_request"
+      "acknowledgment_request",
+      "internal_review_needed",
+      "missed_notice_deadline"
     ]);
   });
 
   it("uses only the fixed shipped offsets", () => {
     expect(SHIPPED_REMINDER_DAY_OFFSETS).toEqual({
-      notice_deadline: [90, 60, 30, 14, 7],
+      notice_deadline: [30, 14, 7, 3, 0],
       renewal: [90, 60, 30, 14],
       expiration: [90, 60, 30, 14]
     });
@@ -87,7 +89,7 @@ describe("shipped reminder policy", () => {
         renewal_term: "12 months",
         notice_period_value: 30,
         notice_period_unit: "days",
-        notice_deadline_date: null,
+        notice_deadline_date: "2027-05-01",
         termination_window: "30 days",
         governing_law: "New York",
         payment_terms: "Net 30",
@@ -98,7 +100,9 @@ describe("shipped reminder policy", () => {
         payment_trigger: null,
         financial_data_trust_status: null,
         extracted_clauses: [],
-        field_confidence: {},
+        field_confidence: {
+          notice_deadline_date: 1
+        },
         field_source_snippets: {},
         reminder_recommendations: [],
         reviewer_notes: null

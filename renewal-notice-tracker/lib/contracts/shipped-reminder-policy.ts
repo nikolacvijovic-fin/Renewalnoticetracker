@@ -2,6 +2,10 @@ import { subDays } from "date-fns";
 import type { ExtractedContractFields } from "@/lib/validation/contract";
 import { z } from "zod";
 import {
+  INTERNAL_NOTICE_REMINDER_WINDOWS,
+  buildInternalRenewalReminderPlan
+} from "@/lib/contracts/internal-renewal-reminders";
+import {
   PHASE1_ACKNOWLEDGMENT_BUSINESS_DAYS,
   PHASE1_DECISION_REQUEST_FALLBACK_DAYS,
   PHASE1_DECISION_REQUEST_NOTICE_DAYS,
@@ -15,7 +19,9 @@ export const SHIPPED_REMINDER_TYPES = [
   "renewal",
   "expiration",
   "decision_request",
-  "acknowledgment_request"
+  "acknowledgment_request",
+  "internal_review_needed",
+  "missed_notice_deadline"
 ] as const;
 
 export type ShippedReminderType = (typeof SHIPPED_REMINDER_TYPES)[number];
@@ -41,7 +47,7 @@ export type ReminderActivationState =
   | "superseded";
 
 export const SHIPPED_REMINDER_DAY_OFFSETS = {
-  notice_deadline: [...PHASE1_REMINDER_DAY_OFFSETS.notice_deadline],
+  notice_deadline: [...INTERNAL_NOTICE_REMINDER_WINDOWS],
   renewal: [...PHASE1_REMINDER_DAY_OFFSETS.renewal_date],
   expiration: [...PHASE1_REMINDER_DAY_OFFSETS.expiration_date]
 } as const;
@@ -137,15 +143,16 @@ export function buildShippedReminderSchedule(
   recipientEmails: string[]
 ): ReminderInput[] {
   const reminders: ReminderInput[] = [];
+  const internalNoticePlan = buildInternalRenewalReminderPlan({
+    metadata,
+    recipientEmails
+  });
 
   reminders.push(
-    ...buildDateReminders(
-      metadata.notice_deadline_date,
-      recipientEmails,
-      "notice_deadline",
-      SHIPPED_REMINDER_DAY_OFFSETS.notice_deadline
-    )
+    ...internalNoticePlan.reminders.map((reminder) => shippedReminderRecordSchema.parse(reminder))
   );
+
+  if (internalNoticePlan.status !== "scheduled") return reminders;
   reminders.push(
     ...buildDateReminders(
       metadata.renewal_date,

@@ -9,6 +9,11 @@ import {
   type RenewalCommandSeverity,
   type RenewalRiskSegmentId
 } from "@/lib/dashboard/renewal-command-center";
+import {
+  buildUrgentRenewalDashboard,
+  type UrgentRenewalItemReason,
+  type UrgentRenewalTrustStatus
+} from "@/lib/dashboard/urgent-renewal-items";
 import { getSaasOptOutClock, getSaasRenewalImportReviewQueue } from "@/lib/saas/queries";
 
 const SEVERITY_TONE: Record<RenewalCommandSeverity, "critical" | "urgent" | "warning" | "success"> = {
@@ -26,6 +31,15 @@ function money(value: number) {
   }).format(value);
 }
 
+function moneyWithCurrency(value: number | null, currency: string | null) {
+  if (value === null || value === undefined) return "Unknown";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency ?? "USD",
+    maximumFractionDigits: 0
+  }).format(value);
+}
+
 function formatDue(days: number | null) {
   if (days === null) return "No deadline";
   if (days < 0) return `${Math.abs(days)} days past`;
@@ -33,11 +47,62 @@ function formatDue(days: number | null) {
   return `${days} days`;
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "Not found";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC"
+  }).format(new Date(`${value.slice(0, 10)}T00:00:00.000Z`));
+}
+
+const URGENCY_REASON_LABELS: Record<UrgentRenewalItemReason, string> = {
+  missed_notice_deadline: "Missed opt-out window",
+  notice_deadline_due_today: "Due today",
+  notice_deadline_due_7_days: "Due this week",
+  notice_deadline_due_30_days: "Due this month",
+  high_spend_at_risk: "High spend at risk",
+  missing_owner: "Missing owner",
+  missing_or_weak_notice_deadline: "Missing or weak deadline",
+  needs_metadata_review: "Needs metadata review"
+};
+
+function urgencyTone(reason: UrgentRenewalItemReason): "critical" | "urgent" | "warning" | "success" {
+  if (reason === "missed_notice_deadline" || reason === "notice_deadline_due_today") return "critical";
+  if (reason === "notice_deadline_due_7_days" || reason === "high_spend_at_risk") return "urgent";
+  if (
+    reason === "notice_deadline_due_30_days" ||
+    reason === "missing_owner" ||
+    reason === "missing_or_weak_notice_deadline" ||
+    reason === "needs_metadata_review"
+  ) {
+    return "warning";
+  }
+  return "success";
+}
+
+function trustLabel(status: UrgentRenewalTrustStatus) {
+  if (status === "trusted") return "Trusted date";
+  if (status === "missing_notice_deadline") return "Missing notice deadline";
+  return "Needs review";
+}
+
+function trustTone(status: UrgentRenewalTrustStatus): "success" | "warning" | "critical" {
+  if (status === "trusted") return "success";
+  if (status === "missing_notice_deadline") return "critical";
+  return "warning";
+}
+
 function intelligenceTone(severity: "info" | RenewalCommandSeverity): "critical" | "urgent" | "warning" | "success" {
   if (severity === "critical") return "critical";
   if (severity === "high") return "urgent";
   if (severity === "medium") return "warning";
   return "success";
+}
+
+function actionStatusLabel(status: string) {
+  return status.replaceAll("_", " ");
 }
 
 export default async function DashboardPage({
@@ -74,6 +139,7 @@ export default async function DashboardPage({
       : null,
     segment: (searchParams?.segment as RenewalRiskSegmentId | undefined) ?? null
   });
+  const urgentRenewals = buildUrgentRenewalDashboard({ contracts });
   const topAction = commandCenter.recommendedActions[0] ?? null;
   const filteredContracts = commandCenter.filteredSegment?.contracts ?? commandCenter.topRisks;
 
@@ -105,17 +171,139 @@ export default async function DashboardPage({
       <section className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-brand-600">
-            Renewal Command Center
+            CFO Opt-Out Clock
           </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">This week&apos;s renewal risk</h1>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">What needs action today</h1>
           <p className="mt-2 max-w-3xl text-muted">
-            One operating view for trusted reminders, owner accountability, notice deadlines, and
-            commercial exposure.
+            The fastest view of missed opt-out windows, deadlines due this week, untrusted extraction,
+            missing owners, and spend at risk.
           </p>
         </div>
         <Button asChild variant="secondary">
           <Link href="/onboarding">View activation path</Link>
         </Button>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <MetricCard
+          label="Urgent this week"
+          value={urgentRenewals.summary.urgentThisWeek}
+          accent="bg-urgent"
+          description="Trusted opt-out windows due in 7 days."
+        />
+        <MetricCard
+          label="Due this month"
+          value={urgentRenewals.summary.dueThisMonth}
+          accent="bg-warning"
+          description="Trusted notice deadlines inside 30 days."
+        />
+        <MetricCard
+          label="Missed deadlines"
+          value={urgentRenewals.summary.missedDeadlines}
+          accent="bg-critical"
+          description="Expired opt-out windows that need review."
+        />
+        <MetricCard
+          label="Needs review"
+          value={urgentRenewals.summary.needsReview}
+          accent="bg-brand-600"
+          description="Weak or unreviewed extracted metadata."
+        />
+        <MetricCard
+          label="Unassigned owner"
+          value={urgentRenewals.summary.unassignedOwners}
+          accent="bg-locked"
+          description="Contracts without an accountable owner."
+        />
+        <MetricCard
+          label="Spend at risk"
+          value={moneyWithCurrency(
+            urgentRenewals.summary.spendAtRiskAmount,
+            urgentRenewals.summary.spendAtRiskCurrency
+          )}
+          accent="bg-critical"
+          description="Known value tied to open action items."
+        />
+      </section>
+
+      <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="critical">Top 5</Badge>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                Opt-out priority queue
+              </span>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold">Open these contracts first</h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted">
+              Trusted deadlines rank ahead of weak AI-derived dates. Missing or unreviewed dates stay visible as review blockers,
+              not operational truth.
+            </p>
+          </div>
+          <Button asChild variant="ghost">
+            <Link href="/dashboard/contracts">View all contracts</Link>
+          </Button>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {urgentRenewals.topUrgentItems.length > 0 ? (
+            urgentRenewals.topUrgentItems.map((item) => (
+              <Link
+                key={item.contractId}
+                href={item.primaryActionHref}
+                className="block rounded-2xl border border-slate-200 p-4 transition hover:border-brand-200 hover:bg-brand-50/30"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={urgencyTone(item.primaryReason)}>
+                        {URGENCY_REASON_LABELS[item.primaryReason]}
+                      </Badge>
+                      <Badge tone={trustTone(item.trustStatus)}>{trustLabel(item.trustStatus)}</Badge>
+                    </div>
+                    <p className="mt-3 text-lg font-semibold text-ink">{item.contractTitle}</p>
+                    <p className="mt-1 text-sm text-muted">{item.counterpartyName}</p>
+                  </div>
+                  <div className="grid gap-2 text-sm sm:grid-cols-2 lg:min-w-[30rem]">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Notice deadline</p>
+                      <p className="font-semibold text-ink">
+                        {item.trustStatus === "trusted" ? formatDate(item.noticeDeadlineDate) : trustLabel(item.trustStatus)}
+                      </p>
+                      <p className="text-xs text-muted">{formatDue(item.daysLeft)}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Renewal / expiration</p>
+                      <p className="font-semibold text-ink">
+                        {formatDate(item.renewalDate ?? item.expirationDate)}
+                      </p>
+                      <p className="text-xs text-muted">
+                        {item.renewalDate ? "Renewal date" : item.expirationDate ? "Expiration date" : "Not found"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Spend at risk</p>
+                      <p className="font-semibold text-ink">
+                        {moneyWithCurrency(item.contractValueAmount, item.contractValueCurrency)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Owner</p>
+                      <p className="font-semibold text-ink">{item.ownerName ?? "Unassigned"}</p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-muted">
+              {urgentRenewals.emptyState === "all_clear"
+                ? "No urgent action is open. Keep reviewing newly uploaded contracts before trusting operational dates."
+                : "No urgent contracts are ready to rank yet. Upload or review contracts so NoticeControl can build the Opt-Out Clock."}
+            </div>
+          )}
+        </div>
       </section>
 
       {allSafe ? (
@@ -225,6 +413,95 @@ export default async function DashboardPage({
                 </li>
               ) : null}
             </ul>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="urgent">Action Governance</Badge>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                Manual execution control
+              </span>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold">Governed next steps</h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted">
+              Decisions become manual action queues with blockers, evidence requirements, role gates, and no-send protection.
+            </p>
+          </div>
+          <div className="grid grid-cols-4 gap-3 text-center text-sm">
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Blocked</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.actionGovernance.blockedActions.length}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Ready</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.actionGovernance.readyActions.length}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Approval</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.actionGovernance.approvalRequiredActions.length}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 p-3">
+              <p className="text-xs text-muted">Manual-only</p>
+              <p className="text-xl font-semibold">{commandCenter.unifiedIntelligenceSummary.actionGovernance.noSendProtectedActions.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Blocked actions</p>
+            <div className="mt-2 space-y-2">
+              {commandCenter.unifiedIntelligenceSummary.actionGovernance.blockedActions.slice(0, 3).map((action) => (
+                <div key={action.id} className="rounded-2xl border border-slate-200 p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={intelligenceTone(action.severity)}>{action.severity}</Badge>
+                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted">
+                      {actionStatusLabel(action.status)}
+                    </span>
+                  </div>
+                  <p className="mt-2 font-medium text-slate-900">{action.title}</p>
+                  <p className="mt-1 text-xs text-muted">{action.blockedReason ?? "Blocked until required evidence is reviewed."}</p>
+                </div>
+              ))}
+              {commandCenter.unifiedIntelligenceSummary.actionGovernance.blockedActions.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200 p-3 text-sm text-muted">No governed actions are blocked.</p>
+              ) : null}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">Approval required</p>
+            <div className="mt-2 space-y-2">
+              {commandCenter.unifiedIntelligenceSummary.actionGovernance.approvalRequiredActions.slice(0, 3).map((action) => (
+                <div key={action.id} className="rounded-2xl border border-slate-200 p-3 text-sm">
+                  <Badge tone={intelligenceTone(action.severity)}>{action.requiredRole}</Badge>
+                  <p className="mt-2 font-medium text-slate-900">{action.title}</p>
+                  <p className="mt-1 text-xs text-muted">Allowed transition: {action.allowedTransitions[0]?.replaceAll("_", " ") ?? "review"}</p>
+                </div>
+              ))}
+              {commandCenter.unifiedIntelligenceSummary.actionGovernance.approvalRequiredActions.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200 p-3 text-sm text-muted">No action currently needs approval.</p>
+              ) : null}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-900">No-send protected</p>
+            <div className="mt-2 space-y-2">
+              {commandCenter.unifiedIntelligenceSummary.actionGovernance.noSendProtectedActions.slice(0, 3).map((action) => (
+                <div key={action.id} className="rounded-2xl border border-slate-200 p-3 text-sm">
+                  <Badge tone="warning">manual only</Badge>
+                  <p className="mt-2 font-medium text-slate-900">{action.title}</p>
+                  <p className="mt-1 text-xs text-muted">
+                    Records human activity outside NoticeControl. NoticeControl does not send, contact, sequence, or sync.
+                  </p>
+                </div>
+              ))}
+              {commandCenter.unifiedIntelligenceSummary.actionGovernance.noSendProtectedActions.length === 0 ? (
+                <p className="rounded-2xl border border-slate-200 p-3 text-sm text-muted">No manual-notice action is currently queued.</p>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>

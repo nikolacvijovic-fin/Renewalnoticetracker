@@ -5,7 +5,6 @@ import {
   RENEWAL_DECISION_STATUSES
 } from "@/lib/constants";
 import {
-  PHASE1_P0_FIELDS,
   PHASE1_REVIEW_MODES,
   getPhase1ReviewDirtyFlags,
   getPhase1ReviewMode,
@@ -45,13 +44,24 @@ export const extractedFieldSchema = z.object({
 
 export type ExtractedContractFields = z.infer<typeof extractedFieldSchema>;
 
+const EXTRACTION_CRITICAL_FIELDS = [
+  "notice_deadline_date",
+  "renewal_date",
+  "expiration_date",
+  "auto_renewal",
+  "contract_value_amount",
+  "contract_value_currency"
+] as const;
+
 export const uploadContractSchema = z.object({
   contractTitle: z.string().min(2),
   fileName: z.string().min(1),
   mimeType: z.enum([
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-  ]),
+  ], {
+    errorMap: () => ({ message: "Unsupported file type. Upload a contract PDF or DOCX." })
+  }),
   sizeBytes: z.number().max(15 * 1024 * 1024)
 });
 
@@ -171,14 +181,12 @@ export const recipientListSchema = z
   .refine((emails) => emails.length > 0, "At least one recipient is required.");
 
 export function computeNeedsReview(payload: ExtractedContractFields) {
-  const fields = [...PHASE1_P0_FIELDS] as const;
-
-  return fields.some((field) => {
+  return EXTRACTION_CRITICAL_FIELDS.some((field) => {
     const confidence = payload.field_confidence[field] ?? 0;
     const value =
       field === "auto_renewal"
         ? payload.auto_renewal
-        : payload[field as Exclude<typeof field, "auto_renewal">];
+        : payload[field];
 
     return value === null || value === undefined || confidence < LOW_CONFIDENCE_THRESHOLD;
   });

@@ -26,6 +26,8 @@ describe("ReviewForm", () => {
           termination_window: "30 days",
           governing_law: "New York",
           payment_terms: "Net 30",
+          contract_value_amount: 50000,
+          contract_value_currency: "USD",
           extracted_clauses: ["Auto-renewal unless notice is given."],
           field_confidence: {
             notice_deadline_date: 0.9,
@@ -52,6 +54,10 @@ describe("ReviewForm", () => {
       />
     );
 
+    expect(screen.getByText("PDF-extracted contract details")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Acme")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("50000")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("USD")).toBeInTheDocument();
     expect(screen.getByText("Review P0 fields")).toBeInTheDocument();
     expect(screen.getByText("Exception Review")).toBeInTheDocument();
     expect(screen.getByText("Conflict detected")).toBeInTheDocument();

@@ -12,6 +12,10 @@ import {
   normalizeReminderType
 } from "@/lib/contracts/shipped-reminder-policy";
 import {
+  getInternalRenewalReminderTone,
+  isInternalRenewalReminderType
+} from "@/lib/contracts/internal-renewal-reminders";
+import {
   getScopedNotificationLogById,
   getScopedReminderById,
   updateScopedReminderById
@@ -50,6 +54,8 @@ type DeliveryContract = {
         notice_deadline_date?: string | null;
         renewal_date?: string | null;
         expiration_date?: string | null;
+        contract_value_amount?: number | null;
+        contract_value_currency?: string | null;
       }
     | Array<{
         contract_title: string | null;
@@ -58,6 +64,8 @@ type DeliveryContract = {
         notice_deadline_date?: string | null;
         renewal_date?: string | null;
         expiration_date?: string | null;
+        contract_value_amount?: number | null;
+        contract_value_currency?: string | null;
       }>
     | null;
 };
@@ -314,7 +322,9 @@ async function claimReminder(
             needs_review,
             notice_deadline_date,
             renewal_date,
-            expiration_date
+            expiration_date,
+            contract_value_amount,
+            contract_value_currency
           )
         )
       `
@@ -428,6 +438,11 @@ async function deliverReminder(input: {
   const body = `Counterparty: ${metadata?.counterparty_name ?? "Not set"} | Reminder date: ${new Date(
     input.reminder.remind_at
   ).toUTCString()}`;
+  const daysRemaining = daysUntil(metadata?.notice_deadline_date ?? null, new Date());
+  const internalReminderTone = getInternalRenewalReminderTone({
+    reminderType: input.reminder.reminder_type,
+    noticeDeadlineDate: metadata?.notice_deadline_date ?? null
+  });
   const runKey = buildDeliveryKey([
     input.reminder.id,
     "run",
@@ -459,6 +474,14 @@ async function deliverReminder(input: {
       body,
       contractTitle: metadata?.contract_title ?? "Untitled contract",
       counterpartyName: metadata?.counterparty_name ?? null,
+      noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
+      renewalDate: metadata?.renewal_date ?? null,
+      expirationDate: metadata?.expiration_date ?? null,
+      daysRemaining,
+      ownerLabel: input.contract.owner_user_id ? "Assigned owner" : "Unassigned",
+      contractValueAmount: metadata?.contract_value_amount ?? null,
+      contractValueCurrency: metadata?.contract_value_currency ?? null,
+      internalReminderTone,
       bypassDuplicateCheck: input.bypassDuplicateCheck
     });
     if (outcome === "duplicate_suppressed") duplicateSuppressedCount += 1;
@@ -548,6 +571,10 @@ function evaluateDeliveryGate(reminder: JoinedReminderRecord) {
     recipientCount: Array.isArray(reminder.recipient_emails) ? reminder.recipient_emails.length : 1
   });
 
+  if (isInternalRenewalReminderType(reminder.reminder_type) && reminder.reminder_type !== "notice_deadline") {
+    return { status: "scheduled" as const };
+  }
+
   if (status === "scheduled") {
     return { status };
   }
@@ -595,7 +622,15 @@ async function sendEmailOnce(params: {
   title: string;
   body: string;
   contractTitle: string;
-  counterpartyName: string | null;
+    counterpartyName: string | null;
+  noticeDeadlineDate?: string | null;
+  renewalDate?: string | null;
+  expirationDate?: string | null;
+  daysRemaining?: number | null;
+  ownerLabel?: string | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  internalReminderTone?: string | null;
   bypassDuplicateCheck?: boolean;
 }) {
   const deliveryKey = buildDeliveryKey([params.reminder.id, "email", params.recipientEmail]);
@@ -623,6 +658,14 @@ async function sendEmailOnce(params: {
     counterpartyName: params.counterpartyName,
     remindAt: params.reminder.remind_at,
     reminderType: params.reminder.reminder_type,
+    noticeDeadlineDate: params.noticeDeadlineDate,
+    renewalDate: params.renewalDate,
+    expirationDate: params.expirationDate,
+    daysRemaining: params.daysRemaining,
+    ownerLabel: params.ownerLabel,
+    contractValueAmount: params.contractValueAmount,
+    contractValueCurrency: params.contractValueCurrency,
+    internalReminderTone: params.internalReminderTone,
     userId: null
   });
 
@@ -634,10 +677,24 @@ async function sendEmailOnce(params: {
     status: "sent",
     providerMessageId: email.data?.id ?? null,
     destination: params.recipientEmail,
-    deliveryKey,
-    providerPayload: { title: params.title, body: params.body }
-  });
+      deliveryKey,
+      providerPayload: {
+        title: params.title,
+        body: params.body,
+        reminder_scope: "internal_deadline_reminder",
+        reminder_type: params.reminder.reminder_type
+      }
+    });
   return "sent" as const;
+}
+
+function daysUntil(date: string | null | undefined, now: Date) {
+  if (!date) return null;
+  const parsed = new Date(`${date.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const startOfToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const target = Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate());
+  return Math.round((target - startOfToday) / (24 * 60 * 60 * 1000));
 }
 
 export async function markReminderFailure(reminderId: string, organizationId: string, message: string) {

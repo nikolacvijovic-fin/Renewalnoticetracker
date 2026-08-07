@@ -39,6 +39,7 @@ export type RenewalCommandSeverity = "critical" | "high" | "medium" | "low";
 export type RenewalCommandContractInput = {
   id: string;
   title: string;
+  counterpartyName?: string | null;
   status?: string | null;
   statusTag?: string | null;
   cycleStatus?: string | null;
@@ -53,6 +54,7 @@ export type RenewalCommandContractInput = {
   acceptedUnverifiedRiskRequested?: boolean | null;
   fieldConfidence?: Record<string, number> | null;
   contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
   reminders?: Array<{ status?: string | null; remind_at?: string | null }> | null;
   trustExceptionApprovals?: TrustExceptionApproval[] | null;
 };
@@ -185,6 +187,7 @@ type RenewalCommandCenterContractRow = {
   contract_metadata:
     | {
         contract_title: string | null;
+        counterparty_name: string | null;
         renewal_date: string | null;
         notice_deadline_date: string | null;
         expiration_date: string | null;
@@ -194,9 +197,11 @@ type RenewalCommandCenterContractRow = {
         accepted_unverified_risk_requested: boolean | null;
         field_confidence: unknown;
         contract_value_amount: number | null;
+        contract_value_currency: string | null;
       }
     | Array<{
         contract_title: string | null;
+        counterparty_name: string | null;
         renewal_date: string | null;
         notice_deadline_date: string | null;
         expiration_date: string | null;
@@ -206,6 +211,7 @@ type RenewalCommandCenterContractRow = {
         accepted_unverified_risk_requested: boolean | null;
         field_confidence: unknown;
         contract_value_amount: number | null;
+        contract_value_currency: string | null;
       }>
     | null;
   reminders?: Array<{ status: string | null; remind_at: string | null }> | null;
@@ -708,6 +714,7 @@ export async function getRenewalCommandCenterContracts(
         updated_at,
         contract_metadata (
           contract_title,
+          counterparty_name,
           renewal_date,
           notice_deadline_date,
           expiration_date,
@@ -716,7 +723,8 @@ export async function getRenewalCommandCenterContracts(
           has_weak_evidence,
           accepted_unverified_risk_requested,
           field_confidence,
-          contract_value_amount
+          contract_value_amount,
+          contract_value_currency
         ),
         reminders (
           status,
@@ -752,6 +760,7 @@ export async function getRenewalCommandCenterContracts(
     return {
       id: row.id,
       title: metadata?.contract_title ?? "Untitled contract",
+      counterpartyName: metadata?.counterparty_name ?? null,
       status: row.status,
       statusTag: row.status_tag,
       cycleStatus: row.cycle_status,
@@ -766,6 +775,7 @@ export async function getRenewalCommandCenterContracts(
       acceptedUnverifiedRiskRequested: metadata?.accepted_unverified_risk_requested ?? null,
       fieldConfidence: normalizeFieldConfidence(metadata?.field_confidence),
       contractValueAmount: metadata?.contract_value_amount ?? null,
+      contractValueCurrency: metadata?.contract_value_currency ?? null,
       reminders: row.reminders ?? [],
       trustExceptionApprovals:
         row.contract_trust_exception_approvals?.map((approval) => ({

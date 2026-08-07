@@ -1,6 +1,9 @@
 import { evaluateRules } from "@/lib/rules/rule-engine";
 import { decisionCandidatesFromRuleOutcomes } from "@/lib/decision-intelligence/decision-records";
+import { createDecisionRecord } from "@/lib/decision-intelligence/decision-records";
+import { governedActionCandidatesFromDecisionRecords } from "@/lib/action-governance/action-engine";
 import type { DecisionCandidate } from "@/lib/decision-intelligence/decision-types";
+import type { GovernedActionCandidate } from "@/lib/action-governance/action-types";
 import type { Rule, RuleOutcome } from "@/lib/rules/rule-types";
 
 export type SaasRenewalRulesInput = {
@@ -278,4 +281,20 @@ export function evaluateSaasRenewalDecisionCandidates(input: {
     ownerUserId: input.ownerUserId,
     dueAt: input.dueAt
   });
+}
+
+export function evaluateSaasRenewalGovernedActionCandidates(input: {
+  organizationId: string;
+  entityType: string;
+  entityId?: string | null;
+  rulesInput: SaasRenewalRulesInput;
+  ownerUserId?: string | null;
+  dueAt?: string | null;
+  now?: string;
+}): GovernedActionCandidate[] {
+  const now = input.now ?? new Date().toISOString();
+  const decisions = evaluateSaasRenewalDecisionCandidates(input).map((candidate) =>
+    createDecisionRecord(candidate, now)
+  );
+  return governedActionCandidatesFromDecisionRecords(decisions);
 }

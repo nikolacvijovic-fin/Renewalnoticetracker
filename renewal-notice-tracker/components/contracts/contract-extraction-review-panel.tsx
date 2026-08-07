@@ -87,7 +87,7 @@ export function ContractExtractionReviewPanel({
                   {field.source_snippet}
                 </blockquote>
               ) : (
-                <p className="mt-3 text-sm text-amber-700">No citation snippet captured for this field.</p>
+                <p className="mt-3 text-sm text-amber-700">No evidence snippet found for this field.</p>
               )}
               {field.warning_codes.length ? (
                 <p className="mt-2 text-xs text-amber-700">

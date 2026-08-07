@@ -74,6 +74,9 @@ describe("UploadContractForm", () => {
     );
 
     expect(screen.getByText("First-value path")).toBeInTheDocument();
+    expect(screen.getByText("1. Upload one PDF contract")).toBeInTheDocument();
+    expect(screen.getByLabelText("Contract PDF")).toBeInTheDocument();
+    expect(screen.getByText(/PDF is the primary path/i)).toBeInTheDocument();
     expect(screen.getByText("Shipped workflow focus")).toBeInTheDocument();
     expect(screen.getByText(/fixed-scope import package/i)).toBeInTheDocument();
     expect(screen.getByText("Tracked contract capacity")).toBeInTheDocument();

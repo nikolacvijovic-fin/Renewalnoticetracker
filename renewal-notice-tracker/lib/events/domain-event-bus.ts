@@ -20,6 +20,7 @@ export function domainEventCategory(name: string): DomainEventCategory {
     category === "ai" ||
     category === "rules" ||
     category === "decision" ||
+    category === "action" ||
     category === "intelligence"
   ) {
     return category;

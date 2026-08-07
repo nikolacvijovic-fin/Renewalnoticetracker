@@ -51,8 +51,8 @@ export function UploadContractForm({
         <h2 className="text-lg font-semibold">First-value path</h2>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
-            "1. Upload one contract",
-            "2. Review the essential dates",
+            "1. Upload one PDF contract",
+            "2. Review extracted renewal dates",
             "3. Assign one owner",
             "4. See one live obligation"
           ].map((step) => (
@@ -81,7 +81,7 @@ export function UploadContractForm({
           <div>
             <h2 className="text-lg font-semibold">Primary path: upload one contract</h2>
             <p className="mt-1 text-sm text-slate-500">
-              The fastest route to value is upload, review, owner assignment, and one visible obligation.
+            The fastest route to value is a PDF contract upload, extracted renewal dates, review, owner assignment, and one visible obligation.
             </p>
           </div>
           <CoreContractFields
@@ -90,8 +90,13 @@ export function UploadContractForm({
             recipientAccess={commercial.multiRecipientAccess}
             maxReminderRecipients={commercial.maxReminderRecipients}
           />
-          <Field label="Contract file">
+          <Field
+            label="Contract PDF"
+            description="PDF is the primary path. DOCX remains supported for existing customers."
+            htmlFor="contract-pdf-file"
+          >
             <Input
+              id="contract-pdf-file"
               name="file"
               type="file"
               required

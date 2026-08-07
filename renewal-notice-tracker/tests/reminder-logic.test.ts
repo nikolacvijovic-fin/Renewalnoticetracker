@@ -26,7 +26,9 @@ describe("generateReminderRecommendations", () => {
         payment_trigger: null,
         financial_data_trust_status: null,
         extracted_clauses: [],
-        field_confidence: {},
+        field_confidence: {
+          notice_deadline_date: 1
+        },
         field_source_snippets: {},
         reminder_recommendations: [],
         reviewer_notes: null
@@ -35,6 +37,11 @@ describe("generateReminderRecommendations", () => {
     );
 
     expect(reminders).toHaveLength(15);
+    expect(
+      reminders
+        .filter((reminder) => reminder.reminder_type === "notice_deadline")
+        .map((reminder) => reminder.remind_at.slice(0, 10))
+    ).toEqual(["2026-10-30", "2026-11-17", "2026-11-24", "2026-11-27", "2026-12-01"]);
     expect(reminders.some((reminder) => reminder.reminder_type === "decision_request")).toBe(true);
     expect(reminders.some((reminder) => reminder.reminder_type === "acknowledgment_request")).toBe(true);
     expect(reminders.some((reminder) => reminder.reminder_type === "renewal")).toBe(true);

@@ -81,6 +81,14 @@ export function buildReminderEmailPayload(input: {
   counterpartyName: string | null;
   remindAt: string;
   reminderTypeLabel: string;
+  noticeDeadlineDate?: string | null;
+  renewalDate?: string | null;
+  expirationDate?: string | null;
+  daysRemaining?: number | null;
+  ownerLabel?: string | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  internalReminderTone?: string | null;
   appUrl: string;
   legalDisclaimer: string;
   replyToEmail?: string | null;
@@ -97,6 +105,30 @@ export function buildReminderEmailPayload(input: {
   const safeContractTitle = escapeHtml(input.contractTitle);
   const safeCounterpartyName = escapeHtml(input.counterpartyName ?? "Not set");
   const safeReminderTypeLabel = escapeHtml(input.reminderTypeLabel);
+  const safeTone = escapeHtml(input.internalReminderTone ?? "Internal renewal deadline reminder");
+  const safeNoticeDeadline = escapeHtml(input.noticeDeadlineDate ?? "Needs review");
+  const safeRenewalOrExpiration = escapeHtml(input.renewalDate ?? input.expirationDate ?? "Not found");
+  const safeOwner = escapeHtml(input.ownerLabel ?? "Unassigned");
+  const safeSpend =
+    input.contractValueAmount !== null &&
+    input.contractValueAmount !== undefined &&
+    Number.isFinite(input.contractValueAmount)
+      ? escapeHtml(
+          new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: input.contractValueCurrency ?? "USD",
+            maximumFractionDigits: 0
+          }).format(input.contractValueAmount)
+        )
+      : "Unknown";
+  const safeDaysRemaining =
+    input.daysRemaining === null || input.daysRemaining === undefined
+      ? "Needs review"
+      : input.daysRemaining < 0
+        ? `${Math.abs(input.daysRemaining)} days past deadline`
+        : input.daysRemaining === 0
+          ? "Deadline today"
+          : `${input.daysRemaining} days remaining`;
   const safeDisclaimer = escapeHtml(input.legalDisclaimer);
   const safeContractUrl = escapeHtml(links.contractUrl);
   const safeAcknowledgeUrl = escapeHtml(links.acknowledgeUrl);
@@ -105,12 +137,19 @@ export function buildReminderEmailPayload(input: {
   return {
     from: PHASE1_EMAIL_SENDER,
     replyTo,
-    subject: `Reminder: ${sanitizeSubjectText(input.contractTitle)}`,
+    subject: `${sanitizeSubjectText(input.internalReminderTone ?? "Reminder")}: ${sanitizeSubjectText(input.contractTitle)}`,
     html: `
       <div style="font-family: Arial, sans-serif; color: #132238;">
         <h2>${safeContractTitle}</h2>
+        <p><strong>${safeTone}</strong></p>
+        <p>This is an internal NoticeControl renewal-control reminder for your organization. It is not sent to vendors or counterparties.</p>
         <p>This is a scheduled ${safeReminderTypeLabel} reminder.</p>
         <p><strong>Counterparty:</strong> ${safeCounterpartyName}</p>
+        <p><strong>Notice deadline:</strong> ${safeNoticeDeadline}</p>
+        <p><strong>Renewal or expiration:</strong> ${safeRenewalOrExpiration}</p>
+        <p><strong>Timing:</strong> ${safeDaysRemaining}</p>
+        <p><strong>Owner:</strong> ${safeOwner}</p>
+        <p><strong>Spend at risk:</strong> ${safeSpend}</p>
         <p><strong>Reminder date:</strong> ${new Date(input.remindAt).toUTCString()}</p>
         <p><a href="${safeContractUrl}">Open contract</a></p>
         <p><a href="${safeAcknowledgeUrl}">Acknowledge in NoticeControl</a></p>
