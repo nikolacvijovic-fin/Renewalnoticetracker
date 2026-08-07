@@ -38,6 +38,7 @@ import { getMonthlyRevenueForPlan, getTrackedContractLimit } from "@/lib/billing
 import { summarizeWorkflowGuardrails } from "@/lib/contracts/workflow-guardrails";
 import type { MetricAlertRecord, ScoreSummary, ReadinessKey, CapacityKey } from "@/lib/commercial/ops-metrics";
 import { getAppConfig } from "@/lib/config";
+import { buildContractDateCalendarEvents } from "@/lib/contracts/ics";
 
 export type OrganizationMember = {
   user_id: string;
@@ -913,20 +914,35 @@ export async function getPlaybooks(organizationId: string) {
 export async function getContractCalendarEvents(contractId: string, organizationId: string) {
   const contract = await getContractById(contractId, organizationId);
   const metadata = firstMetadata(contract.contract_metadata);
-  return (contract.reminders ?? []).map(
-    (reminder: {
-      id: string;
-      remind_at: string;
-      reminder_type: string;
-      recipient_email: string;
-      escalation_level?: number;
-    }) => ({
-      uid: reminder.id,
-      start: reminder.remind_at,
-      summary: `${metadata?.contract_title ?? "Contract"} ${reminder.reminder_type.replace("_", " ")}`,
-      description: `Reminder for ${reminder.recipient_email}${reminder.escalation_level ? ` (escalation ${reminder.escalation_level})` : ""}`
-    })
-  );
+  const members = await getOrganizationMembers(organizationId);
+  const ownerLabel = contract.owner_user_id
+    ? members.find((member) => member.user_id === contract.owner_user_id)?.user?.full_name ??
+      members.find((member) => member.user_id === contract.owner_user_id)?.user?.notification_email ??
+      "Assigned"
+    : null;
+
+  return buildContractDateCalendarEvents({
+    contractId,
+    contractTitle: metadata?.contract_title,
+    counterpartyName: metadata?.counterparty_name,
+    ownerLabel,
+    metadata: metadata
+      ? {
+          contract_title: metadata.contract_title,
+          counterparty_name: metadata.counterparty_name,
+          renewal_date: metadata.renewal_date,
+          expiration_date: metadata.expiration_date,
+          notice_deadline_date: metadata.notice_deadline_date,
+          needs_review: metadata.needs_review,
+          has_weak_evidence: metadata.has_weak_evidence,
+          field_confidence: metadata.field_confidence as Record<string, number> | null,
+          contract_value_amount: metadata.contract_value_amount,
+          contract_value_currency: metadata.contract_value_currency
+        }
+      : null,
+    appUrl: getAppConfig().public.appUrl,
+    includeTentativeNoticeDeadline: true
+  });
 }
 
 export async function getAdminOperationalSnapshot(organizationId: string) {

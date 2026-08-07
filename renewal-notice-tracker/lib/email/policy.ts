@@ -163,6 +163,77 @@ export function buildReminderEmailPayload(input: {
   };
 }
 
+export function buildRenewalActionRequestEmailPayload(input: {
+  organizationId: string;
+  contractId: string;
+  contractTitle: string;
+  counterpartyName: string | null;
+  requestedActionLabel: string;
+  noticeDeadlineDate?: string | null;
+  renewalDate?: string | null;
+  expirationDate?: string | null;
+  dueAt?: string | null;
+  ownerLabel?: string | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  requesterLabel?: string | null;
+  message?: string | null;
+  appUrl: string;
+  legalDisclaimer: string;
+  replyToEmail?: string | null;
+}) {
+  const replyTo = input.replyToEmail?.trim() || PHASE1_EMAIL_REPLY_TO_FALLBACK;
+  const contractUrl = `${input.appUrl}/dashboard/contracts/${input.contractId}`;
+  const safeContractTitle = escapeHtml(input.contractTitle);
+  const safeCounterpartyName = escapeHtml(input.counterpartyName ?? "Not set");
+  const safeAction = escapeHtml(input.requestedActionLabel);
+  const safeNoticeDeadline = escapeHtml(input.noticeDeadlineDate ?? "Needs review");
+  const safeRenewalOrExpiration = escapeHtml(input.renewalDate ?? input.expirationDate ?? "Not found");
+  const safeDueAt = escapeHtml(input.dueAt ?? "No due date set");
+  const safeOwner = escapeHtml(input.ownerLabel ?? "Assigned owner");
+  const safeRequester = escapeHtml(input.requesterLabel ?? "A NoticeControl operator");
+  const safeMessage = input.message ? escapeHtml(input.message) : null;
+  const safeSpend =
+    input.contractValueAmount !== null &&
+    input.contractValueAmount !== undefined &&
+    Number.isFinite(input.contractValueAmount)
+      ? escapeHtml(
+          new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: input.contractValueCurrency ?? "USD",
+            maximumFractionDigits: 0
+          }).format(input.contractValueAmount)
+        )
+      : "Unknown";
+  const safeContractUrl = escapeHtml(contractUrl);
+  const safeDisclaimer = escapeHtml(input.legalDisclaimer);
+
+  return {
+    from: PHASE1_EMAIL_SENDER,
+    replyTo,
+    subject: `Renewal decision requested: ${sanitizeSubjectText(input.contractTitle)}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #132238;">
+        <h2>${safeContractTitle}</h2>
+        <p><strong>${safeRequester}</strong> requested an internal renewal action from ${safeOwner}.</p>
+        <p>This is an internal NoticeControl workflow message. It is not sent to vendors or counterparties.</p>
+        <p><strong>Requested action:</strong> ${safeAction}</p>
+        <p><strong>Counterparty:</strong> ${safeCounterpartyName}</p>
+        <p><strong>Notice deadline:</strong> ${safeNoticeDeadline}</p>
+        <p><strong>Renewal or expiration:</strong> ${safeRenewalOrExpiration}</p>
+        <p><strong>Due:</strong> ${safeDueAt}</p>
+        <p><strong>Spend at risk:</strong> ${safeSpend}</p>
+        ${safeMessage ? `<p><strong>Internal note:</strong> ${safeMessage}</p>` : ""}
+        <p><a href="${safeContractUrl}">Open contract in NoticeControl</a></p>
+        <p style="font-size: 12px; color: #52606d;">
+          Use NoticeControl to complete or dismiss this request. Replies do not update workflow state.
+        </p>
+        <p style="font-size: 12px; color: #52606d;">${safeDisclaimer}</p>
+      </div>
+    `
+  };
+}
+
 export function getEmailInfrastructureGateStatus(input: {
   sendingDomain?: string | null;
   fromEmail?: string | null;

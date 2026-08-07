@@ -12,6 +12,7 @@ import {
   normalizeReminderType
 } from "@/lib/contracts/shipped-reminder-policy";
 import {
+  buildInternalRenewalReminderContent,
   getInternalRenewalReminderTone,
   isInternalRenewalReminderType
 } from "@/lib/contracts/internal-renewal-reminders";
@@ -41,6 +42,9 @@ type ReminderRecord = {
   status: string;
   attempt_count: number;
   max_attempts: number;
+  delivery_key?: string | null;
+  escalation_level?: number | null;
+  rule_name?: string | null;
 };
 
 type DeliveryContract = {
@@ -441,7 +445,21 @@ async function deliverReminder(input: {
   const daysRemaining = daysUntil(metadata?.notice_deadline_date ?? null, new Date());
   const internalReminderTone = getInternalRenewalReminderTone({
     reminderType: input.reminder.reminder_type,
-    noticeDeadlineDate: metadata?.notice_deadline_date ?? null
+    noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
+    escalationLevel: typeof input.reminder.escalation_level === "number" ? input.reminder.escalation_level : null
+  });
+  const content = buildInternalRenewalReminderContent({
+    contractId: input.reminder.contract_id,
+    contractTitle: metadata?.contract_title ?? "Untitled contract",
+    counterpartyName: metadata?.counterparty_name ?? null,
+    reminderType: input.reminder.reminder_type,
+    noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
+    daysRemaining,
+    contractValueAmount: metadata?.contract_value_amount ?? null,
+    contractValueCurrency: metadata?.contract_value_currency ?? null,
+    ownerLabel: input.contract.owner_user_id ? "Assigned owner" : "Unassigned",
+    appUrl: getAppConfig().public.appUrl,
+    escalationLevel: typeof input.reminder.escalation_level === "number" ? input.reminder.escalation_level : null
   });
   const runKey = buildDeliveryKey([
     input.reminder.id,
@@ -482,6 +500,7 @@ async function deliverReminder(input: {
       contractValueAmount: metadata?.contract_value_amount ?? null,
       contractValueCurrency: metadata?.contract_value_currency ?? null,
       internalReminderTone,
+      content,
       bypassDuplicateCheck: input.bypassDuplicateCheck
     });
     if (outcome === "duplicate_suppressed") duplicateSuppressedCount += 1;
@@ -631,9 +650,14 @@ async function sendEmailOnce(params: {
   contractValueAmount?: number | null;
   contractValueCurrency?: string | null;
   internalReminderTone?: string | null;
+  content?: ReturnType<typeof buildInternalRenewalReminderContent>;
   bypassDuplicateCheck?: boolean;
 }) {
-  const deliveryKey = buildDeliveryKey([params.reminder.id, "email", params.recipientEmail]);
+  const deliveryKey = buildDeliveryKey([
+    params.reminder.delivery_key ?? params.reminder.id,
+    "email",
+    params.recipientEmail
+  ]);
   const exists = params.bypassDuplicateCheck ? false : await notificationExists(deliveryKey);
   if (exists) {
     await logNotification({
@@ -679,8 +703,10 @@ async function sendEmailOnce(params: {
     destination: params.recipientEmail,
       deliveryKey,
       providerPayload: {
-        title: params.title,
-        body: params.body,
+        title: params.content?.subject ?? params.title,
+        preview_text: params.content?.previewText ?? params.body,
+        urgency_label: params.content?.urgencyLabel ?? null,
+        recommended_manual_action: params.content?.recommendedManualAction ?? null,
         reminder_scope: "internal_deadline_reminder",
         reminder_type: params.reminder.reminder_type
       }

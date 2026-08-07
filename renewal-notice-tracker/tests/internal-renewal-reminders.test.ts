@@ -2,9 +2,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  INTERNAL_NOTICE_REMINDER_ESCALATIONS,
   INTERNAL_NOTICE_REMINDER_WINDOWS,
+  buildInternalRenewalReminderContent,
   buildInternalRenewalReminderPlan,
-  getInternalRenewalReminderTone
+  buildRenewalReminderDeliveryKey,
+  getInternalRenewalReminderTone,
+  selectInternalRenewalReminderRecipients
 } from "@/lib/contracts/internal-renewal-reminders";
 import type { ExtractedContractFields } from "@/lib/validation/contract";
 
@@ -53,7 +57,9 @@ describe("internal renewal reminders", () => {
     const plan = buildInternalRenewalReminderPlan({
       metadata: metadata(),
       recipientEmails: ["owner@example.com"],
-      now
+      now,
+      organizationId: "org-1",
+      contractId: "contract-1"
     });
 
     expect(INTERNAL_NOTICE_REMINDER_WINDOWS).toEqual([30, 14, 7, 3, 0]);
@@ -72,20 +78,46 @@ describe("internal renewal reminders", () => {
       "2026-09-03",
       "2026-09-04"
     ]);
+    expect(plan.reminders.map((reminder) => reminder.escalation_level)).toEqual([1, 2, 3, 4, 5]);
+    expect(plan.reminders.map((reminder) => reminder.delivery_key)).toEqual([
+      "renewal-deadline:org-1:contract-1:30d:2026-09-06",
+      "renewal-deadline:org-1:contract-1:14d:2026-09-06",
+      "renewal-deadline:org-1:contract-1:7d:2026-09-06",
+      "renewal-deadline:org-1:contract-1:3d:2026-09-06",
+      "renewal-deadline:org-1:contract-1:0d:2026-09-06"
+    ]);
+  });
+
+  it("maps escalation windows to labels, tone, recipient rule, and recommended action", () => {
+    expect(INTERNAL_NOTICE_REMINDER_ESCALATIONS[30]).toMatchObject({
+      escalationLevel: 1,
+      escalationLabel: "review",
+      subjectToneLabel: "Review renewal decision",
+      recipientRule: "owner_or_internal_fallback"
+    });
+    expect(INTERNAL_NOTICE_REMINDER_ESCALATIONS[14].escalationLabel).toBe("follow_up");
+    expect(INTERNAL_NOTICE_REMINDER_ESCALATIONS[7].escalationLabel).toBe("urgent");
+    expect(INTERNAL_NOTICE_REMINDER_ESCALATIONS[3].escalationLabel).toBe("critical");
+    expect(INTERNAL_NOTICE_REMINDER_ESCALATIONS[0].escalationLabel).toBe("deadline_today");
+    expect(INTERNAL_NOTICE_REMINDER_ESCALATIONS[3].recommendedAction).toMatch(/Make the renewal decision/i);
   });
 
   it("creates a missed-deadline alert instead of normal reminder language", () => {
     const plan = buildInternalRenewalReminderPlan({
       metadata: metadata({ notice_deadline_date: "2026-08-01" }),
       recipientEmails: ["owner@example.com"],
-      now
+      now,
+      organizationId: "org-1",
+      contractId: "contract-1"
     });
 
     expect(plan.status).toBe("missed_deadline");
     expect(plan.reminders).toEqual([
       expect.objectContaining({
         reminder_type: "missed_notice_deadline",
-        recipient_email: "owner@example.com"
+        recipient_email: "owner@example.com",
+        escalation_level: 6,
+        delivery_key: "renewal-deadline:org-1:contract-1:missed:2026-08-01"
       })
     ]);
     expect(getInternalRenewalReminderTone({
@@ -104,14 +136,17 @@ describe("internal renewal reminders", () => {
       const plan = buildInternalRenewalReminderPlan({
         metadata: row,
         recipientEmails: ["admin@example.com"],
-        now
+        now,
+        organizationId: "org-1",
+        contractId: "contract-1"
       });
 
       expect(plan.status).toBe("review_needed");
       expect(plan.reminders).toEqual([
         expect.objectContaining({
           reminder_type: "internal_review_needed",
-          recipient_email: "admin@example.com"
+          recipient_email: "admin@example.com",
+          delivery_key: expect.stringMatching(/^renewal-deadline:org-1:contract-1:review_needed:/)
         })
       ]);
     }
@@ -146,6 +181,89 @@ describe("internal renewal reminders", () => {
 
     expect(plan.reminders[0]?.recipient_emails).toEqual(["owner@example.com"]);
     expect(JSON.stringify(plan)).not.toMatch(/vendor|counterparty|prospect|sequence|cancellation notice/i);
+  });
+
+  it("builds stable delivery keys for duplicate suppression", () => {
+    expect(
+      buildRenewalReminderDeliveryKey({
+        organizationId: "org-1",
+        contractId: "contract-1",
+        windowLabel: "7d",
+        noticeDeadlineDate: "2030-01-01T00:00:00.000Z"
+      })
+    ).toBe("renewal-deadline:org-1:contract-1:7d:2030-01-01");
+  });
+
+  it("selects the assigned owner before internal fallback recipients", () => {
+    expect(
+      selectInternalRenewalReminderRecipients({
+        ownerUserId: "owner-user",
+        members: [
+          {
+            user_id: "owner-user",
+            role: "member",
+            user: { notification_email: " Owner@Example.com " }
+          },
+          {
+            user_id: "admin-user",
+            role: "admin",
+            user: { notification_email: "admin@example.com" }
+          }
+        ],
+        fallbackRecipients: ["billing@example.com"]
+      })
+    ).toEqual(["owner@example.com"]);
+  });
+
+  it("falls back to internal owner, admin, and operator recipients when no owner email is available", () => {
+    expect(
+      selectInternalRenewalReminderRecipients({
+        ownerUserId: "missing-owner",
+        members: [
+          {
+            user_id: "admin-user",
+            role: "admin",
+            user: { notification_email: "admin@example.com" }
+          },
+          {
+            user_id: "operator-user",
+            role: "operator",
+            user: { notification_email: "operator@example.com" }
+          },
+          {
+            user_id: "member-user",
+            role: "member",
+            user: { notification_email: "member@example.com" }
+          }
+        ],
+        fallbackRecipients: ["billing@example.com"]
+      })
+    ).toEqual(["admin@example.com", "operator@example.com", "billing@example.com"]);
+  });
+
+  it("builds safe supportable reminder content without raw customer or provider data", () => {
+    const content = buildInternalRenewalReminderContent({
+      contractId: "contract-1",
+      contractTitle: "Acme MSA",
+      counterpartyName: "Acme",
+      reminderType: "notice_deadline",
+      noticeDeadlineDate: "2030-01-01",
+      daysRemaining: 7,
+      contractValueAmount: 100000,
+      contractValueCurrency: "USD",
+      ownerLabel: "Finance Owner",
+      appUrl: "https://app.noticecontrol.test",
+      escalationLevel: 3
+    });
+
+    expect(content).toMatchObject({
+      subject: "Urgent renewal action needed: Acme MSA",
+      urgencyLabel: "urgent",
+      actionUrl: "https://app.noticecontrol.test/dashboard/contracts/contract-1"
+    });
+    expect(JSON.stringify(content)).not.toMatch(
+      /raw contract text|raw clauses|provider payload|private notes|cancellation email|vendor outreach/i
+    );
   });
 
   it("keeps vendor cancellation, CRM, and outreach paths out of the reminder runtime", () => {

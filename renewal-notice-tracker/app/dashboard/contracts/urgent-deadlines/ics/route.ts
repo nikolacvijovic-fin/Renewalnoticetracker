@@ -1,39 +1,33 @@
 import { NextResponse } from "next/server";
 import {
   ActiveOrganizationRequiredError,
-  ActiveOrganizationScopeError,
   OrganizationAuthorizationError,
   assertCanUseShippedAction,
   getActiveOrganizationContextOrNull
 } from "@/lib/auth";
-import { getContractCalendarEvents, requireScopedContract } from "@/lib/contracts/kernel-queries";
-import { buildCalendar } from "@/lib/contracts/ics";
 import { createAuditLog } from "@/lib/audit";
-import { SHIPPED_EXPORT_CLASSIFICATION } from "@/lib/product/action-matrix";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
+import { getAppConfig } from "@/lib/config";
+import { buildCalendar, buildUrgentRenewalCalendarEvents } from "@/lib/contracts/ics";
+import { getRenewalCommandCenterContracts } from "@/lib/dashboard/renewal-command-center";
+import { buildUrgentRenewalDashboard } from "@/lib/dashboard/urgent-renewal-items";
+import { SHIPPED_EXPORT_CLASSIFICATION } from "@/lib/product/action-matrix";
 
-export async function GET(
-  _request: Request,
-  context: { params: { id: string } }
-) {
+export async function GET() {
   const auth = await getActiveOrganizationContextOrNull();
   let contextAuth;
   try {
     contextAuth = await assertCanUseShippedAction(auth, SHIPPED_EXPORT_CLASSIFICATION.ics.action, {
       organizationId: auth?.organizationId ?? null,
-      assertScoped: async (organizationId) => {
-        await requireScopedContract(context.params.id, organizationId);
-      },
       onDenied: async ({ context: deniedContext, reason, action }) => {
         if (!deniedContext?.user) return;
         await createAuditLog({
           organizationId: deniedContext.organizationId,
           actorUserId: deniedContext.user.id,
-          contractId: context.params.id,
           action: "contract.ics_export_denied",
           entityType: "export",
           details: {
-            export_classification: "baseline_ics",
+            export_classification: "urgent_deadline_ics",
             denied_action: action,
             denied_reason: reason
           }
@@ -47,22 +41,26 @@ export async function GET(
     if (error instanceof OrganizationAuthorizationError) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
-    if (error instanceof ActiveOrganizationScopeError) {
-      return NextResponse.json({ error: "Not found." }, { status: 404 });
-    }
     throw error;
   }
-  const events = await getContractCalendarEvents(context.params.id, contextAuth.organizationId);
 
+  const contracts = await getRenewalCommandCenterContracts(contextAuth.organizationId);
+  const urgentDashboard = buildUrgentRenewalDashboard({ contracts });
+  const events = buildUrgentRenewalCalendarEvents({
+    items: urgentDashboard.allActionItems,
+    appUrl: getAppConfig().public.appUrl
+  });
   const ics = buildCalendar(events);
 
   await createAuditLog({
     organizationId: contextAuth.organizationId,
     actorUserId: contextAuth.user.id,
-    contractId: context.params.id,
     action: SHIPPED_EXPORT_CLASSIFICATION.ics.auditAction,
     entityType: "export",
-    details: { event_count: events.length, export_classification: "baseline_ics" }
+    details: {
+      event_count: events.length,
+      export_classification: "urgent_deadline_ics"
+    }
   });
 
   await trackServerAnalyticsEvent({
@@ -70,10 +68,10 @@ export async function GET(
     actorUserId: contextAuth.user.id,
     eventName: "export_requested",
     sourceOfTruth: "event_and_state",
-    idempotencyKey: `export_requested:ics:${context.params.id}:${events.length}`,
+    idempotencyKey: `export_requested:ics:urgent:${contextAuth.organizationId}:${events.length}`,
     properties: {
       format: "ics",
-      contract_id: context.params.id,
+      export_scope: "urgent_deadlines",
       event_count: events.length
     }
   });
@@ -81,7 +79,7 @@ export async function GET(
   return new NextResponse(ics, {
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": `attachment; filename="noticecontrol-contract-${context.params.id}.ics"`
+      "Content-Disposition": 'attachment; filename="noticecontrol-urgent-deadlines.ics"'
     }
   });
 }

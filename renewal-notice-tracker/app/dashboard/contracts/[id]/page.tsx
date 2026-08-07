@@ -2,9 +2,16 @@ import { notFound } from "next/navigation";
 import { hasRequiredRole, requireOrganization } from "@/lib/auth";
 import {
   getContractById,
+  getContractRenewalActionRequests,
   getCounterparties,
   getOrganizationMembers
 } from "@/lib/contracts/kernel-queries";
+import {
+  assignContractOwnerAction,
+  completeRenewalActionRequestAction,
+  dismissRenewalActionRequestAction,
+  requestRenewalActionAction
+} from "@/lib/actions/contracts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ReviewForm } from "@/components/contracts/review-form";
@@ -66,7 +73,8 @@ export default async function ContractDetailPage({
     quoteComparisons,
     quoteFindings,
     savingsOpportunities,
-    saasOptOutStatus
+    saasOptOutStatus,
+    renewalActionRequests
   ] = await Promise.all([
     buildContractDetailViewModel({
       context,
@@ -103,9 +111,17 @@ export default async function ContractDetailPage({
       contractId: contract.id,
       limit: 25
     }),
-    getSaasOptOutStatusForContract(organizationId, contract.id)
+    getSaasOptOutStatusForContract(organizationId, contract.id),
+    getContractRenewalActionRequests(organizationId, contract.id, { limit: 8 })
   ]);
   const canReviewExtraction = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
+  const canManageOwner = hasRequiredRole(context.role, ["owner", "admin", "operator"]);
+  const pendingRequestForCurrentUser = renewalActionRequests.find(
+    (request) => request.request_status === "pending" && request.requested_to_user_id === context.user.id
+  );
+  const pendingRequestCount = renewalActionRequests.filter(
+    (request) => request.request_status === "pending"
+  ).length;
   const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
   const riskExplanationAccess = viewModel.intelligenceAccess.accessBySurface.risk_explanation;
   if (riskBadgeAccess.allowed) {
@@ -134,7 +150,7 @@ export default async function ContractDetailPage({
             <a href={`/dashboard/contracts/${contract.id}/internal-outreach`}>Open outreach drafts</a>
           </Button>
           <Button asChild variant="secondary">
-            <a href={`/dashboard/contracts/${contract.id}/ics`}>Export ICS</a>
+            <a href={`/dashboard/contracts/${contract.id}/ics`}>Download calendar event</a>
           </Button>
         </>
       }
@@ -203,6 +219,128 @@ export default async function ContractDetailPage({
                   <p className="mt-2 text-base font-semibold text-ink">{viewModel.ownerReadiness.ownerStatus}</p>
                   <p className="mt-2 text-sm text-slate-600">{viewModel.ownerReadiness.ownerHelp}</p>
                 </div>
+                {canManageOwner ? (
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                      Owner assignment
+                    </p>
+                    <form action={assignContractOwnerAction.bind(null, contract.id)} className="mt-3 space-y-3">
+                      <input type="hidden" name="action_source" value="contract_detail" />
+                      <label className="block text-sm font-medium text-slate-700" htmlFor="owner_user_id">
+                        Accountable owner
+                      </label>
+                      <select
+                        id="owner_user_id"
+                        name="owner_user_id"
+                        defaultValue={contract.owner_user_id ?? ""}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">Unassigned</option>
+                        {viewModel.memberLabels.map((member) => (
+                          <option key={member.user_id} value={member.user_id}>
+                            {member.label}
+                          </option>
+                        ))}
+                      </select>
+                      <Button type="submit" variant="secondary">
+                        Save owner
+                      </Button>
+                    </form>
+                  </div>
+                ) : null}
+                {canManageOwner ? (
+                  <div className="rounded-2xl border border-brand-100 bg-brand-50/30 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={pendingRequestCount > 0 ? "urgent" : "default"}>
+                        {pendingRequestCount} pending
+                      </Badge>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
+                        Request owner action
+                      </p>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Ask the assigned internal owner to decide whether to renew, cancel, renegotiate, or defer.
+                      NoticeControl will not send anything to the vendor.
+                    </p>
+                    <form action={requestRenewalActionAction.bind(null, contract.id)} className="mt-3 space-y-3">
+                      <label className="block text-sm font-medium text-slate-700" htmlFor="due_at">
+                        Due date
+                      </label>
+                      <input
+                        id="due_at"
+                        name="due_at"
+                        type="date"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      />
+                      <label className="block text-sm font-medium text-slate-700" htmlFor="message">
+                        Internal note, optional
+                      </label>
+                      <textarea
+                        id="message"
+                        name="message"
+                        maxLength={500}
+                        rows={3}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                        placeholder="Keep this internal and under 500 characters."
+                      />
+                      <Button type="submit" disabled={!contract.owner_user_id}>
+                        Request decision
+                      </Button>
+                    </form>
+                  </div>
+                ) : null}
+                {pendingRequestForCurrentUser ? (
+                  <div className="rounded-2xl border border-urgent/20 bg-urgent/5 p-4">
+                    <Badge tone="urgent">Action requested</Badge>
+                    <h3 className="mt-3 text-base font-semibold text-ink">Your renewal decision is requested</h3>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Complete this internal request after reviewing the trusted dates and evidence. This does not send
+                      a notice or contact the vendor.
+                    </p>
+                    {pendingRequestForCurrentUser.message ? (
+                      <p className="mt-2 rounded-xl bg-white p-3 text-sm text-slate-700">
+                        {pendingRequestForCurrentUser.message}
+                      </p>
+                    ) : null}
+                    <form
+                      action={completeRenewalActionRequestAction.bind(null, pendingRequestForCurrentUser.id)}
+                      className="mt-3 space-y-3"
+                    >
+                      <label className="block text-sm font-medium text-slate-700" htmlFor="response_status">
+                        Response
+                      </label>
+                      <select
+                        id="response_status"
+                        name="response_status"
+                        defaultValue="needs_more_info"
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="renew">Renew</option>
+                        <option value="cancel">Cancel</option>
+                        <option value="renegotiate">Renegotiate</option>
+                        <option value="defer">Defer</option>
+                        <option value="needs_more_info">Needs more info</option>
+                      </select>
+                      <textarea
+                        name="response_note"
+                        maxLength={500}
+                        rows={3}
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                        placeholder="Optional internal response note."
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="submit">Complete request</Button>
+                        <Button
+                          type="submit"
+                          variant="secondary"
+                          formAction={dismissRenewalActionRequestAction.bind(null, pendingRequestForCurrentUser.id)}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </form>
+                  </div>
+                ) : null}
                 <div className="rounded-2xl border border-slate-200 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                     Reminder readiness

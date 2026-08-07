@@ -238,8 +238,8 @@ export type Database = {
         Relationships: [];
       };
       reminders: {
-        Row: { id: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails: Json; status: string; source: string; sent_at: string | null; created_at: string; rule_name: string | null; escalation_level: number; ical_uid: string | null; attempt_count: number; max_attempts: number; next_retry_at: string | null; last_attempt_at: string | null; last_error: string | null; processing_started_at: string | null; processing_token: string | null };
-        Insert: { id?: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails?: Json; status?: string; source?: string; sent_at?: string | null; created_at?: string; rule_name?: string | null; escalation_level?: number; ical_uid?: string | null; attempt_count?: number; max_attempts?: number; next_retry_at?: string | null; last_attempt_at?: string | null; last_error?: string | null; processing_started_at?: string | null; processing_token?: string | null };
+        Row: { id: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails: Json; status: string; source: string; sent_at: string | null; created_at: string; rule_name: string | null; escalation_level: number; ical_uid: string | null; delivery_key: string | null; attempt_count: number; max_attempts: number; next_retry_at: string | null; last_attempt_at: string | null; last_error: string | null; processing_started_at: string | null; processing_token: string | null };
+        Insert: { id?: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails?: Json; status?: string; source?: string; sent_at?: string | null; created_at?: string; rule_name?: string | null; escalation_level?: number; ical_uid?: string | null; delivery_key?: string | null; attempt_count?: number; max_attempts?: number; next_retry_at?: string | null; last_attempt_at?: string | null; last_error?: string | null; processing_started_at?: string | null; processing_token?: string | null };
         Update: Partial<Database["public"]["Tables"]["reminders"]["Insert"]>;
         Relationships: [];
       };
@@ -265,6 +265,12 @@ export type Database = {
         Row: { id: string; contract_id: string; organization_id: string; author_user_id: string | null; status: string; decision_date: string | null; summary: string; next_steps: Json; created_at: string };
         Insert: { id?: string; contract_id: string; organization_id: string; author_user_id?: string | null; status: string; decision_date?: string | null; summary: string; next_steps?: Json; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["renewal_decisions"]["Insert"]>;
+        Relationships: [];
+      };
+      renewal_action_requests: {
+        Row: { id: string; contract_id: string; organization_id: string; requested_by_user_id: string | null; requested_to_user_id: string; request_status: string; requested_action: string; due_at: string | null; message: string | null; response_status: string | null; response_note: string | null; completed_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; contract_id: string; organization_id: string; requested_by_user_id?: string | null; requested_to_user_id: string; request_status?: string; requested_action?: string; due_at?: string | null; message?: string | null; response_status?: string | null; response_note?: string | null; completed_at?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["renewal_action_requests"]["Insert"]>;
         Relationships: [];
       };
       users: {

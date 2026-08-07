@@ -22,6 +22,7 @@ import { applyOcrReviewRequirements } from "@/lib/ocr/normalize-ocr-output";
 import { resolveDocumentTextForExtraction } from "@/lib/ocr/ingestion";
 import { enqueueOcrJob } from "@/lib/ocr/jobs";
 import { generateReminderRecommendations } from "@/lib/contracts/reminders";
+import { selectInternalRenewalReminderRecipients } from "@/lib/contracts/internal-renewal-reminders";
 import {
   deriveCycleStatusFromDecision,
   getPhase1ReviewDirtyFlags,
@@ -499,6 +500,9 @@ async function insertReminders(params: {
     remind_at: string;
     recipient_email: string;
     recipient_emails: string[];
+    delivery_key?: string | null;
+    escalation_level?: number;
+    rule_name?: null;
     source: "system" | "manual";
   }>;
 }) {
@@ -560,22 +564,41 @@ async function regenerateSystemReminders(params: {
   const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   const { data: existingReminders, error } = await admin
     .from("reminders")
-    .select("id, source, recipient_emails, recipient_email, status")
+    .select("id, source, recipient_emails, recipient_email, status, delivery_key")
     .eq("contract_id", params.contractId)
     .order("created_at");
 
   if (error) throw error;
 
-  const mergedRecipients = uniqueEmails(params.fallbackRecipients);
+  const members = await getOrganizationMembers(params.organizationId);
+  const mergedRecipients = selectInternalRenewalReminderRecipients({
+    ownerUserId: params.metadata.owner_user_id,
+    members,
+    fallbackRecipients: params.fallbackRecipients
+  });
   const activeSystemReminders = ((existingReminders ?? []) as Array<{
     id: string;
     source: string;
     status: string;
+    delivery_key?: string | null;
   }>).filter(
     (reminder) =>
       reminder.source === "system" &&
-      reminder.status !== "superseded" &&
-      reminder.status !== "cancelled"
+      ["pending", "processing", "retry_pending"].includes(reminder.status)
+  );
+  const existingDeliveryKeys = new Set(
+    ((existingReminders ?? []) as Array<{
+      source: string;
+      status: string;
+      delivery_key?: string | null;
+    }>)
+      .filter(
+        (reminder) =>
+          reminder.source === "system" &&
+          reminder.delivery_key &&
+          !["superseded", "cancelled", "failed_terminal"].includes(reminder.status)
+      )
+      .map((reminder) => reminder.delivery_key!)
   );
 
   if (activeSystemReminders.length > 0) {
@@ -620,12 +643,17 @@ async function regenerateSystemReminders(params: {
     context: { contract_id: params.contractId, source: "regenerate_system_reminders" }
   });
 
-  const generated = generateReminderRecommendations(params.metadata, recipients).map((reminder) =>
-    reminderSchema.parse({
-      ...reminder,
-      ical_uid: `${params.contractId}-${reminder.reminder_type}-${reminder.remind_at}`
-    })
-  );
+  const generated = generateReminderRecommendations(params.metadata, recipients, {
+    organizationId: params.organizationId,
+    contractId: params.contractId
+  })
+    .map((reminder) =>
+      reminderSchema.parse({
+        ...reminder,
+        ical_uid: `${params.contractId}-${reminder.reminder_type}-${reminder.remind_at}`
+      })
+    )
+    .filter((reminder) => !reminder.delivery_key || !existingDeliveryKeys.has(reminder.delivery_key));
   if (generated.length === 0) {
     return {
       generatedCount: 0,
@@ -642,7 +670,9 @@ async function regenerateSystemReminders(params: {
   const generatedTypes = new Set(generated.map((reminder) => reminder.reminder_type));
   const nextActivationState = generatedTypes.has("internal_review_needed")
     ? ("blocked_by_review" as const)
-    : ("scheduled" as const);
+    : activationState === "scheduled"
+      ? ("scheduled" as const)
+      : activationState;
 
   return {
     generatedCount: generated.length,
@@ -1164,6 +1194,17 @@ export async function createManualContractAction(formData: FormData) {
     renewalDate: payload.renewal_date ?? null,
     expirationDate: payload.expiration_date ?? null
   });
+  const canUseReminderLifecycleStatus = canEnterReminderGenerationState({
+    needsReview: payload.needs_review,
+    ownerUserId: payload.owner_user_id ?? null,
+    noticeDeadlineDate: finalNoticeDeadline,
+    renewalDate: payload.renewal_date ?? null,
+    expirationDate: payload.expiration_date ?? null
+  });
+  const shouldGenerateInternalReminders =
+    payload.needs_review ||
+    canUseReminderLifecycleStatus ||
+    reminderActivationState === "blocked_by_missing_owner";
 
   const { data: contract, error: contractError } = await admin
     .from("contracts")
@@ -1234,17 +1275,10 @@ export async function createManualContractAction(formData: FormData) {
     fieldConfidence: payload.field_confidence
   });
 
-  if (
-    payload.needs_review ||
-    canEnterReminderGenerationState({
-      needsReview: payload.needs_review,
-      ownerUserId: payload.owner_user_id ?? null,
-      noticeDeadlineDate: finalNoticeDeadline,
-      renewalDate: payload.renewal_date ?? null,
-      expirationDate: payload.expiration_date ?? null
-    })
-  ) {
-    await transitionContractStatus(admin, contract.id, organizationId, "reminder_generation_pending");
+  if (shouldGenerateInternalReminders) {
+    if (payload.needs_review || canUseReminderLifecycleStatus) {
+      await transitionContractStatus(admin, contract.id, organizationId, "reminder_generation_pending");
+    }
     const regeneration = await regenerateSystemReminders({
       contractId: contract.id,
       organizationId,
@@ -1265,7 +1299,7 @@ export async function createManualContractAction(formData: FormData) {
 
     if (regeneration.activationState === "scheduled" && regeneration.generatedCount > 0) {
       await transitionContractStatus(admin, contract.id, organizationId, "reminders_scheduled");
-    } else {
+    } else if (payload.needs_review || canUseReminderLifecycleStatus) {
       await transitionContractStatus(admin, contract.id, organizationId, "reviewed");
     }
   }
@@ -1532,20 +1566,24 @@ export async function updateContractReviewAction(contractId: string, formData: F
     renewalDate: payload.renewal_date ?? null,
     expirationDate: payload.expiration_date ?? null
   });
+  const canUseReminderLifecycleStatus = canEnterReminderGenerationState({
+    needsReview: payload.needs_review,
+    ownerUserId: payload.owner_user_id ?? null,
+    noticeDeadlineDate: finalNoticeDeadline,
+    renewalDate: payload.renewal_date ?? null,
+    expirationDate: payload.expiration_date ?? null
+  });
+  const shouldGenerateInternalReminders =
+    payload.needs_review ||
+    canUseReminderLifecycleStatus ||
+    reminderActivationState === "blocked_by_missing_owner";
 
   await transitionContractStatus(supabase, contractId, organizationId, reviewedStatus);
 
-  if (
-    payload.needs_review ||
-    canEnterReminderGenerationState({
-      needsReview: payload.needs_review,
-      ownerUserId: payload.owner_user_id ?? null,
-      noticeDeadlineDate: finalNoticeDeadline,
-      renewalDate: payload.renewal_date ?? null,
-      expirationDate: payload.expiration_date ?? null
-    })
-  ) {
-    await transitionContractStatus(supabase, contractId, organizationId, "reminder_generation_pending");
+  if (shouldGenerateInternalReminders) {
+    if (payload.needs_review || canUseReminderLifecycleStatus) {
+      await transitionContractStatus(supabase, contractId, organizationId, "reminder_generation_pending");
+    }
     const regeneration = await regenerateSystemReminders({
       contractId,
       organizationId,
@@ -1589,7 +1627,7 @@ export async function updateContractReviewAction(contractId: string, formData: F
 
     if (regeneration.activationState === "scheduled" && regeneration.generatedCount > 0) {
       await transitionContractStatus(supabase, contractId, organizationId, "reminders_scheduled");
-    } else {
+    } else if (payload.needs_review || canUseReminderLifecycleStatus) {
       await transitionContractStatus(supabase, contractId, organizationId, "reviewed");
     }
   }

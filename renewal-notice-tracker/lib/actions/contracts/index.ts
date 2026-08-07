@@ -11,3 +11,4 @@ export * from "@/lib/actions/contracts/templates";
 export * from "@/lib/actions/contracts/trust-exceptions";
 export * from "@/lib/actions/contracts/extraction";
 export * from "@/lib/actions/contracts/quote-comparison";
+export * from "@/lib/actions/contracts/owner-requests";

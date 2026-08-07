@@ -7,7 +7,14 @@ type ExtendedReminderMetadata = ExtractedContractFields & {
 
 export function generateReminderRecommendations(
   metadata: ExtendedReminderMetadata,
-  recipientEmails: string[]
+  recipientEmails: string[],
+  options?: {
+    organizationId?: string | null;
+    contractId?: string | null;
+    contractStatus?: string | null;
+    cycleStatus?: string | null;
+    renewalDecisionStatus?: string | null;
+  }
 ) {
-  return buildShippedReminderSchedule(metadata, recipientEmails);
+  return buildShippedReminderSchedule(metadata, recipientEmails, options);
 }

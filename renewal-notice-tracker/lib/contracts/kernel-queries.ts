@@ -21,7 +21,8 @@ import {
   type DashboardContractRow
 } from "@/lib/contracts/dashboard";
 import { buildCounterpartyDirectoryRecords } from "@/lib/contracts/counterparty-summaries";
-import { formatReminderTypeLabel } from "@/lib/contracts/shipped-reminder-policy";
+import { buildContractDateCalendarEvents } from "@/lib/contracts/ics";
+import { getAppConfig } from "@/lib/config";
 
 export type OrganizationMember = {
   user_id: string;
@@ -101,6 +102,39 @@ export type CustomerOnboardingQueryEvidence = {
   intelligenceViewCount: number;
 };
 
+export type MyRenewalActionItem = {
+  contractId: string;
+  requestId: string | null;
+  title: string;
+  counterpartyName: string;
+  noticeDeadlineDate: string | null;
+  renewalDate: string | null;
+  expirationDate: string | null;
+  daysToNoticeDeadline: number | null;
+  ownerLabel: string;
+  requestStatus: string | null;
+  requestedAction: string | null;
+  dueAt: string | null;
+  needsReview: boolean;
+  href: string;
+};
+
+export type ContractRenewalActionRequest = {
+  id: string;
+  contract_id: string;
+  organization_id: string;
+  requested_by_user_id: string | null;
+  requested_to_user_id: string;
+  request_status: string;
+  requested_action: string;
+  due_at: string | null;
+  message: string | null;
+  response_status: string | null;
+  response_note: string | null;
+  completed_at: string | null;
+  created_at: string;
+};
+
 const EXPORT_BASE_SELECT = `
   id,
   status,
@@ -170,6 +204,14 @@ function firstMetadata<T>(metadata: T | T[] | null | undefined): T | null {
   }
 
   return metadata ?? null;
+}
+
+function getUtcDayDifference(dateValue: string | null, now = new Date()) {
+  if (!dateValue) return null;
+  const target = new Date(`${dateValue.slice(0, 10)}T00:00:00.000Z`);
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return Math.ceil((target.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
 }
 
 export async function getDashboardMetrics(organizationId: string) {
@@ -342,6 +384,182 @@ export async function getContracts(
           ) ?? "Unassigned"
         : "Unassigned"
   }));
+}
+
+export async function getMyRenewalActionItems(
+  organizationId: string,
+  userId: string,
+  options?: { limit?: number }
+): Promise<MyRenewalActionItem[]> {
+  const supabase = createServerSupabaseClient();
+  const limit = Math.min(Math.max(options?.limit ?? 10, 1), 50);
+  const [members, requestsResult, assignedContractsResult] = await Promise.all([
+    getOrganizationMembers(organizationId),
+    supabase
+      .from("renewal_action_requests")
+      .select("id, contract_id, request_status, requested_action, due_at, created_at")
+      .eq("organization_id", organizationId)
+      .eq("requested_to_user_id", userId)
+      .eq("request_status", "pending")
+      .order("due_at", { ascending: true, nullsFirst: false })
+      .order("created_at", { ascending: false })
+      .limit(limit),
+    supabase
+      .from("contracts")
+      .select(
+        `
+        id,
+        owner_user_id,
+        updated_at,
+        contract_metadata (
+          contract_title,
+          counterparty_name,
+          notice_deadline_date,
+          renewal_date,
+          expiration_date,
+          needs_review
+        )
+      `
+      )
+      .eq("organization_id", organizationId)
+      .eq("owner_user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(limit)
+  ]);
+
+  if (requestsResult.error) throw requestsResult.error;
+  if (assignedContractsResult.error) throw assignedContractsResult.error;
+
+  const requestRows = (requestsResult.data ?? []) as Array<{
+    id: string;
+    contract_id: string;
+    request_status: string;
+    requested_action: string;
+    due_at: string | null;
+  }>;
+  const assignedContracts = (assignedContractsResult.data ?? []) as Array<{
+    id: string;
+    owner_user_id: string | null;
+    contract_metadata:
+      | {
+          contract_title: string | null;
+          counterparty_name: string | null;
+          notice_deadline_date: string | null;
+          renewal_date: string | null;
+          expiration_date: string | null;
+          needs_review: boolean | null;
+        }
+      | Array<{
+          contract_title: string | null;
+          counterparty_name: string | null;
+          notice_deadline_date: string | null;
+          renewal_date: string | null;
+          expiration_date: string | null;
+          needs_review: boolean | null;
+        }>
+      | null;
+  }>;
+
+  const requestedContractIds = Array.from(new Set(requestRows.map((request) => request.contract_id)));
+  const requestedContractsResult = requestedContractIds.length
+    ? await supabase
+        .from("contracts")
+        .select(
+          `
+          id,
+          owner_user_id,
+          contract_metadata (
+            contract_title,
+            counterparty_name,
+            notice_deadline_date,
+            renewal_date,
+            expiration_date,
+            needs_review
+          )
+        `
+        )
+        .eq("organization_id", organizationId)
+        .in("id", requestedContractIds)
+    : { data: [], error: null };
+
+  if (requestedContractsResult.error) throw requestedContractsResult.error;
+
+  const ownerLabels = new Map(
+    members.map((member) => [
+      member.user_id,
+      member.user?.full_name ?? member.user?.notification_email ?? member.user_id
+    ])
+  );
+  const contractsById = new Map(
+    [
+      ...assignedContracts,
+      ...((requestedContractsResult.data ?? []) as typeof assignedContracts)
+    ].map((contract) => [contract.id, contract])
+  );
+  const requestByContractId = new Map(requestRows.map((request) => [request.contract_id, request]));
+  const contractIds = Array.from(
+    new Set([...requestRows.map((request) => request.contract_id), ...assignedContracts.map((contract) => contract.id)])
+  );
+
+  return contractIds
+    .map((contractId) => {
+      const contract = contractsById.get(contractId);
+      if (!contract) return null;
+      const metadata = firstMetadata(contract.contract_metadata);
+      const request = requestByContractId.get(contractId) ?? null;
+      const noticeDeadlineDate = metadata?.notice_deadline_date ?? null;
+      return {
+        contractId,
+        requestId: request?.id ?? null,
+        title: metadata?.contract_title ?? "Untitled contract",
+        counterpartyName: metadata?.counterparty_name ?? "Counterparty not set",
+        noticeDeadlineDate,
+        renewalDate: metadata?.renewal_date ?? null,
+        expirationDate: metadata?.expiration_date ?? null,
+        daysToNoticeDeadline: getUtcDayDifference(noticeDeadlineDate),
+        ownerLabel: ownerLabels.get(contract.owner_user_id ?? "") ?? "Assigned",
+        requestStatus: request?.request_status ?? null,
+        requestedAction: request?.requested_action ?? null,
+        dueAt: request?.due_at ?? null,
+        needsReview: Boolean(metadata?.needs_review),
+        href: `/dashboard/contracts/${contractId}`
+      } satisfies MyRenewalActionItem;
+    })
+    .filter((item): item is MyRenewalActionItem => Boolean(item))
+    .sort((left, right) => {
+      if (left.requestId && !right.requestId) return -1;
+      if (!left.requestId && right.requestId) return 1;
+      const leftDays = left.daysToNoticeDeadline ?? Number.POSITIVE_INFINITY;
+      const rightDays = right.daysToNoticeDeadline ?? Number.POSITIVE_INFINITY;
+      return leftDays - rightDays;
+    })
+    .slice(0, limit);
+}
+
+export async function getContractRenewalActionRequests(
+  organizationId: string,
+  contractId: string,
+  options?: { includeClosed?: boolean; limit?: number }
+): Promise<ContractRenewalActionRequest[]> {
+  const supabase = createServerSupabaseClient();
+  const limit = Math.min(Math.max(options?.limit ?? 10, 1), 50);
+  let query = supabase
+    .from("renewal_action_requests")
+    .select(
+      "id, contract_id, organization_id, requested_by_user_id, requested_to_user_id, request_status, requested_action, due_at, message, response_status, response_note, completed_at, created_at"
+    )
+    .eq("organization_id", organizationId)
+    .eq("contract_id", contractId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (!options?.includeClosed) {
+    query = query.eq("request_status", "pending");
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ContractRenewalActionRequest[];
 }
 
 export async function getContractFacets(organizationId: string): Promise<ContractFacets> {
@@ -727,19 +945,35 @@ export async function getTemplates(organizationId: string) {
 export async function getContractCalendarEvents(contractId: string, organizationId: string) {
   const contract = await getContractById(contractId, organizationId);
   const metadata = firstMetadata(contract.contract_metadata);
-  return (contract.reminders ?? []).map(
-    (reminder: {
-      id: string;
-      remind_at: string;
-      reminder_type: string;
-      recipient_email: string;
-    }) => ({
-      uid: reminder.id,
-      start: reminder.remind_at,
-      summary: `${metadata?.contract_title ?? "Contract"} ${formatReminderTypeLabel(reminder.reminder_type)}`,
-      description: `Reminder for ${reminder.recipient_email}`
-    })
-  );
+  const members = await getOrganizationMembers(organizationId);
+  const ownerLabel = contract.owner_user_id
+    ? members.find((member) => member.user_id === contract.owner_user_id)?.user?.full_name ??
+      members.find((member) => member.user_id === contract.owner_user_id)?.user?.notification_email ??
+      "Assigned"
+    : null;
+
+  return buildContractDateCalendarEvents({
+    contractId,
+    contractTitle: metadata?.contract_title,
+    counterpartyName: metadata?.counterparty_name,
+    ownerLabel,
+    metadata: metadata
+      ? {
+          contract_title: metadata.contract_title,
+          counterparty_name: metadata.counterparty_name,
+          renewal_date: metadata.renewal_date,
+          expiration_date: metadata.expiration_date,
+          notice_deadline_date: metadata.notice_deadline_date,
+          needs_review: metadata.needs_review,
+          has_weak_evidence: metadata.has_weak_evidence,
+          field_confidence: metadata.field_confidence as Record<string, number> | null,
+          contract_value_amount: metadata.contract_value_amount,
+          contract_value_currency: metadata.contract_value_currency
+        }
+      : null,
+    appUrl: getAppConfig().public.appUrl,
+    includeTentativeNoticeDeadline: true
+  });
 }
 
 export async function getRenewalDecisionAnalyticsRows(

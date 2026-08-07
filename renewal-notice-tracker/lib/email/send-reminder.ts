@@ -2,7 +2,8 @@ import { Resend } from "resend";
 import { getAppConfig } from "@/lib/config";
 import { LEGAL_DISCLAIMER } from "@/lib/constants";
 import {
-  buildReminderEmailPayload
+  buildReminderEmailPayload,
+  buildRenewalActionRequestEmailPayload
 } from "@/lib/email/policy";
 
 const resend = new Resend(getAppConfig().email.resendApiKey);
@@ -46,6 +47,40 @@ export async function sendReminderEmail(params: {
     contractValueAmount: params.contractValueAmount,
     contractValueCurrency: params.contractValueCurrency,
     internalReminderTone: params.internalReminderTone,
+    appUrl: config.public.appUrl,
+    legalDisclaimer: LEGAL_DISCLAIMER,
+    replyToEmail: config.email.replyToEmail ?? undefined
+  });
+
+  return resend.emails.send({
+    from: payload.from,
+    to: params.recipientEmail,
+    replyTo: payload.replyTo,
+    subject: payload.subject,
+    html: payload.html
+  });
+}
+
+export async function sendRenewalActionRequestEmail(params: {
+  organizationId: string;
+  recipientEmail: string;
+  contractId: string;
+  contractTitle: string;
+  counterpartyName: string | null;
+  requestedActionLabel: string;
+  noticeDeadlineDate?: string | null;
+  renewalDate?: string | null;
+  expirationDate?: string | null;
+  dueAt?: string | null;
+  ownerLabel?: string | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  requesterLabel?: string | null;
+  message?: string | null;
+}) {
+  const config = getAppConfig();
+  const payload = buildRenewalActionRequestEmailPayload({
+    ...params,
     appUrl: config.public.appUrl,
     legalDisclaimer: LEGAL_DISCLAIMER,
     replyToEmail: config.email.replyToEmail ?? undefined

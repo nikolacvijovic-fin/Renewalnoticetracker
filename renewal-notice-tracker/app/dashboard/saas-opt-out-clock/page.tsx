@@ -97,9 +97,14 @@ export default async function SaasOptOutClockPage() {
             and what action is due next. This stays inside renewal control: no external delivery or integrations.
           </p>
         </div>
-        <Button asChild variant="secondary">
-          <Link href="/dashboard/contracts">Open contracts</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="secondary">
+            <Link href="/dashboard/saas-opt-out-clock/ics">Download opt-out calendar</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/dashboard/contracts">Open contracts</Link>
+          </Button>
+        </div>
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

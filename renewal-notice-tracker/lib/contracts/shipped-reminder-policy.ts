@@ -68,6 +68,7 @@ const shippedReminderRecordSchema = z.object({
   recipient_emails: z.array(z.string().email()).min(1),
   rule_name: z.literal(null).nullable().optional(),
   escalation_level: z.number().int().min(0).default(0),
+  delivery_key: z.string().nullable().optional(),
   ical_uid: z.string().nullable().optional(),
   source: z.enum(["system", "manual"]).default("manual")
 });
@@ -140,12 +141,24 @@ export function getReminderActivationState(input: {
 
 export function buildShippedReminderSchedule(
   metadata: ShippedScheduleMetadata,
-  recipientEmails: string[]
+  recipientEmails: string[],
+  options?: {
+    organizationId?: string | null;
+    contractId?: string | null;
+    contractStatus?: string | null;
+    cycleStatus?: string | null;
+    renewalDecisionStatus?: string | null;
+  }
 ): ReminderInput[] {
   const reminders: ReminderInput[] = [];
   const internalNoticePlan = buildInternalRenewalReminderPlan({
     metadata,
-    recipientEmails
+    recipientEmails,
+    organizationId: options?.organizationId,
+    contractId: options?.contractId,
+    contractStatus: options?.contractStatus,
+    cycleStatus: options?.cycleStatus,
+    renewalDecisionStatus: options?.renewalDecisionStatus
   });
 
   reminders.push(

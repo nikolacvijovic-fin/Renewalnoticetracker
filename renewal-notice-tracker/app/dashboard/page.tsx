@@ -14,6 +14,7 @@ import {
   type UrgentRenewalItemReason,
   type UrgentRenewalTrustStatus
 } from "@/lib/dashboard/urgent-renewal-items";
+import { getMyRenewalActionItems } from "@/lib/contracts/kernel-queries";
 import { getSaasOptOutClock, getSaasRenewalImportReviewQueue } from "@/lib/saas/queries";
 
 const SEVERITY_TONE: Record<RenewalCommandSeverity, "critical" | "urgent" | "warning" | "success"> = {
@@ -110,11 +111,12 @@ export default async function DashboardPage({
 }: {
   searchParams?: { segment?: string };
 }) {
-  const { organizationId } = await requireOrganization();
-  const [contracts, saasClock, saasImportBatches] = await Promise.all([
+  const { organizationId, user } = await requireOrganization();
+  const [contracts, saasClock, saasImportBatches, myRenewalActions] = await Promise.all([
     getRenewalCommandCenterContracts(organizationId),
     getSaasOptOutClock(organizationId),
-    getSaasRenewalImportReviewQueue(organizationId)
+    getSaasRenewalImportReviewQueue(organizationId),
+    getMyRenewalActionItems(organizationId, user.id, { limit: 5 })
   ]);
   const latestImportBatch = saasImportBatches[0] ?? null;
   const commandCenter = buildRenewalCommandCenter({
@@ -179,9 +181,17 @@ export default async function DashboardPage({
             missing owners, and spend at risk.
           </p>
         </div>
-        <Button asChild variant="secondary">
-          <Link href="/onboarding">View activation path</Link>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="secondary">
+            <Link href="/dashboard/contracts/urgent-deadlines/ics">Download urgent deadlines</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/dashboard/contracts/trusted-upcoming/ics">Download trusted dates</Link>
+          </Button>
+          <Button asChild variant="secondary">
+            <Link href="/onboarding">View activation path</Link>
+          </Button>
+        </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
@@ -224,6 +234,76 @@ export default async function DashboardPage({
           accent="bg-critical"
           description="Known value tied to open action items."
         />
+      </section>
+
+      <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="warning">Assigned to me</Badge>
+              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted">
+                My renewal actions
+              </span>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold">Owner queue</h2>
+            <p className="mt-2 max-w-3xl text-sm text-muted">
+              Pending internal requests and contracts assigned to you. These are internal actions only,
+              not vendor notices or external delivery.
+            </p>
+          </div>
+          <Button asChild variant="ghost">
+            <Link href="/dashboard/contracts?owner=me">View assigned contracts</Link>
+          </Button>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {myRenewalActions.length > 0 ? (
+            myRenewalActions.map((item) => (
+              <Link
+                key={`${item.contractId}:${item.requestId ?? "assigned"}`}
+                href={item.href}
+                className="block rounded-2xl border border-slate-200 p-4 transition hover:border-brand-200 hover:bg-brand-50/30"
+              >
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone={item.requestId ? "urgent" : "default"}>
+                        {item.requestId ? "Action requested" : "Assigned contract"}
+                      </Badge>
+                      {item.needsReview ? <Badge tone="warning">Needs review</Badge> : <Badge tone="success">Reviewed</Badge>}
+                    </div>
+                    <p className="mt-3 text-lg font-semibold text-ink">{item.title}</p>
+                    <p className="mt-1 text-sm text-muted">{item.counterpartyName}</p>
+                  </div>
+                  <div className="grid gap-2 text-sm sm:grid-cols-3 lg:min-w-[34rem]">
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Notice deadline</p>
+                      <p className="font-semibold text-ink">{formatDate(item.noticeDeadlineDate)}</p>
+                      <p className="text-xs text-muted">{formatDue(item.daysToNoticeDeadline)}</p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Renewal / expiration</p>
+                      <p className="font-semibold text-ink">
+                        {formatDate(item.renewalDate ?? item.expirationDate)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-slate-50 p-3">
+                      <p className="text-xs text-muted">Request due</p>
+                      <p className="font-semibold text-ink">{item.dueAt ? formatDate(item.dueAt) : "No due date"}</p>
+                      <p className="text-xs text-muted">
+                        {(item.requestedAction ?? "monitor").replaceAll("_", " ")}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </Link>
+            ))
+          ) : (
+            <div className="rounded-2xl border border-dashed border-slate-300 p-5 text-sm text-muted">
+              Nothing is assigned to you right now. When an operator requests a renewal decision, it will appear here.
+            </div>
+          )}
+        </div>
       </section>
 
       <section className="rounded-3xl border border-line bg-white p-6 shadow-sm">
