@@ -51,11 +51,17 @@ export type ActivationContractReminder = {
   remind_at?: string | null;
 };
 
+export type ActivationContractDecision = {
+  id?: string | null;
+  status?: string | null;
+};
+
 export type ActivationContractInput = {
   id: string;
   owner_user_id?: string | null;
   contract_metadata?: ActivationContractMetadata | ActivationContractMetadata[] | null;
   reminders?: ActivationContractReminder[] | null;
+  renewal_decisions?: ActivationContractDecision[] | null;
   contract_trust_exception_approvals?: TrustExceptionApproval[] | null;
 };
 
@@ -73,6 +79,7 @@ export type ActivationContractAssessment = {
   trustExceptionApprovalRequested: boolean;
   hasActiveTrustExceptionApproval: boolean;
   hasActiveTrustedReminder: boolean;
+  hasRenewalDecision: boolean;
   daysToNoticeDeadline: number | null;
   requiredEvidenceFields: string[];
   trustedReminderGate: TrustedReminderGateResult;
@@ -133,10 +140,23 @@ function getEvidenceConfidence(metadata: ActivationContractMetadata) {
   return clampConfidence(Math.min(...confidences));
 }
 
-function daysUntil(date: string | null | undefined, now: Date) {
-  if (!date) return null;
-  const parsed = new Date(date);
+function parseDateOnly(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
   if (Number.isNaN(parsed.getTime())) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() + 1 === month &&
+    parsed.getUTCDate() === day
+    ? parsed
+    : null;
+}
+
+function daysUntil(date: string | null | undefined, now: Date) {
+  const parsed = parseDateOnly(date);
+  if (!parsed) return null;
   return Math.ceil((parsed.getTime() - now.getTime()) / (24 * 60 * 60 * 1000));
 }
 
@@ -164,21 +184,28 @@ function assessContract(
       .sort((left, right) => right.created_at.localeCompare(left.created_at))
       .find((approval) => isTrustExceptionApprovalActive(approval, now)) ?? null;
   const evidenceConfidence = getEvidenceConfidence(metadata);
+  const reviewedRenewalDate = parseDateOnly(metadata.renewal_date) ? metadata.renewal_date ?? null : null;
+  const reviewedNoticeDeadline = parseDateOnly(metadata.notice_deadline_date)
+    ? metadata.notice_deadline_date ?? null
+    : null;
   const ownerAssigned = Boolean(contract.owner_user_id);
-  const renewalDateReviewed = !metadata.needs_review && Boolean(metadata.renewal_date);
-  const noticeDeadlineReviewed = !metadata.needs_review && Boolean(metadata.notice_deadline_date);
+  const renewalDateReviewed = !metadata.needs_review && Boolean(reviewedRenewalDate);
+  const noticeDeadlineReviewed = !metadata.needs_review && Boolean(reviewedNoticeDeadline);
   const autoRenewTermsReviewed = !metadata.needs_review && metadata.auto_renewal !== null && metadata.auto_renewal !== undefined;
   const evidenceAttached = Object.keys(metadata.field_confidence ?? {}).length > 0;
   const evidenceReviewed = !metadata.needs_review;
   const evidenceTrusted =
     evidenceConfidence >= RENEWAL_READINESS_CONFIDENCE_THRESHOLD || Boolean(activeApproval);
   const hasActiveTrustedReminder = hasActiveReminder(contract.reminders);
+  const hasRenewalDecision = (contract.renewal_decisions ?? []).some((decision) =>
+    Boolean(decision.id ?? decision.status)
+  );
 
   const trustedReminderGate = evaluateTrustedReminderGate({
     contractId: contract.id,
     ownerUserId: contract.owner_user_id ?? null,
-    renewalDate: metadata.renewal_date ?? null,
-    noticeDeadline: metadata.notice_deadline_date ?? null,
+    renewalDate: reviewedRenewalDate,
+    noticeDeadline: reviewedNoticeDeadline,
     autoRenewReviewed: autoRenewTermsReviewed,
     p0FieldsReviewed: evidenceReviewed,
     evidenceConfidence,
@@ -203,7 +230,8 @@ function assessContract(
     trustExceptionApprovalRequested: Boolean(metadata.accepted_unverified_risk_requested),
     hasActiveTrustExceptionApproval: Boolean(activeApproval),
     hasActiveTrustedReminder,
-    daysToNoticeDeadline: daysUntil(metadata.notice_deadline_date, now),
+    hasRenewalDecision,
+    daysToNoticeDeadline: daysUntil(reviewedNoticeDeadline, now),
     requiredEvidenceFields: getRequiredEvidenceFields(metadata),
     trustedReminderGate,
     score: calculateActivationScore({

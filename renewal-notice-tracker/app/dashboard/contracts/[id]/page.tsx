@@ -34,6 +34,7 @@ import { ContractOnboardingPanel } from "@/components/contracts/contract-onboard
 import { ContractExtractionReviewPanel } from "@/components/contracts/contract-extraction-review-panel";
 import { RenewalQuoteComparisonPanel } from "@/components/contracts/renewal-quote-comparison-panel";
 import { DecisionLoopLedger } from "@/components/contracts/decision-loop-ledger";
+import { ManualRenewalTemplatePanel } from "@/components/contracts/manual-renewal-template-panel";
 import {
   auditRiskBadgeViewed
 } from "@/lib/intelligence/audit";
@@ -119,6 +120,9 @@ export default async function ContractDetailPage({
   ]);
   const canReviewExtraction = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const canManageOwner = hasRequiredRole(context.role, ["owner", "admin", "operator"]);
+  const defaultOwnerUserId =
+    contract.owner_user_id ??
+    (viewModel.memberLabels.some((member) => member.user_id === context.user.id) ? context.user.id : "");
   const pendingRequestForCurrentUser = renewalActionRequests.find(
     (request) => request.request_status === "pending" && request.requested_to_user_id === context.user.id
   );
@@ -210,10 +214,10 @@ export default async function ContractDetailPage({
             approvalState={viewModel.trustExceptionApprovalState}
           />
           <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-            <div className="panel p-6">
+            <div id="owner-panel" className="panel p-6">
               <h2 className="text-lg font-semibold">Owner and reminder readiness</h2>
               <div className="mt-4 space-y-4">
-                <div className="rounded-2xl border border-slate-200 p-4">
+                <div id="reminders" className="rounded-2xl border border-slate-200 p-4">
                   <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                     Current owner
                   </p>
@@ -233,7 +237,7 @@ export default async function ContractDetailPage({
                       <select
                         id="owner_user_id"
                         name="owner_user_id"
-                        defaultValue={contract.owner_user_id ?? ""}
+                        defaultValue={defaultOwnerUserId}
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                       >
                         <option value="">Unassigned</option>
@@ -412,15 +416,28 @@ export default async function ContractDetailPage({
         </div>
       }
       decisionCyclePanel={
-        <div className="grid gap-6 xl:grid-cols-2">
-          <div id="decision-panel">
-            <RenewalDecisionForm contractId={contract.id} />
+        <div className="space-y-6">
+          <div className="grid gap-6 xl:grid-cols-2">
+            <div id="decision-panel">
+              <RenewalDecisionForm contractId={contract.id} />
+            </div>
+            <ContractCycleActions
+              contractId={contract.id}
+              cycleStatus={contract.cycle_status}
+              renewalDecisionStatus={contract.renewal_decision_status}
+              lastAcknowledgedAt={contract.last_acknowledged_at}
+            />
           </div>
-          <ContractCycleActions
+          <ManualRenewalTemplatePanel
             contractId={contract.id}
-            cycleStatus={contract.cycle_status}
             renewalDecisionStatus={contract.renewal_decision_status}
-            lastAcknowledgedAt={contract.last_acknowledged_at}
+            initialInput={{
+              contractTitle: viewModel.metadata.contract_title,
+              counterpartyName: viewModel.metadata.counterparty_name,
+              renewalDate: viewModel.metadata.renewal_date,
+              expirationDate: viewModel.metadata.expiration_date,
+              noticeDeadlineDate: viewModel.metadata.notice_deadline_date
+            }}
           />
         </div>
       }

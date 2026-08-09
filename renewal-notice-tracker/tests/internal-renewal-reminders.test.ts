@@ -195,6 +195,28 @@ describe("internal renewal reminders", () => {
     }
   });
 
+  it("treats impossible extracted notice dates as review-needed instead of schedulable deadlines", () => {
+    const plan = buildInternalRenewalReminderPlan({
+      metadata: metadata({
+        notice_deadline_date: "2026-02-31",
+        field_confidence: { notice_deadline_date: 0.99 }
+      }),
+      recipientEmails: ["admin@example.com"],
+      now,
+      organizationId: "org-1",
+      contractId: "contract-1"
+    });
+
+    expect(plan.status).toBe("review_needed");
+    expect(plan.reminders).toEqual([
+      expect.objectContaining({
+        reminder_type: "internal_review_needed",
+        delivery_key: "renewal-deadline:org-1:contract-1:review_needed:2026-02-31"
+      })
+    ]);
+    expect(JSON.stringify(plan)).not.toContain("notice_deadline");
+  });
+
   it("skips resolved decisions, archived contracts, and unavailable internal recipients", () => {
     expect(buildInternalRenewalReminderPlan({
       metadata: metadata(),

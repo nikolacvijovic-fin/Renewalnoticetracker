@@ -101,8 +101,16 @@ type InternalReminderMetadata = ExtractedContractFields & {
 
 function parseDateOnly(value: string | null | undefined) {
   if (!value) return null;
-  const parsed = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const normalized = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() + 1 === month &&
+    parsed.getUTCDate() === day
+    ? parsed
+    : null;
 }
 
 function daysUntil(date: string | null | undefined, now: Date) {
@@ -114,7 +122,7 @@ function daysUntil(date: string | null | undefined, now: Date) {
 }
 
 function isWeakNoticeDeadline(metadata: InternalReminderMetadata) {
-  if (!metadata.notice_deadline_date) return true;
+  if (!parseDateOnly(metadata.notice_deadline_date)) return true;
   if (metadata.needs_review) return true;
   return (metadata.field_confidence.notice_deadline_date ?? 0) < LOW_CONFIDENCE_THRESHOLD;
 }

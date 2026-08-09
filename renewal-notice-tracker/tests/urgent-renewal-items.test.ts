@@ -154,6 +154,31 @@ describe("urgent renewal dashboard", () => {
     expect(dashboard.summary.needsReview).toBe(1);
   });
 
+  it("treats impossible extracted notice dates as untrusted review blockers", () => {
+    const dashboard = buildUrgentRenewalDashboard({
+      now,
+      contracts: [
+        contract({
+          id: "impossible-date",
+          title: "Impossible Date",
+          noticeDeadlineDate: "2026-02-31",
+          fieldConfidence: {
+            notice_deadline_date: 0.99
+          }
+        })
+      ]
+    });
+
+    expect(dashboard.allActionItems[0]).toEqual(expect.objectContaining({
+      contractId: "impossible-date",
+      trustStatus: "needs_review",
+      daysLeft: null,
+      primaryReason: "missing_or_weak_notice_deadline"
+    }));
+    expect(dashboard.summary.urgentThisWeek).toBe(0);
+    expect(dashboard.summary.dueThisMonth).toBe(0);
+  });
+
   it("counts missing deadlines, unassigned owners, spend at risk, and review states", () => {
     const dashboard = buildUrgentRenewalDashboard({
       now,

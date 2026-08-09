@@ -107,6 +107,30 @@ describe("organization activation state", () => {
     expect(deadlineState.nextBestAction.id).toBe("confirm_notice_deadline");
   });
 
+  it("does not treat impossible extracted dates as reviewed renewal truth", () => {
+    const state = buildOrganizationActivationState({
+      organizationId: "org-1",
+      contracts: [
+        contract({
+          contract_metadata: {
+            ...contract().contract_metadata,
+            notice_deadline_date: "2026-02-31",
+            field_confidence: {
+              renewal_date: 0.9,
+              notice_deadline_date: 0.99,
+              auto_renewal: 0.9
+            }
+          }
+        })
+      ],
+      now
+    });
+
+    expect(state.currentState).toBe("renewal_date_confirmed");
+    expect(state.nextBestAction.id).toBe("confirm_notice_deadline");
+    expect(state.daysToNoticeDeadline).toBeNull();
+  });
+
   it("routes weak evidence to trust exception approval instead of fake completion", () => {
     const state = buildOrganizationActivationState({
       organizationId: "org-1",

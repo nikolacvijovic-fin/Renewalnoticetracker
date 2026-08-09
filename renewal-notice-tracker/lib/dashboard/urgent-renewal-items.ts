@@ -65,8 +65,16 @@ const INACTIVE_MARKERS = new Set(["archived", "resolved", "cancelled", "canceled
 
 function parseDateOnly(value: string | null | undefined): Date | null {
   if (!value) return null;
-  const parsed = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const normalized = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+  const parsed = new Date(`${normalized}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const [year, month, day] = normalized.split("-").map(Number);
+  return parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() + 1 === month &&
+    parsed.getUTCDate() === day
+    ? parsed
+    : null;
 }
 
 function daysUntil(date: string | null | undefined, now: Date) {
@@ -87,7 +95,7 @@ function isActiveContract(contract: RenewalCommandContractInput) {
 }
 
 function hasTrustedNoticeDeadline(contract: RenewalCommandContractInput) {
-  if (!contract.noticeDeadlineDate) return false;
+  if (!parseDateOnly(contract.noticeDeadlineDate)) return false;
   return (contract.fieldConfidence?.notice_deadline_date ?? 0) >= LOW_CONFIDENCE_THRESHOLD;
 }
 

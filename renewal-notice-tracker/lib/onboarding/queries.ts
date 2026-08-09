@@ -11,6 +11,7 @@ type ActivationContractRow = {
     | ActivationContractInput["contract_metadata"]
     | null;
   reminders?: Array<{ status: string | null; remind_at: string | null }> | null;
+  renewal_decisions?: Array<{ id: string | null; status: string | null }> | null;
   contract_trust_exception_approvals?: TrustExceptionApprovalRow[] | null;
 };
 
@@ -40,6 +41,10 @@ export async function getOrganizationActivationContracts(
         status,
         remind_at
       ),
+      renewal_decisions (
+        id,
+        status
+      ),
       contract_trust_exception_approvals (*)
     `
     )
@@ -49,11 +54,12 @@ export async function getOrganizationActivationContracts(
 
   if (error) throw error;
 
-  return ((data ?? []) as ActivationContractRow[]).map((contract) => ({
+  return ((data ?? []) as unknown as ActivationContractRow[]).map((contract) => ({
     id: contract.id,
     owner_user_id: contract.owner_user_id,
     contract_metadata: contract.contract_metadata,
     reminders: contract.reminders ?? [],
+    renewal_decisions: contract.renewal_decisions ?? [],
     contract_trust_exception_approvals:
       contract.contract_trust_exception_approvals?.map((approval) => ({
         ...approval,
