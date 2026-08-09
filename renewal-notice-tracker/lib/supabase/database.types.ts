@@ -268,8 +268,8 @@ export type Database = {
         Relationships: [];
       };
       renewal_action_requests: {
-        Row: { id: string; contract_id: string; organization_id: string; requested_by_user_id: string | null; requested_to_user_id: string; request_status: string; requested_action: string; due_at: string | null; message: string | null; response_status: string | null; response_note: string | null; completed_at: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; contract_id: string; organization_id: string; requested_by_user_id?: string | null; requested_to_user_id: string; request_status?: string; requested_action?: string; due_at?: string | null; message?: string | null; response_status?: string | null; response_note?: string | null; completed_at?: string | null; created_at?: string; updated_at?: string };
+        Row: { id: string; contract_id: string; organization_id: string; requested_by_user_id: string | null; requested_to_user_id: string; request_status: string; requested_action: string; due_date: string | null; due_at: string | null; message: string | null; response_status: string | null; response_note: string | null; completed_at: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; contract_id: string; organization_id: string; requested_by_user_id?: string | null; requested_to_user_id: string; request_status?: string; requested_action?: string; due_date?: string | null; due_at?: string | null; message?: string | null; response_status?: string | null; response_note?: string | null; completed_at?: string | null; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["renewal_action_requests"]["Insert"]>;
         Relationships: [];
       };
@@ -281,7 +281,24 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      assign_contract_owner_and_expire_requests: {
+        Args: { p_contract_id: string; p_new_owner_user_id?: string | null };
+        Returns: Array<{ contract_id: string; organization_id: string; previous_owner_user_id: string | null; new_owner_user_id: string | null; expired_request_ids: string[] | null; expired_count: number | null }>;
+      };
+      create_renewal_action_request: {
+        Args: { p_contract_id: string; p_due_date: string; p_message?: string | null };
+        Returns: Array<{ id: string; contract_id: string; organization_id: string; requested_to_user_id: string; request_status: string; requested_action: string; due_date: string | null; due_at: string | null; created: boolean }>;
+      };
+      expire_renewal_action_request: {
+        Args: { p_request_id: string };
+        Returns: Array<{ id: string; contract_id: string; organization_id: string; requested_to_user_id: string; request_status: string; completed_at: string | null; transitioned: boolean }>;
+      };
+      respond_renewal_action_request: {
+        Args: { p_request_id: string; p_target_status: string; p_response_status: string; p_response_note?: string | null };
+        Returns: Array<{ id: string; contract_id: string; organization_id: string; requested_to_user_id: string; request_status: string; response_status: string | null; completed_at: string | null; transitioned: boolean }>;
+      };
+    };
     Enums: Record<string, never>;
   };
 };

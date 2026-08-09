@@ -64,6 +64,7 @@ export const INTERNAL_NOTICE_REMINDER_ESCALATIONS: Record<
 export type InternalRenewalReminderType =
   | "notice_deadline"
   | "internal_review_needed"
+  | "late_activation_action_required"
   | "missed_notice_deadline";
 
 export type InternalRenewalReminderRecord = {
@@ -145,7 +146,7 @@ export function selectInternalRenewalReminderRecipients(input: {
 }
 
 function buildImmediateInternalAlert(input: {
-  type: "internal_review_needed" | "missed_notice_deadline";
+  type: "internal_review_needed" | "late_activation_action_required" | "missed_notice_deadline";
   recipientEmails: string[];
   now: Date;
   organizationId?: string | null;
@@ -153,19 +154,20 @@ function buildImmediateInternalAlert(input: {
   noticeDeadlineDate?: string | null;
 }) {
   const isMissed = input.type === "missed_notice_deadline";
+  const isLateActivation = input.type === "late_activation_action_required";
   return {
     reminder_type: input.type,
     remind_at: input.now.toISOString(),
     recipient_email: firstRecipient(input.recipientEmails),
     recipient_emails: input.recipientEmails,
     rule_name: null,
-    escalation_level: isMissed ? 6 : 0,
+    escalation_level: isMissed ? 6 : isLateActivation ? 1 : 0,
     delivery_key:
       input.organizationId && input.contractId
         ? buildRenewalReminderDeliveryKey({
             organizationId: input.organizationId,
             contractId: input.contractId,
-            windowLabel: isMissed ? "missed" : "review_needed",
+            windowLabel: isMissed ? "missed" : isLateActivation ? "late_activation" : "review_needed",
             noticeDeadlineDate: input.noticeDeadlineDate ?? "missing"
           })
         : null,
@@ -176,10 +178,18 @@ function buildImmediateInternalAlert(input: {
 export function buildRenewalReminderDeliveryKey(input: {
   organizationId: string;
   contractId: string;
-  windowLabel: InternalRenewalEscalationLabel | `${number}d`;
+  windowLabel: InternalRenewalEscalationLabel | "late_activation" | `${number}d`;
   noticeDeadlineDate: string;
 }) {
   return `renewal-deadline:${input.organizationId}:${input.contractId}:${input.windowLabel}:${input.noticeDeadlineDate.slice(0, 10)}`;
+}
+
+function dateOnlyTime(value: Date) {
+  return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+}
+
+function isActionableReminderDate(remindAt: Date, now: Date) {
+  return dateOnlyTime(remindAt) >= dateOnlyTime(now);
 }
 
 export function getInternalRenewalEscalationForWindow(windowDays: number) {
@@ -254,13 +264,14 @@ export function buildInternalRenewalReminderPlan(input: {
     return { status: "review_needed" as const, reminders: [] };
   }
 
-  return {
-    status: "scheduled" as const,
-    reminders: INTERNAL_NOTICE_REMINDER_WINDOWS.map((windowDays) => {
-      const escalation = INTERNAL_NOTICE_REMINDER_ESCALATIONS[windowDays];
-      return {
+  const scheduledWindowReminders = INTERNAL_NOTICE_REMINDER_WINDOWS.flatMap((windowDays) => {
+    const escalation = INTERNAL_NOTICE_REMINDER_ESCALATIONS[windowDays];
+    const remindAt = moveToPreviousBusinessDay(subDays(deadline, windowDays));
+    if (!isActionableReminderDate(remindAt, now)) return [];
+    return [
+      {
         reminder_type: "notice_deadline" as const,
-        remind_at: moveToPreviousBusinessDay(subDays(deadline, windowDays)).toISOString(),
+        remind_at: remindAt.toISOString(),
         recipient_email: firstRecipient(recipientEmails),
         recipient_emails: recipientEmails,
         rule_name: null,
@@ -275,13 +286,40 @@ export function buildInternalRenewalReminderPlan(input: {
               })
             : null,
         source: "system" as const
-      };
-    })
+      }
+    ];
+  });
+
+  const missedWindowCount = INTERNAL_NOTICE_REMINDER_WINDOWS.length - scheduledWindowReminders.length;
+  const needsLateActivationAlert = missedWindowCount > 0 && (daysLeft ?? 0) >= 0;
+
+  return {
+    status: "scheduled" as const,
+    reminders: [
+      ...(needsLateActivationAlert
+        ? [
+            buildImmediateInternalAlert({
+              type: "late_activation_action_required",
+              recipientEmails,
+              now,
+              organizationId: input.organizationId,
+              contractId: input.contractId,
+              noticeDeadlineDate: input.metadata.notice_deadline_date
+            })
+          ]
+        : []),
+      ...scheduledWindowReminders
+    ]
   };
 }
 
 export function isInternalRenewalReminderType(value: string | null | undefined) {
-  return value === "notice_deadline" || value === "internal_review_needed" || value === "missed_notice_deadline";
+  return (
+    value === "notice_deadline" ||
+    value === "internal_review_needed" ||
+    value === "late_activation_action_required" ||
+    value === "missed_notice_deadline"
+  );
 }
 
 export function getInternalRenewalReminderTone(input: {
@@ -291,6 +329,7 @@ export function getInternalRenewalReminderTone(input: {
   now?: Date;
 }) {
   if (input.reminderType === "internal_review_needed") return "Review needed";
+  if (input.reminderType === "late_activation_action_required") return "Renewal action required";
   if (input.reminderType === "missed_notice_deadline") return "Opt-out deadline missed";
   const escalationByLevel = Object.values(INTERNAL_NOTICE_REMINDER_ESCALATIONS).find(
     (item) => item.escalationLevel === input.escalationLevel
@@ -340,7 +379,13 @@ export function buildInternalRenewalReminderContent(input: {
     previewText: `${input.counterpartyName ?? "Counterparty not set"} | Notice deadline ${
       input.noticeDeadlineDate ?? "needs review"
     }`,
-    urgencyLabel: escalation?.escalationLabel ?? (input.reminderType === "missed_notice_deadline" ? "missed" : "review_needed"),
+    urgencyLabel:
+      escalation?.escalationLabel ??
+      (input.reminderType === "missed_notice_deadline"
+        ? "missed"
+        : input.reminderType === "late_activation_action_required"
+          ? "late_activation"
+          : "review_needed"),
     contractTitle: input.contractTitle,
     counterpartyName: input.counterpartyName ?? "Counterparty not set",
     deadlineDate: input.noticeDeadlineDate ?? null,
@@ -352,6 +397,8 @@ export function buildInternalRenewalReminderContent(input: {
       escalation?.recommendedAction ??
       (input.reminderType === "missed_notice_deadline"
         ? "Review the missed opt-out window and record the business decision."
+        : input.reminderType === "late_activation_action_required"
+          ? "Review the already-missed reminder windows and confirm the renewal decision path."
         : "Review the missing or weak notice deadline before trusting the reminder schedule.")
   };
 }

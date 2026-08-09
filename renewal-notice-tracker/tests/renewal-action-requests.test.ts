@@ -3,8 +3,11 @@ import {
   assertRenewalActionResponseStatus,
   canRespondToRenewalActionRequest,
   getRenewalOwnerAuditAction,
+  getOrganizationLocalDate,
+  parseRenewalActionDueDate,
   sanitizeRenewalActionAuditMetadata,
-  sanitizeRenewalActionFreeText
+  sanitizeRenewalActionFreeText,
+  validateRenewalActionDueDate
 } from "@/lib/contracts/renewal-action-requests";
 import { buildRenewalActionRequestEmailPayload } from "@/lib/email/policy";
 
@@ -50,6 +53,54 @@ describe("renewal action request helpers", () => {
     expect(note).toHaveLength(500);
   });
 
+  it("parses due dates as strict calendar dates", () => {
+    expect(parseRenewalActionDueDate("2030-01-31")).toBe("2030-01-31");
+    expect(() => parseRenewalActionDueDate("2030-02-31")).toThrow("real calendar date");
+    expect(() => parseRenewalActionDueDate("2030-1-1")).toThrow("YYYY-MM-DD");
+  });
+
+  it("validates due dates without timezone shifting", () => {
+    const dueDate = validateRenewalActionDueDate({
+      dueDate: "2026-03-29",
+      noticeDeadlineDate: "2026-03-29",
+      needsReview: false,
+      now: new Date("2026-03-28T23:30:00.000Z"),
+      timeZone: "Europe/Belgrade"
+    });
+
+    expect(dueDate).toBe("2026-03-29");
+    expect(getOrganizationLocalDate(new Date("2026-03-28T23:30:00.000Z"), "Europe/Belgrade")).toBe(
+      "2026-03-29"
+    );
+  });
+
+  it("rejects past, untrusted, and after-notice due dates", () => {
+    expect(() =>
+      validateRenewalActionDueDate({
+        dueDate: "2026-01-01",
+        noticeDeadlineDate: "2026-02-01",
+        needsReview: false,
+        now: new Date("2026-01-02T00:00:00.000Z")
+      })
+    ).toThrow("past");
+    expect(() =>
+      validateRenewalActionDueDate({
+        dueDate: "2026-01-15",
+        noticeDeadlineDate: null,
+        needsReview: false,
+        now: new Date("2026-01-01T00:00:00.000Z")
+      })
+    ).toThrow("Review and trust");
+    expect(() =>
+      validateRenewalActionDueDate({
+        dueDate: "2026-02-02",
+        noticeDeadlineDate: "2026-02-01",
+        needsReview: false,
+        now: new Date("2026-01-01T00:00:00.000Z")
+      })
+    ).toThrow("after the trusted notice deadline");
+  });
+
   it("rejects unsupported response statuses", () => {
     expect(() => assertRenewalActionResponseStatus("renew")).not.toThrow();
     expect(() => assertRenewalActionResponseStatus("send_vendor_notice")).toThrow(
@@ -63,6 +114,8 @@ describe("renewal action request helpers", () => {
       contractId: "contract-1",
       actorUserId: "user-1",
       responseStatus: "renew",
+      dueDate: "2030-01-01",
+      expiredRequestIds: ["request-1"],
       rawContractText: "CONFIDENTIAL CONTRACT BODY",
       privateNote: "private note",
       providerPayload: { raw: true },
@@ -74,7 +127,9 @@ describe("renewal action request helpers", () => {
       organizationId: "org-1",
       contractId: "contract-1",
       actorUserId: "user-1",
-      responseStatus: "renew"
+      responseStatus: "renew",
+      dueDate: "2030-01-01",
+      expiredRequestIds: ["request-1"]
     });
     expect(JSON.stringify(metadata)).not.toContain("CONFIDENTIAL");
     expect(JSON.stringify(metadata)).not.toContain("secret-token");

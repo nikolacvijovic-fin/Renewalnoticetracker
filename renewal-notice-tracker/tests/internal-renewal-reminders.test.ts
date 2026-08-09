@@ -127,6 +127,49 @@ describe("internal renewal reminders", () => {
     })).toBe("Opt-out deadline missed");
   });
 
+  it("does not schedule historical reminder bursts for late activation", () => {
+    const plan = buildInternalRenewalReminderPlan({
+      metadata: metadata({ notice_deadline_date: "2026-08-17" }),
+      recipientEmails: ["owner@example.com"],
+      now,
+      organizationId: "org-1",
+      contractId: "contract-1"
+    });
+
+    expect(plan.status).toBe("scheduled");
+    expect(plan.reminders.map((reminder) => reminder.reminder_type)).toEqual([
+      "late_activation_action_required",
+      "notice_deadline",
+      "notice_deadline",
+      "notice_deadline"
+    ]);
+    expect(plan.reminders.map((reminder) => reminder.delivery_key)).toEqual([
+      "renewal-deadline:org-1:contract-1:late_activation:2026-08-17",
+      "renewal-deadline:org-1:contract-1:7d:2026-08-17",
+      "renewal-deadline:org-1:contract-1:3d:2026-08-17",
+      "renewal-deadline:org-1:contract-1:0d:2026-08-17"
+    ]);
+    expect(plan.reminders.every((reminder) => reminder.remind_at.slice(0, 10) >= "2026-08-07")).toBe(true);
+  });
+
+  it("creates at most one immediate late alert and keeps deadline-day reminder when still actionable", () => {
+    const plan = buildInternalRenewalReminderPlan({
+      metadata: metadata({ notice_deadline_date: "2026-08-09" }),
+      recipientEmails: ["owner@example.com"],
+      now,
+      organizationId: "org-1",
+      contractId: "contract-1"
+    });
+
+    expect(plan.status).toBe("scheduled");
+    expect(plan.reminders.filter((reminder) => reminder.reminder_type === "late_activation_action_required")).toHaveLength(1);
+    expect(plan.reminders.filter((reminder) => reminder.reminder_type === "notice_deadline")).toHaveLength(1);
+    expect(plan.reminders.map((reminder) => reminder.delivery_key)).toEqual([
+      "renewal-deadline:org-1:contract-1:late_activation:2026-08-09",
+      "renewal-deadline:org-1:contract-1:0d:2026-08-09"
+    ]);
+  });
+
   it("sends review-needed alerts for missing, weak, or unreviewed notice deadlines", () => {
     for (const row of [
       metadata({ notice_deadline_date: null }),

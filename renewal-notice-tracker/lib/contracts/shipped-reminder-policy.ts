@@ -21,6 +21,7 @@ export const SHIPPED_REMINDER_TYPES = [
   "decision_request",
   "acknowledgment_request",
   "internal_review_needed",
+  "late_activation_action_required",
   "missed_notice_deadline"
 ] as const;
 

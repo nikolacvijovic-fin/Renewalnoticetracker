@@ -6,6 +6,7 @@ import {
   routeServerError
 } from "@/lib/http";
 import { enqueueDueTrustedReminderDeliveryJobs } from "@/lib/notifications/reminders";
+import { processQueuedRenewalActionRequestNotifications } from "@/lib/notifications/renewal-action-request-outbox";
 import { logServerError } from "@/lib/observability/server-logger";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 
@@ -53,6 +54,7 @@ export const POST = createRouteHandler(
   async ({ json }) => {
     const until = addMinutes(new Date(), 15).toISOString();
     const results = await enqueueDueTrustedReminderDeliveryJobs(until);
-    return json({ results });
+    const renewalActionNotifications = await processQueuedRenewalActionRequestNotifications({ limit: 25 });
+    return json({ results, renewalActionNotifications });
   }
 );

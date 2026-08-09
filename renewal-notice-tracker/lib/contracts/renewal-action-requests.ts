@@ -36,8 +36,11 @@ const SAFE_AUDIT_KEYS = new Set([
   "requestedAction",
   "requestStatus",
   "responseStatus",
+  "dueDate",
   "dueAt",
   "completedAt",
+  "expiredRequestIds",
+  "expiredRequestCount",
   "messageLength",
   "noteLength"
 ]);
@@ -66,10 +69,76 @@ export function assertRenewalActionResponseStatus(value: string): asserts value 
   }
 }
 
+export const DEFAULT_RENEWAL_ACTION_TIME_ZONE = "UTC";
+
+export function getOrganizationLocalDate(
+  now = new Date(),
+  timeZone = DEFAULT_RENEWAL_ACTION_TIME_ZONE
+) {
+  return new Intl.DateTimeFormat("sv-SE", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(now);
+}
+
+export function parseRenewalActionDueDate(value: FormDataEntryValue | string | null | undefined) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Due date is required.");
+  }
+
+  const trimmed = value.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) {
+    throw new Error("Due date must be a valid YYYY-MM-DD calendar date.");
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    throw new Error("Due date must be a real calendar date.");
+  }
+
+  return trimmed;
+}
+
+export function validateRenewalActionDueDate(input: {
+  dueDate: string;
+  noticeDeadlineDate?: string | null;
+  needsReview?: boolean | null;
+  now?: Date;
+  timeZone?: string;
+}) {
+  const dueDate = parseRenewalActionDueDate(input.dueDate);
+  const today = getOrganizationLocalDate(input.now, input.timeZone);
+
+  if (dueDate < today) {
+    throw new Error("Due date cannot be in the past.");
+  }
+
+  if (!input.noticeDeadlineDate || input.needsReview) {
+    throw new Error("Review and trust the notice deadline before requesting renewal action.");
+  }
+
+  const noticeDeadlineDate = parseRenewalActionDueDate(input.noticeDeadlineDate);
+  if (dueDate > noticeDeadlineDate) {
+    throw new Error("Due date cannot be after the trusted notice deadline.");
+  }
+
+  return dueDate;
+}
+
 export function sanitizeRenewalActionAuditMetadata(
   metadata: Record<string, unknown>
-): Record<string, string | number | boolean | null> {
-  const safe: Record<string, string | number | boolean | null> = {};
+): Record<string, string | number | boolean | null | string[]> {
+  const safe: Record<string, string | number | boolean | null | string[]> = {};
   for (const [key, value] of Object.entries(metadata)) {
     if (!SAFE_AUDIT_KEYS.has(key) || SENSITIVE_KEY_PATTERN.test(key)) continue;
     if (
@@ -78,6 +147,8 @@ export function sanitizeRenewalActionAuditMetadata(
       typeof value === "boolean" ||
       value === null
     ) {
+      safe[key] = value;
+    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
       safe[key] = value;
     }
   }

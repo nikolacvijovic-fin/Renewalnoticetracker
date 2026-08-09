@@ -43,16 +43,28 @@ export type ContractCalendarInput = {
   includeTentativeNoticeDeadline?: boolean;
 };
 
+const textEncoder = new TextEncoder();
+const ICS_CONTENT_LINE_OCTET_LIMIT = 75;
+const ICS_CONTINUATION_PREFIX = " ";
+const ICS_UID_DOMAIN = "noticecontrol.app";
+
 function parseDateOnly(value: string | null | undefined) {
   if (!value) return null;
-  const normalized = value.slice(0, 10);
+  const normalized = value.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
   const parsed = new Date(`${normalized}T00:00:00.000Z`);
-  return Number.isNaN(parsed.getTime()) ? null : normalized;
+  if (Number.isNaN(parsed.getTime())) return null;
+  const year = parsed.getUTCFullYear();
+  const month = parsed.getUTCMonth() + 1;
+  const day = parsed.getUTCDate();
+  const [inputYear, inputMonth, inputDay] = normalized.split("-").map(Number);
+  return year === inputYear && month === inputMonth && day === inputDay ? normalized : null;
 }
 
 function toUtcStamp(value: string) {
-  return new Date(value).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
 }
 
 function toIcsDate(value: string) {
@@ -69,6 +81,32 @@ function escapeText(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/\n/g, "\\n").replace(/,/g, "\\,").replace(/;/g, "\\;");
 }
 
+function utf8ByteLength(value: string) {
+  return textEncoder.encode(value).length;
+}
+
+function foldContentLine(line: string) {
+  const chunks: string[] = [];
+  let chunk = "";
+  let chunkLimit = ICS_CONTENT_LINE_OCTET_LIMIT;
+
+  for (const codePoint of Array.from(line)) {
+    const next = `${chunk}${codePoint}`;
+    if (chunk && utf8ByteLength(next) > chunkLimit) {
+      chunks.push(chunk);
+      chunk = codePoint;
+      chunkLimit = ICS_CONTENT_LINE_OCTET_LIMIT - utf8ByteLength(ICS_CONTINUATION_PREFIX);
+    } else {
+      chunk = next;
+    }
+  }
+
+  if (chunk || chunks.length === 0) chunks.push(chunk);
+  return chunks
+    .map((part, index) => (index === 0 ? part : `${ICS_CONTINUATION_PREFIX}${part}`))
+    .join("\r\n");
+}
+
 function cleanText(value: string | null | undefined, fallback: string, maxLength = 180) {
   const normalized = String(value ?? fallback)
     .replace(/[\r\n\t]+/g, " ")
@@ -77,13 +115,28 @@ function cleanText(value: string | null | undefined, fallback: string, maxLength
   return normalized.slice(0, maxLength) || fallback;
 }
 
+function cleanDescriptionText(value: string | null | undefined, fallback: string, maxLength = 1200) {
+  const normalized = String(value ?? fallback)
+    .replace(/\r\n?/g, "\n")
+    .replace(/\t+/g, " ")
+    .replace(/[ ]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return normalized.slice(0, maxLength) || fallback;
+}
+
 function normalizeAppUrl(value: string) {
   return value.replace(/\/$/, "");
 }
 
-function money(amount: number | null | undefined, currency: string | null | undefined) {
-  if (amount === null || amount === undefined || !Number.isFinite(Number(amount))) return null;
-  return `${Math.max(0, Number(amount)).toFixed(2)} ${cleanText(currency ?? "USD", "USD").slice(0, 3).toUpperCase()}`;
+function normalizeUid(value: string, fallback: string) {
+  const base = cleanText(value, fallback, 220)
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Za-z0-9._:@-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  if (!base) return `${fallback}@${ICS_UID_DOMAIN}`;
+  return base.includes("@") ? base : `${base}@${ICS_UID_DOMAIN}`;
 }
 
 function eventTypeLabel(type: CalendarEventType) {
@@ -110,21 +163,15 @@ function buildSafeDescription(input: {
   contractTitle: string;
   counterpartyName: string;
   date: string;
-  ownerLabel?: string | null;
-  amount?: number | null;
-  currency?: string | null;
   href: string;
   reviewNeeded?: boolean;
 }) {
-  const spend = money(input.amount, input.currency);
   return [
     "NoticeControl calendar export.",
     `Type: ${eventTypeLabel(input.type)}.`,
     `Contract: ${input.contractTitle}.`,
     `Vendor/counterparty: ${input.counterpartyName}.`,
     `Date: ${input.date}.`,
-    input.ownerLabel ? `Owner: ${cleanText(input.ownerLabel, "Assigned")}.` : "Owner: Unassigned.",
-    spend ? `Spend at risk: ${spend}.` : null,
     input.reviewNeeded ? "Trust status: Needs review before this date should be treated as operational truth." : null,
     `Open in NoticeControl: ${input.href}.`
   ]
@@ -166,9 +213,6 @@ function buildDateEvent(input: {
       contractTitle: safeTitle,
       counterpartyName: safeCounterparty,
       date,
-      ownerLabel: input.ownerLabel,
-      amount: input.amount,
-      currency: input.currency,
       href,
       reviewNeeded: input.reviewNeeded
     }),
@@ -266,7 +310,7 @@ export function buildUrgentRenewalCalendarEvents(input: {
   appUrl: string;
 }) {
   return input.items.flatMap((item) => {
-    if (item.trustStatus !== "trusted" || item.daysLeft === null || item.daysLeft > 30) return [];
+    if (item.trustStatus !== "trusted" || item.daysLeft === null || item.daysLeft < 0 || item.daysLeft > 30) return [];
     const event = buildDateEvent({
       contractId: item.contractId,
       contractTitle: item.contractTitle,
@@ -315,23 +359,32 @@ export function buildCalendar(events: IcsEvent[]) {
     "CALSCALE:GREGORIAN"
   ];
 
-  for (const event of events) {
+  const now = new Date();
+  const startOfToday = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
+  for (const [index, event] of events.entries()) {
     const startDate = event.startDate ? parseDateOnly(event.startDate) : null;
+    const startStamp = event.start ? toUtcStamp(event.start) : null;
+    if ((event.startDate && !startDate) || (event.start && !startStamp) || (!startDate && !startStamp)) continue;
+
     lines.push(
       "BEGIN:VEVENT",
-      `UID:${escapeText(event.uid)}`,
-      `DTSTAMP:${toUtcStamp(new Date().toISOString())}`
+      `UID:${escapeText(normalizeUid(event.uid, `noticecontrol-event-${index}`))}`,
+      `DTSTAMP:${toUtcStamp(now.toISOString()) ?? ""}`
     );
     if (startDate) {
       lines.push(`DTSTART;VALUE=DATE:${toIcsDate(startDate)}`, `DTEND;VALUE=DATE:${toIcsDate(addDays(startDate, 1))}`);
-    } else if (event.start) {
-      lines.push(`DTSTART:${toUtcStamp(event.start)}`);
+    } else if (startStamp) {
+      lines.push(`DTSTART:${startStamp}`);
     }
     lines.push(
       `SUMMARY:${escapeText(cleanText(event.summary, "NoticeControl deadline"))}`,
-      `DESCRIPTION:${escapeText(cleanText(event.description, "Open NoticeControl for deadline details.", 1200))}`
+      `DESCRIPTION:${escapeText(cleanDescriptionText(event.description, "Open NoticeControl for deadline details."))}`
     );
-    for (const offset of event.alarms ?? []) {
+    const eventIsHistorical = startDate
+      ? Date.UTC(Number(startDate.slice(0, 4)), Number(startDate.slice(5, 7)) - 1, Number(startDate.slice(8, 10))) < startOfToday
+      : false;
+    for (const offset of eventIsHistorical ? [] : event.alarms ?? []) {
       lines.push(
         "BEGIN:VALARM",
         `TRIGGER:${offset === 0 ? "PT0S" : `-P${offset}D`}`,
@@ -344,5 +397,5 @@ export function buildCalendar(events: IcsEvent[]) {
   }
 
   lines.push("END:VCALENDAR");
-  return `${lines.join("\r\n")}\r\n`;
+  return `${lines.map(foldContentLine).join("\r\n")}\r\n`;
 }

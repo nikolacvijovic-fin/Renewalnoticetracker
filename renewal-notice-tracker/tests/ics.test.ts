@@ -13,6 +13,14 @@ import type { SaasOptOutClockItem } from "@/lib/saas/queries";
 
 const appUrl = "https://app.noticecontrol.example";
 
+function unfoldIcs(value: string) {
+  return value.replace(/\r\n /g, "");
+}
+
+function calendarLines(value: string) {
+  return value.split("\r\n").filter(Boolean);
+}
+
 function contract(overrides: Partial<RenewalCommandContractInput> = {}): RenewalCommandContractInput {
   return {
     id: "contract-1",
@@ -53,6 +61,7 @@ describe("buildCalendar", () => {
     expect(value).toContain("DTSTART;VALUE=DATE:20261201");
     expect(value).toContain("DTEND;VALUE=DATE:20261202");
     expect(value).toContain("SUMMARY:Notice deadline: Acme MSA");
+    expect(value).toContain("UID:abc@noticecontrol.app");
     expect(value).toContain("TRIGGER:-P30D");
     expect(value).toContain("TRIGGER:-P14D");
     expect(value).toContain("TRIGGER:-P7D");
@@ -61,18 +70,25 @@ describe("buildCalendar", () => {
     expect(value.endsWith("END:VCALENDAR\r\n")).toBe(true);
   });
 
-  it("preserves safe app links in rendered ICS descriptions", () => {
-    const href = "https://app.noticecontrol.example/dashboard/contracts/contract-1";
-    const value = buildCalendar([
-      {
-        uid: "link-check",
-        startDate: "2026-12-01",
-        summary: "Notice deadline: Acme MSA",
-        description: `NoticeControl calendar export. Contract: Acme MSA. Vendor/counterparty: Acme. Date: 2026-12-01. Owner: Finance Owner. Spend at risk: 25000.00 USD. Open in NoticeControl: ${href}.`
+  it("preserves safe app links and minimizes owner/spend metadata in rendered ICS descriptions", () => {
+    const events = buildContractDateCalendarEvents({
+      contractId: "contract-1",
+      ownerLabel: "Finance Owner",
+      appUrl,
+      metadata: {
+        contract_title: "Acme MSA",
+        counterparty_name: "Acme",
+        notice_deadline_date: "2026-12-01",
+        field_confidence: { notice_deadline_date: 0.96 },
+        contract_value_amount: 25000,
+        contract_value_currency: "USD"
       }
-    ]);
+    });
+    const value = buildCalendar(events);
 
-    expect(value).toContain(href);
+    expect(unfoldIcs(value)).toContain("https://app.noticecontrol.example/dashboard/contracts/contract-1");
+    expect(value).not.toContain("Finance Owner");
+    expect(value).not.toContain("25000");
   });
 
   it("keeps legacy timestamp event input working", () => {
@@ -86,6 +102,78 @@ describe("buildCalendar", () => {
     ]);
 
     expect(value).toContain("DTSTART:20261201T000000Z");
+  });
+
+  it("rejects impossible date-only values instead of relying on JavaScript rollover", () => {
+    const value = buildCalendar([
+      {
+        uid: "bad-date",
+        startDate: "2026-02-31",
+        summary: "Notice deadline: Impossible Date",
+        description: "This should not export."
+      },
+      {
+        uid: "good-date",
+        startDate: "2026-02-28",
+        summary: "Notice deadline: Real Date",
+        description: "This should export."
+      }
+    ]);
+
+    expect(value).not.toContain("Impossible Date");
+    expect(value).not.toContain("20260303");
+    expect(value).toContain("Real Date");
+    expect(value).toContain("DTSTART;VALUE=DATE:20260228");
+  });
+
+  it("folds long ASCII and Unicode content lines at 75 UTF-8 octets without splitting code points", () => {
+    const value = buildCalendar([
+      {
+        uid: "folding",
+        startDate: "2026-12-01",
+        summary: `Notice deadline: ${"A".repeat(90)} €漢字 ${"B".repeat(40)}`,
+        description: `Open NoticeControl ${"safe ".repeat(80)} €漢字`
+      }
+    ]);
+
+    const lines = calendarLines(value);
+    expect(lines.some((line) => line.startsWith(" "))).toBe(true);
+    for (const line of lines) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    }
+    expect(unfoldIcs(value)).toContain("€漢字");
+    expect(unfoldIcs(value)).toContain("SUMMARY:Notice deadline:");
+  });
+
+  it("preserves CRLF formatting and escaped text values", () => {
+    const value = buildCalendar([
+      {
+        uid: "escaping",
+        startDate: "2026-12-01",
+        summary: "Renewal, deadline; check \\ path",
+        description: "Line one\nLine two, with; punctuation \\ safe"
+      }
+    ]);
+
+    expect(value).toContain("\r\n");
+    expect(value).not.toMatch(/(?<!\r)\n/);
+    expect(unfoldIcs(value)).toContain("SUMMARY:Renewal\\, deadline\\; check \\\\ path");
+    expect(unfoldIcs(value)).toContain("Line one\\nLine two\\, with\\; punctuation \\\\ safe");
+  });
+
+  it("does not generate alarms for historical events", () => {
+    const value = buildCalendar([
+      {
+        uid: "historical",
+        startDate: "2000-01-01",
+        summary: "Notice deadline: Old Contract",
+        description: "Open NoticeControl.",
+        alarms: ICS_REMINDER_ALARM_OFFSETS_DAYS
+      }
+    ]);
+
+    expect(value).toContain("Old Contract");
+    expect(value).not.toContain("BEGIN:VALARM");
   });
 });
 
@@ -113,7 +201,8 @@ describe("contract calendar events", () => {
       "Expiration date: Acme MSA"
     ]);
     expect(events[0]?.description).toContain("Open in NoticeControl: https://app.noticecontrol.example/dashboard/contracts/contract-1");
-    expect(events[0]?.description).toContain("Spend at risk: 25000.00 USD");
+    expect(events[0]?.description).not.toContain("Spend at risk");
+    expect(events[0]?.description).not.toContain("Finance Owner");
   });
 
   it("labels weak individual notice deadlines as review-needed instead of trusted truth", () => {
@@ -224,6 +313,24 @@ describe("bulk calendar exports", () => {
         sortRank: 3
       },
       {
+        contractId: "missed-1",
+        contractTitle: "Missed",
+        counterpartyName: "Missed Vendor",
+        noticeDeadlineDate: "2026-08-01",
+        renewalDate: null,
+        expirationDate: null,
+        daysLeft: -6,
+        contractValueAmount: 90000,
+        contractValueCurrency: "USD",
+        ownerName: "Owner",
+        ownerUserId: "owner-1",
+        trustStatus: "trusted",
+        primaryReason: "missed_notice_deadline",
+        reasonCodes: ["missed_notice_deadline"],
+        primaryActionHref: "/dashboard/contracts/missed-1",
+        sortRank: 1
+      },
+      {
         contractId: "review-1",
         contractTitle: "Review",
         counterpartyName: "Beta",
@@ -248,6 +355,7 @@ describe("bulk calendar exports", () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.summary).toBe("Notice deadline: Acme MSA");
     expect(JSON.stringify(events)).not.toContain("review-1");
+    expect(JSON.stringify(events)).not.toContain("missed-1");
   });
 
   it("exports SaaS opt-out deadlines without resolved items or missing dates", () => {

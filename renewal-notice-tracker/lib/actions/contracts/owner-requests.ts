@@ -6,8 +6,10 @@ import {
   canManageRenewalOwner,
   canRespondToRenewalActionRequest,
   getRenewalOwnerAuditAction,
+  parseRenewalActionDueDate,
   sanitizeRenewalActionAuditMetadata,
-  sanitizeRenewalActionFreeText
+  sanitizeRenewalActionFreeText,
+  validateRenewalActionDueDate
 } from "@/lib/contracts/renewal-action-requests";
 import { createAuditLog } from "@/lib/audit";
 import { requireOrganization } from "@/lib/auth";
@@ -15,7 +17,6 @@ import {
   getOrganizationMembers,
   requireScopedContract
 } from "@/lib/contracts/kernel-queries";
-import { sendRenewalActionRequestEmail } from "@/lib/email/send-reminder";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type ContractActionContext = {
@@ -30,6 +31,7 @@ type ContractActionContext = {
         expiration_date: string | null;
         contract_value_amount: number | null;
         contract_value_currency: string | null;
+        needs_review: boolean | null;
       }
     | Array<{
         contract_title: string | null;
@@ -39,6 +41,7 @@ type ContractActionContext = {
         expiration_date: string | null;
         contract_value_amount: number | null;
         contract_value_currency: string | null;
+        needs_review: boolean | null;
       }>
     | null;
 };
@@ -49,6 +52,45 @@ type RenewalActionRequestRow = {
   organization_id: string;
   requested_to_user_id: string;
   request_status: string;
+};
+
+type SupabaseRpcClient = {
+  rpc: (
+    functionName: string,
+    args: Record<string, unknown>
+  ) => Promise<{ data: unknown; error: { message?: string } | null }>;
+};
+
+type CreateRenewalActionRequestRpcRow = {
+  id: string;
+  contract_id: string;
+  organization_id: string;
+  requested_to_user_id: string;
+  request_status: string;
+  requested_action: string;
+  due_date: string | null;
+  due_at: string | null;
+  created: boolean;
+};
+
+type RespondRenewalActionRequestRpcRow = {
+  id: string;
+  contract_id: string;
+  organization_id: string;
+  requested_to_user_id: string;
+  request_status: string;
+  response_status?: string | null;
+  completed_at: string | null;
+  transitioned: boolean;
+};
+
+type AssignOwnerRpcRow = {
+  contract_id: string;
+  organization_id: string;
+  previous_owner_user_id: string | null;
+  new_owner_user_id: string | null;
+  expired_request_ids: string[] | null;
+  expired_count: number | null;
 };
 
 function firstValue<T>(value: T | T[] | null | undefined): T | null {
@@ -65,15 +107,6 @@ function normalizeNullableUserId(value: FormDataEntryValue | null) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeDueAt(value: FormDataEntryValue | null) {
-  if (typeof value !== "string" || !value.trim()) return null;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error("Due date is invalid.");
-  }
-  return parsed.toISOString();
 }
 
 async function getScopedContractActionContext(
@@ -94,7 +127,8 @@ async function getScopedContractActionContext(
         renewal_date,
         expiration_date,
         contract_value_amount,
-        contract_value_currency
+        contract_value_currency,
+        needs_review
       )
     `
     )
@@ -103,7 +137,16 @@ async function getScopedContractActionContext(
     .single();
 
   if (error) throw error;
-  return data as ContractActionContext;
+  return data as unknown as ContractActionContext;
+}
+
+function firstRpcRow<T>(data: unknown): T | null {
+  return Array.isArray(data) ? (data[0] as T | undefined) ?? null : (data as T | null);
+}
+
+function mapRenewalActionDbError(error: { message?: string } | null, fallback: string) {
+  if (!error) return new Error(fallback);
+  return new Error(error.message || fallback);
 }
 
 export async function assignContractOwnerAction(contractId: string, formData: FormData) {
@@ -123,23 +166,30 @@ export async function assignContractOwnerAction(contractId: string, formData: Fo
   }
 
   const contract = await getScopedContractActionContext(contractId, context.organizationId);
-  const previousOwnerUserId = contract.owner_user_id ?? null;
-  if (previousOwnerUserId === newOwnerUserId) {
+  if ((contract.owner_user_id ?? null) === newOwnerUserId) {
     return;
   }
 
   const supabase = createServerSupabaseClient();
-  const { error } = await supabase
-    .from("contracts")
-    .update({ owner_user_id: newOwnerUserId })
-    .eq("id", contractId)
-    .eq("organization_id", context.organizationId);
+  const { data, error } = await (supabase as unknown as SupabaseRpcClient).rpc(
+    "assign_contract_owner_and_expire_requests",
+    {
+      p_contract_id: contractId,
+      p_new_owner_user_id: newOwnerUserId
+    }
+  );
 
-  if (error) throw error;
+  if (error) throw mapRenewalActionDbError(error, "Owner assignment failed.");
+
+  const transition = firstRpcRow<AssignOwnerRpcRow>(data);
+  if (!transition || transition.organization_id !== context.organizationId) {
+    throw new Error("Owner assignment did not complete.");
+  }
+  const previousOwnerUserId = transition.previous_owner_user_id ?? null;
 
   const action = getRenewalOwnerAuditAction({
     previousOwnerUserId,
-    newOwnerUserId
+    newOwnerUserId: transition.new_owner_user_id ?? null
   });
   await createAuditLog({
     organizationId: context.organizationId,
@@ -153,10 +203,34 @@ export async function assignContractOwnerAction(contractId: string, formData: Fo
       contractId,
       actorUserId: context.user.id,
       previousOwnerUserId,
-      newOwnerUserId,
-      actionSource
+      newOwnerUserId: transition.new_owner_user_id ?? null,
+      actionSource,
+      expiredRequestIds: transition.expired_request_ids ?? [],
+      expiredRequestCount: transition.expired_count ?? 0
     })
   });
+
+  if ((transition.expired_count ?? 0) > 0) {
+    await createAuditLog({
+      organizationId: context.organizationId,
+      actorUserId: context.user.id,
+      contractId,
+      action: "renewal.action_expired",
+      entityType: "renewal_action_request",
+      entityId: contractId,
+      details: sanitizeRenewalActionAuditMetadata({
+        organizationId: context.organizationId,
+        contractId,
+        actorUserId: context.user.id,
+        previousOwnerUserId,
+        newOwnerUserId: transition.new_owner_user_id ?? null,
+        actionSource: "owner_changed",
+        expiredRequestIds: transition.expired_request_ids ?? [],
+        expiredRequestCount: transition.expired_count ?? 0,
+        requestStatus: "expired"
+      })
+    });
+  }
 
   revalidatePath(`/dashboard/contracts/${contractId}`);
   revalidatePath("/dashboard");
@@ -178,49 +252,39 @@ export async function requestRenewalActionAction(contractId: string, formData: F
   if (!owner) {
     throw new Error("Assigned owner must be a member of the active organization.");
   }
-  const recipientEmail = owner.user?.notification_email?.trim();
-  if (!recipientEmail) {
+  if (!owner.user?.notification_email?.trim()) {
     throw new Error("Assigned owner does not have a notification email.");
   }
 
-  const dueAt = normalizeDueAt(formData.get("due_at"));
+  const metadata = firstValue(contract.contract_metadata);
+  const dueDate = validateRenewalActionDueDate({
+    dueDate: parseRenewalActionDueDate(formData.get("due_date") ?? formData.get("due_at")),
+    noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
+    needsReview: metadata?.needs_review ?? true
+  });
   const message = sanitizeRenewalActionFreeText(formData.get("message"));
   const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("renewal_action_requests")
-    .insert({
-      contract_id: contractId,
-      organization_id: context.organizationId,
-      requested_by_user_id: context.user.id,
-      requested_to_user_id: requestedToUserId,
-      request_status: "pending",
-      requested_action: "decide_renewal",
-      due_at: dueAt,
-      message
-    })
-    .select("id")
-    .single();
+  const { data, error } = await (supabase as unknown as SupabaseRpcClient).rpc(
+    "create_renewal_action_request",
+    {
+      p_contract_id: contractId,
+      p_due_date: dueDate,
+      p_message: message
+    }
+  );
 
-  if (error) throw error;
+  if (error) throw mapRenewalActionDbError(error, "Renewal action request failed.");
 
-  const metadata = firstValue(contract.contract_metadata);
-  await sendRenewalActionRequestEmail({
-    organizationId: context.organizationId,
-    recipientEmail,
-    contractId,
-    contractTitle: metadata?.contract_title ?? "Untitled contract",
-    counterpartyName: metadata?.counterparty_name ?? null,
-    requestedActionLabel: "Decide renewal",
-    noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
-    renewalDate: metadata?.renewal_date ?? null,
-    expirationDate: metadata?.expiration_date ?? null,
-    dueAt,
-    ownerLabel: owner.user?.full_name ?? owner.user?.notification_email ?? "Assigned owner",
-    contractValueAmount: metadata?.contract_value_amount ?? null,
-    contractValueCurrency: metadata?.contract_value_currency ?? null,
-    requesterLabel: context.user.email ?? "NoticeControl operator",
-    message
-  });
+  const request = firstRpcRow<CreateRenewalActionRequestRpcRow>(data);
+  if (!request || request.organization_id !== context.organizationId) {
+    throw new Error("Renewal action request did not complete.");
+  }
+
+  if (!request.created) {
+    revalidatePath(`/dashboard/contracts/${contractId}`);
+    revalidatePath("/dashboard");
+    return;
+  }
 
   await createAuditLog({
     organizationId: context.organizationId,
@@ -228,16 +292,16 @@ export async function requestRenewalActionAction(contractId: string, formData: F
     contractId,
     action: "renewal.action_requested",
     entityType: "renewal_action_request",
-    entityId: data.id,
+    entityId: request.id,
     details: sanitizeRenewalActionAuditMetadata({
       organizationId: context.organizationId,
       contractId,
-      requestId: data.id,
+      requestId: request.id,
       actorUserId: context.user.id,
       requestedToUserId,
       requestedAction: "decide_renewal",
       requestStatus: "pending",
-      dueAt,
+      dueDate: request.due_date ?? dueDate,
       messageLength: message?.length ?? 0
     })
   });
@@ -278,20 +342,22 @@ export async function completeRenewalActionRequestAction(requestId: string, form
   const responseStatus = String(formData.get("response_status") ?? "");
   assertRenewalActionResponseStatus(responseStatus);
   const responseNote = sanitizeRenewalActionFreeText(formData.get("response_note"));
-  const completedAt = new Date().toISOString();
   const supabase = createServerSupabaseClient();
-  const { error } = await supabase
-    .from("renewal_action_requests")
-    .update({
-      request_status: "completed",
-      response_status: responseStatus,
-      response_note: responseNote,
-      completed_at: completedAt
-    })
-    .eq("id", requestId)
-    .eq("organization_id", context.organizationId);
+  const { data, error } = await (supabase as unknown as SupabaseRpcClient).rpc(
+    "respond_renewal_action_request",
+    {
+      p_request_id: requestId,
+      p_target_status: "completed",
+      p_response_status: responseStatus,
+      p_response_note: responseNote
+    }
+  );
 
-  if (error) throw error;
+  if (error) throw mapRenewalActionDbError(error, "Renewal action request is no longer pending.");
+  const transition = firstRpcRow<RespondRenewalActionRequestRpcRow>(data);
+  if (!transition?.transitioned) {
+    throw new Error("Renewal action request is no longer pending.");
+  }
 
   await createAuditLog({
     organizationId: context.organizationId,
@@ -307,7 +373,7 @@ export async function completeRenewalActionRequestAction(requestId: string, form
       actorUserId: context.user.id,
       requestedToUserId: request.requested_to_user_id,
       responseStatus,
-      completedAt,
+      completedAt: transition.completed_at,
       noteLength: responseNote?.length ?? 0
     })
   });
@@ -330,20 +396,22 @@ export async function dismissRenewalActionRequestAction(requestId: string, formD
   }
 
   const responseNote = sanitizeRenewalActionFreeText(formData.get("response_note"));
-  const completedAt = new Date().toISOString();
   const supabase = createServerSupabaseClient();
-  const { error } = await supabase
-    .from("renewal_action_requests")
-    .update({
-      request_status: "dismissed",
-      response_status: "dismissed",
-      response_note: responseNote,
-      completed_at: completedAt
-    })
-    .eq("id", requestId)
-    .eq("organization_id", context.organizationId);
+  const { data, error } = await (supabase as unknown as SupabaseRpcClient).rpc(
+    "respond_renewal_action_request",
+    {
+      p_request_id: requestId,
+      p_target_status: "dismissed",
+      p_response_status: "dismissed",
+      p_response_note: responseNote
+    }
+  );
 
-  if (error) throw error;
+  if (error) throw mapRenewalActionDbError(error, "Renewal action request is no longer pending.");
+  const transition = firstRpcRow<RespondRenewalActionRequestRpcRow>(data);
+  if (!transition?.transitioned) {
+    throw new Error("Renewal action request is no longer pending.");
+  }
 
   await createAuditLog({
     organizationId: context.organizationId,
@@ -359,7 +427,7 @@ export async function dismissRenewalActionRequestAction(requestId: string, formD
       actorUserId: context.user.id,
       requestedToUserId: request.requested_to_user_id,
       responseStatus: "dismissed",
-      completedAt,
+      completedAt: transition.completed_at,
       noteLength: responseNote?.length ?? 0
     })
   });
@@ -372,18 +440,19 @@ export async function expireRenewalActionRequestAction(requestId: string) {
   const context = await requireOrganization();
   assertOwnerManager(context.role);
   const request = await getScopedRenewalActionRequest(requestId, context.organizationId);
-  const completedAt = new Date().toISOString();
   const supabase = createServerSupabaseClient();
-  const { error } = await supabase
-    .from("renewal_action_requests")
-    .update({
-      request_status: "expired",
-      completed_at: completedAt
-    })
-    .eq("id", requestId)
-    .eq("organization_id", context.organizationId);
+  const { data, error } = await (supabase as unknown as SupabaseRpcClient).rpc(
+    "expire_renewal_action_request",
+    {
+      p_request_id: requestId
+    }
+  );
 
-  if (error) throw error;
+  if (error) throw mapRenewalActionDbError(error, "Renewal action request is no longer pending.");
+  const transition = firstRpcRow<RespondRenewalActionRequestRpcRow>(data);
+  if (!transition?.transitioned) {
+    throw new Error("Renewal action request is no longer pending.");
+  }
 
   await createAuditLog({
     organizationId: context.organizationId,
@@ -399,7 +468,7 @@ export async function expireRenewalActionRequestAction(requestId: string) {
       actorUserId: context.user.id,
       requestedToUserId: request.requested_to_user_id,
       requestStatus: "expired",
-      completedAt
+      completedAt: transition.completed_at
     })
   });
 

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { hasRequiredRole, requireOrganization } from "@/lib/auth";
 import {
   getContractById,
+  getContractPendingRenewalActionRequestCount,
   getContractRenewalActionRequests,
   getCounterparties,
   getOrganizationMembers
@@ -74,7 +75,8 @@ export default async function ContractDetailPage({
     quoteFindings,
     savingsOpportunities,
     saasOptOutStatus,
-    renewalActionRequests
+    renewalActionRequests,
+    pendingRenewalActionRequestCount
   ] = await Promise.all([
     buildContractDetailViewModel({
       context,
@@ -112,16 +114,15 @@ export default async function ContractDetailPage({
       limit: 25
     }),
     getSaasOptOutStatusForContract(organizationId, contract.id),
-    getContractRenewalActionRequests(organizationId, contract.id, { limit: 8 })
+    getContractRenewalActionRequests(organizationId, contract.id, { limit: 8 }),
+    getContractPendingRenewalActionRequestCount(organizationId, contract.id)
   ]);
   const canReviewExtraction = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const canManageOwner = hasRequiredRole(context.role, ["owner", "admin", "operator"]);
   const pendingRequestForCurrentUser = renewalActionRequests.find(
     (request) => request.request_status === "pending" && request.requested_to_user_id === context.user.id
   );
-  const pendingRequestCount = renewalActionRequests.filter(
-    (request) => request.request_status === "pending"
-  ).length;
+  const pendingRequestCount = pendingRenewalActionRequestCount;
   const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
   const riskExplanationAccess = viewModel.intelligenceAccess.accessBySurface.risk_explanation;
   if (riskBadgeAccess.allowed) {
@@ -263,12 +264,12 @@ export default async function ContractDetailPage({
                       NoticeControl will not send anything to the vendor.
                     </p>
                     <form action={requestRenewalActionAction.bind(null, contract.id)} className="mt-3 space-y-3">
-                      <label className="block text-sm font-medium text-slate-700" htmlFor="due_at">
+                      <label className="block text-sm font-medium text-slate-700" htmlFor="due_date">
                         Due date
                       </label>
                       <input
-                        id="due_at"
-                        name="due_at"
+                        id="due_date"
+                        name="due_date"
                         type="date"
                         className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
                       />

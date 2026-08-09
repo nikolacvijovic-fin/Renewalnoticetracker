@@ -114,6 +114,7 @@ export type MyRenewalActionItem = {
   ownerLabel: string;
   requestStatus: string | null;
   requestedAction: string | null;
+  dueDate: string | null;
   dueAt: string | null;
   needsReview: boolean;
   href: string;
@@ -397,11 +398,11 @@ export async function getMyRenewalActionItems(
     getOrganizationMembers(organizationId),
     supabase
       .from("renewal_action_requests")
-      .select("id, contract_id, request_status, requested_action, due_at, created_at")
+      .select("id, contract_id, request_status, requested_action, due_date, due_at, created_at")
       .eq("organization_id", organizationId)
       .eq("requested_to_user_id", userId)
       .eq("request_status", "pending")
-      .order("due_at", { ascending: true, nullsFirst: false })
+      .order("due_date", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(limit),
     supabase
@@ -435,6 +436,7 @@ export async function getMyRenewalActionItems(
     contract_id: string;
     request_status: string;
     requested_action: string;
+    due_date: string | null;
     due_at: string | null;
   }>;
   const assignedContracts = (assignedContractsResult.data ?? []) as Array<{
@@ -520,6 +522,7 @@ export async function getMyRenewalActionItems(
         ownerLabel: ownerLabels.get(contract.owner_user_id ?? "") ?? "Assigned",
         requestStatus: request?.request_status ?? null,
         requestedAction: request?.requested_action ?? null,
+        dueDate: request?.due_date ?? null,
         dueAt: request?.due_at ?? null,
         needsReview: Boolean(metadata?.needs_review),
         href: `/dashboard/contracts/${contractId}`
@@ -546,7 +549,7 @@ export async function getContractRenewalActionRequests(
   let query = supabase
     .from("renewal_action_requests")
     .select(
-      "id, contract_id, organization_id, requested_by_user_id, requested_to_user_id, request_status, requested_action, due_at, message, response_status, response_note, completed_at, created_at"
+      "id, contract_id, organization_id, requested_by_user_id, requested_to_user_id, request_status, requested_action, due_date, due_at, message, response_status, response_note, completed_at, created_at"
     )
     .eq("organization_id", organizationId)
     .eq("contract_id", contractId)
@@ -560,6 +563,22 @@ export async function getContractRenewalActionRequests(
   const { data, error } = await query;
   if (error) throw error;
   return (data ?? []) as ContractRenewalActionRequest[];
+}
+
+export async function getContractPendingRenewalActionRequestCount(
+  organizationId: string,
+  contractId: string
+): Promise<number> {
+  const supabase = createServerSupabaseClient();
+  const { count, error } = await supabase
+    .from("renewal_action_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", organizationId)
+    .eq("contract_id", contractId)
+    .eq("request_status", "pending");
+
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function getContractFacets(organizationId: string): Promise<ContractFacets> {

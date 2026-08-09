@@ -1,6 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const enqueueDueTrustedReminderDeliveryJobsMock = vi.fn();
+const processQueuedRenewalActionRequestNotificationsMock = vi.fn();
 const logServerError = vi.fn();
 const logServerWarn = vi.fn();
 const emitOperationalEvent = vi.fn();
@@ -9,6 +10,10 @@ let POST: (request: Request) => Promise<Response>;
 
 vi.mock("@/lib/notifications/reminders", () => ({
   enqueueDueTrustedReminderDeliveryJobs: enqueueDueTrustedReminderDeliveryJobsMock
+}));
+
+vi.mock("@/lib/notifications/renewal-action-request-outbox", () => ({
+  processQueuedRenewalActionRequestNotifications: processQueuedRenewalActionRequestNotificationsMock
 }));
 
 vi.mock("@/lib/observability/server-logger", () => ({
@@ -45,6 +50,8 @@ describe("send reminders cron route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     enqueueDueTrustedReminderDeliveryJobsMock.mockReset();
+    processQueuedRenewalActionRequestNotificationsMock.mockReset();
+    processQueuedRenewalActionRequestNotificationsMock.mockResolvedValue([]);
     emitOperationalEvent.mockReset();
     emitOperationalEvent.mockResolvedValue({});
   });
@@ -62,6 +69,7 @@ describe("send reminders cron route", () => {
 
     expect(response.status).toBe(401);
     expect(enqueueDueTrustedReminderDeliveryJobsMock).not.toHaveBeenCalled();
+    expect(processQueuedRenewalActionRequestNotificationsMock).not.toHaveBeenCalled();
   });
 
   it("rejects unauthorized requests", async () => {
@@ -76,6 +84,7 @@ describe("send reminders cron route", () => {
 
     expect(response.status).toBe(401);
     expect(enqueueDueTrustedReminderDeliveryJobsMock).not.toHaveBeenCalled();
+    expect(processQueuedRenewalActionRequestNotificationsMock).not.toHaveBeenCalled();
   });
 
   it("returns an empty result for authorized requests when no reminders are due", async () => {
@@ -94,7 +103,9 @@ describe("send reminders cron route", () => {
 
     expect(response.status).toBe(200);
     expect(enqueueDueTrustedReminderDeliveryJobsMock).toHaveBeenCalledWith("2030-01-01T12:15:00.000Z");
+    expect(processQueuedRenewalActionRequestNotificationsMock).toHaveBeenCalledWith({ limit: 25 });
     expect(payload.results).toEqual([]);
+    expect(payload.renewalActionNotifications).toEqual([]);
   });
 
   it("delegates to the reminder enqueue layer for authorized successful requests", async () => {
@@ -119,6 +130,7 @@ describe("send reminders cron route", () => {
     expect(payload.results).toEqual([
       { id: "r1", status: "queued", jobId: "job-1" }
     ]);
+    expect(payload.renewalActionNotifications).toEqual([]);
   });
 
   it("returns queued job results without hiding enqueue state", async () => {
