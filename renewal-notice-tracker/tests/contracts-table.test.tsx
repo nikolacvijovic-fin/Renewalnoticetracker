@@ -97,4 +97,35 @@ describe("contracts table", () => {
     expect(screen.getByRole("button", { name: /show risk details for owned contract/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /show risk details for foreign contract/i })).not.toBeInTheDocument();
   });
+
+  it("marks fictional onboarding sample contracts clearly", () => {
+    render(
+      <ContractsTable
+        contracts={[
+          {
+            id: "sample-contract-1",
+            status: "reviewed",
+            is_sample: true,
+            created_at: "2026-01-01T00:00:00.000Z",
+            owner_name: "Founder",
+            owner_user_id: "user-1",
+            department: "Finance",
+            status_tag: "renewal_watch",
+            contract_metadata: {
+              contract_title: "Sample SaaS Renewal Agreement",
+              counterparty_name: "Acme Analytics Cloud",
+              renewal_date: "2026-12-31",
+              expiration_date: "2026-12-31",
+              notice_deadline_date: "2026-12-01",
+              auto_renewal: true,
+              needs_review: false
+            }
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByText("Sample data")).toBeInTheDocument();
+    expect(screen.getByText("Fictional contract for onboarding")).toBeInTheDocument();
+  });
 });

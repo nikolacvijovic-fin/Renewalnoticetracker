@@ -1,8 +1,13 @@
 export type SupportSuccessCapabilityStatus = "shipped" | "deferred" | "future";
-export type SupportSuccessRuntimeSurfaceToday = "internal_ops" | "customer_services_copy" | "none";
+export type SupportSuccessRuntimeSurfaceToday =
+  | "internal_ops"
+  | "customer_services_copy"
+  | "customer_services_copy_and_internal_ops"
+  | "none";
 export type SupportSuccessRoleBoundary =
   | "internal_support_or_admin"
   | "customer_admin_or_owner"
+  | "active_customer_workflow_role"
   | "future_enterprise_support_gate";
 export type SupportSuccessPrivacySensitivity = "low" | "medium" | "high" | "restricted";
 export type CustomerHealthSignalSeverity = "P1" | "P2" | "P3";
@@ -11,6 +16,7 @@ export type CustomerHealthSignalComputability = "computable_today" | "future_onl
 export type SupportSuccessCapabilityId =
   | "account_health_snapshot"
   | "onboarding_checklist"
+  | "customer_feedback_request"
   | "support_diagnostic_bundle"
   | "safe_account_notes"
   | "escalation_workflow"
@@ -157,6 +163,25 @@ export const SUPPORT_SUCCESS_CAPABILITIES: Record<
     auditExpectation: "Checklist display does not create audit truth; underlying workflow actions do.",
     monitoringExpectation: "No alerting unless onboarding blockers become operational failures.",
     customerCommunicationExpectation: "Guide operators to first upload, review, owner assignment, trusted reminder, decision, and export."
+  }),
+  customer_feedback_request: capability({
+    id: "customer_feedback_request",
+    label: "Customer feedback and founder help request",
+    status: "shipped",
+    allowedRuntimeSurfaceToday: "customer_services_copy_and_internal_ops",
+    requiredRoleOrAuthBoundary: "active_customer_workflow_role",
+    allowedMetadata: [
+      ...commonAllowedSupportMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "source_surface",
+      "field_name",
+      "review_status"
+    ],
+    auditExpectation: "Feedback submissions and internal status changes emit ID-only audit metadata.",
+    monitoringExpectation: "Incorrect deadline and founder-help requests emit safe operational monitoring without raw customer content.",
+    customerCommunicationExpectation: "Customers see workflow-level feedback/help affordances, not a full helpdesk or health score."
   }),
   support_diagnostic_bundle: capability({
     id: "support_diagnostic_bundle",
@@ -386,14 +411,14 @@ export const CUSTOMER_HEALTH_SIGNALS: Record<CustomerHealthSignalId, CustomerHea
   }),
   support_escalation_open: healthSignal({
     id: "support_escalation_open",
-    computability: "future_only",
-    safeMetadata: ["organization_id", "escalation_id", "severity", "status", "opened_at"],
+    computability: "computable_today",
+    safeMetadata: ["organization_id", "feedback_id", "feedback_type", "severity", "status", "opened_at"],
     severity: "P1",
-    triggerSource: "future escalation workflow",
-    eventEvidence: [],
-    stateOrQuerySources: [],
+    triggerSource: "customer feedback/help request workflow",
+    eventEvidence: ["feedback.submitted", "feedback.status_changed", "feedback.resolved"],
+    stateOrQuerySources: ["customer_feedback_status_query", "customer_feedback_severity_summary"],
     futureEventEvidence: ["support.escalation_opened"],
-    recommendedSupportAction: "Assign an escalation owner and define customer communication timing."
+    recommendedSupportAction: "Triage the feedback request, update internal status, and respond without quoting customer content."
   }),
   enterprise_security_review_pending: healthSignal({
     id: "enterprise_security_review_pending",

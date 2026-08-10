@@ -35,6 +35,7 @@ describe("recordRenewalManualTemplateCopyAction", () => {
     requireScopedContract.mockResolvedValue({ id: "contract-1" });
     getContractById.mockResolvedValue({
       id: "contract-1",
+      renewal_decision_status: "terminate",
       contract_metadata: {
         renewal_date: "2026-10-01",
         expiration_date: null,
@@ -67,6 +68,7 @@ describe("recordRenewalManualTemplateCopyAction", () => {
         contractId: "contract-1",
         details: {
           templateType: "cancellation_notice",
+          renewalDecisionStatus: "terminate",
           hasNoticeDeadline: true,
           hasRenewalDate: true,
           hasExpirationDate: false
@@ -82,6 +84,15 @@ describe("recordRenewalManualTemplateCopyAction", () => {
 
   it("records the renegotiation-specific event without marking notice sent", async () => {
     const { recordRenewalManualTemplateCopyAction } = await import("@/lib/actions/contracts/manual-templates");
+    getContractById.mockResolvedValueOnce({
+      id: "contract-1",
+      renewal_decision_status: "renegotiate",
+      contract_metadata: {
+        renewal_date: "2026-10-01",
+        expiration_date: null,
+        notice_deadline_date: "2026-09-01"
+      }
+    });
 
     await recordRenewalManualTemplateCopyAction("contract-1", "renegotiation_request");
 
@@ -98,6 +109,48 @@ describe("recordRenewalManualTemplateCopyAction", () => {
       "Unsupported renewal manual template type"
     );
 
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("rejects cancellation copy when the current contract decision is not terminate", async () => {
+    const { recordRenewalManualTemplateCopyAction } = await import("@/lib/actions/contracts/manual-templates");
+    getContractById.mockResolvedValueOnce({
+      id: "contract-1",
+      renewal_decision_status: "renegotiate",
+      contract_metadata: {
+        renewal_date: "2026-10-01",
+        expiration_date: null,
+        notice_deadline_date: "2026-09-01"
+      }
+    });
+
+    await expect(
+      recordRenewalManualTemplateCopyAction("contract-1", "cancellation_notice")
+    ).rejects.toThrow("Cancellation templates require a terminate decision.");
+
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("rejects renegotiation copy when the current contract decision is not renegotiate", async () => {
+    const { recordRenewalManualTemplateCopyAction } = await import("@/lib/actions/contracts/manual-templates");
+
+    await expect(
+      recordRenewalManualTemplateCopyAction("contract-1", "renegotiation_request")
+    ).rejects.toThrow("Renegotiation templates require a renegotiate decision.");
+
+    expect(createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("does not audit unauthorized or cross-organization attempts", async () => {
+    const { recordRenewalManualTemplateCopyAction } = await import("@/lib/actions/contracts/manual-templates");
+    assertCanUseShippedAction.mockRejectedValueOnce(new Error("Forbidden"));
+
+    await expect(
+      recordRenewalManualTemplateCopyAction("foreign-contract", "cancellation_notice")
+    ).rejects.toThrow("Forbidden");
+
+    expect(requireScopedContract).not.toHaveBeenCalled();
+    expect(getContractById).not.toHaveBeenCalled();
     expect(createAuditLog).not.toHaveBeenCalled();
   });
 });

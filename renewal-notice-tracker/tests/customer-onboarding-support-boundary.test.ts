@@ -78,6 +78,7 @@ describe("customer onboarding and support/success boundary", () => {
     expect(SUPPORT_SUCCESS_CAPABILITY_IDS).toEqual([
       "account_health_snapshot",
       "onboarding_checklist",
+      "customer_feedback_request",
       "support_diagnostic_bundle",
       "safe_account_notes",
       "escalation_workflow",
@@ -92,7 +93,7 @@ describe("customer onboarding and support/success boundary", () => {
     for (const capabilityId of SUPPORT_SUCCESS_CAPABILITY_IDS) {
       const capability = SUPPORT_SUCCESS_CAPABILITIES[capabilityId];
       expect(["shipped", "deferred", "future"]).toContain(capability.status);
-      expect(["internal_ops", "customer_services_copy", "none"]).toContain(
+      expect(["internal_ops", "customer_services_copy", "customer_services_copy_and_internal_ops", "none"]).toContain(
         capability.allowedRuntimeSurfaceToday
       );
       expect(capability.requiredRoleOrAuthBoundary.length, `${capabilityId} needs auth boundary`).toBeGreaterThan(0);

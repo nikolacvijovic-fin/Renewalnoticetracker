@@ -113,6 +113,7 @@ export const SHIPPED_FIRST_SCOPE = {
     { href: "/dashboard/saas-opt-out-clock", label: "Opt-Out Clock" },
     { href: "/dashboard/revenue-intelligence", label: "Revenue Intelligence" },
     { href: "/dashboard/contracts", label: "Contracts" },
+    { href: "/dashboard/exports", label: "Exports" },
     { href: "/dashboard/settings", label: "Settings" },
     { href: "/pricing", label: "Pricing" },
     { href: "/services", label: "Services" }

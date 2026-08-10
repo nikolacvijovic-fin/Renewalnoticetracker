@@ -15,6 +15,7 @@ export const SHIPPED_RUNTIME_ACTIONS = [
   "export_ics",
   "manage_billing",
   "manage_org_settings",
+  "submit_feedback",
   "request_deletion",
   "internal_rescue_actions"
 ] as const;
@@ -112,6 +113,12 @@ export const SHIPPED_RUNTIME_ACTION_MATRIX: Record<ShippedRuntimeAction, ActionR
     internalRoles: [],
     orgScope: "active_organization",
     rationale: "Org-level settings need administrative authority."
+  },
+  submit_feedback: {
+    customerRoles: ["admin", "operator", "reviewer", "owner"],
+    internalRoles: [],
+    orgScope: "active_organization",
+    rationale: "Workflow feedback is a customer support signal that active participants can submit without changing operational truth."
   },
   request_deletion: {
     customerRoles: ["owner"],

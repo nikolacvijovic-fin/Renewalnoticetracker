@@ -2298,6 +2298,178 @@ export const PRODUCT_EVENT_TAXONOMY = {
     ],
     owningProductModule: "enterprise_identity_rbac_retention"
   }),
+  "feedback.submitted": taxonomyEvent({
+    name: "feedback.submitted",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/customer-feedback/customer-feedback.ts, lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "from_status",
+      "to_status"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  "feedback.deadline_correctness_recorded": taxonomyEvent({
+    name: "feedback.deadline_correctness_recorded",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/customer-feedback/customer-feedback.ts, lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "deadline_correct"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedOnboardingMilestones: ["first_contract_reviewed"],
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  "feedback.status_changed": taxonomyEvent({
+    name: "feedback.status_changed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/customer-feedback/customer-feedback.ts, lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "from_status",
+      "to_status"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  "feedback.resolved": taxonomyEvent({
+    name: "feedback.resolved",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/customer-feedback/customer-feedback.ts, lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "from_status",
+      "to_status"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  "feedback.dismissed": taxonomyEvent({
+    name: "feedback.dismissed",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/customer-feedback/customer-feedback.ts, lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "from_status",
+      "to_status"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  customer_feedback_submitted: taxonomyEvent({
+    name: "customer_feedback_submitted",
+    type: "analytics",
+    emittedToday: true,
+    source: "lib/actions/customer-feedback.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [
+      "organization_id",
+      "actor_user_id",
+      "feedback_type",
+      "severity",
+      "status",
+      "has_contract",
+      "source_surface"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  deadline_correctness_recorded: taxonomyEvent({
+    name: "deadline_correctness_recorded",
+    type: "analytics",
+    emittedToday: true,
+    source: "lib/actions/customer-feedback.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [
+      "organization_id",
+      "actor_user_id",
+      "feedback_type",
+      "severity",
+      "status",
+      "has_contract",
+      "source_surface"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedOnboardingMilestones: ["first_contract_reviewed"],
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  customer_feedback_resolved: taxonomyEvent({
+    name: "customer_feedback_resolved",
+    type: "analytics",
+    emittedToday: true,
+    source: "lib/actions/customer-feedback.ts",
+    privacySensitivity: "medium",
+    safeMetadataFields: [
+      "organization_id",
+      "actor_user_id",
+      "feedback_type",
+      "severity",
+      "from_status",
+      "to_status"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  customer_feedback_submitted_monitoring: taxonomyEvent({
+    name: "customer_feedback_submitted_monitoring",
+    type: "monitoring",
+    emittedToday: true,
+    source: "lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "source_surface"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
+  customer_feedback_status_changed: taxonomyEvent({
+    name: "customer_feedback_status_changed",
+    type: "monitoring",
+    emittedToday: true,
+    source: "lib/actions/customer-feedback.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "feedback_id",
+      "feedback_type",
+      "severity",
+      "from_status",
+      "to_status"
+    ],
+    owningProductModule: "admin_support_operations",
+    relatedSupportSignals: ["support_escalation_open"]
+  }),
   internal_rescue_action_recorded: taxonomyEvent({
     name: "internal_rescue_action_recorded",
     type: "analytics",

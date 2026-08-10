@@ -4,6 +4,7 @@ import type { ContractFilter } from "@/lib/constants";
 export type DashboardContractRow = {
   id?: string;
   status: string;
+  is_sample?: boolean | null;
   cycle_status?: string | null;
   status_tag: string | null;
   department?: string | null;

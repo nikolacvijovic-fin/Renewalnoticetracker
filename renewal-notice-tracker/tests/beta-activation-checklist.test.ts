@@ -7,6 +7,7 @@ import {
   type ActivationContractInput
 } from "@/lib/onboarding/activation-state";
 import { buildBetaActivationChecklist } from "@/lib/onboarding/beta-activation-checklist";
+import { buildEmailConfigurationReadiness } from "@/lib/onboarding/queries";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const now = new Date("2026-05-25T00:00:00.000Z");
@@ -114,6 +115,105 @@ describe("beta activation checklist", () => {
     expect(checklistItem(checklist, "download_calendar_event").completed).toBe(true);
     expect(checklistItem(checklist, "record_first_decision").completed).toBe(true);
     expect(checklist.customerSafeSummary).toBe("Your first renewal is under control.");
+  });
+
+  it("keeps contract-specific activation steps tied to one recommended contract", () => {
+    const activation = state([
+      contract({
+        id: "target-contract",
+        owner_user_id: null,
+        contract_metadata: {
+          ...(contract().contract_metadata as NonNullable<ActivationContractInput["contract_metadata"]>),
+          contract_title: "Urgent selected contract",
+          notice_deadline_date: "2026-05-30",
+          renewal_date: "2026-06-30"
+        },
+        renewal_decisions: []
+      }),
+      contract({
+        id: "other-contract",
+        owner_user_id: "owner-on-other-contract",
+        contract_metadata: {
+          ...(contract().contract_metadata as NonNullable<ActivationContractInput["contract_metadata"]>),
+          contract_title: "Different contract",
+          notice_deadline_date: null,
+          renewal_date: null,
+          needs_review: true
+        },
+        renewal_decisions: [{ id: "decision-on-other-contract", status: "terminate" }]
+      })
+    ]);
+    const checklist = buildBetaActivationChecklist({ activation });
+
+    expect(activation.recommendedContractId).toBe("target-contract");
+    expect(checklistItem(checklist, "review_extracted_deadline")).toMatchObject({
+      completed: true,
+      scope: "target_contract",
+      targetContractId: "target-contract",
+      href: "/dashboard/contracts/target-contract"
+    });
+    expect(checklistItem(checklist, "assign_owner")).toMatchObject({
+      completed: false,
+      targetContractId: "target-contract",
+      href: "/dashboard/contracts/target-contract#owner-panel"
+    });
+    expect(checklistItem(checklist, "record_first_decision")).toMatchObject({
+      completed: false,
+      targetContractId: "target-contract",
+      href: "/dashboard/contracts/target-contract#decision-panel"
+    });
+    expect(healthCheck(checklist, "contract_uploaded").scope).toBe("workspace");
+    expect(healthCheck(checklist, "owner_assigned")).toMatchObject({
+      status: "needs_action",
+      scope: "target_contract",
+      targetContractId: "target-contract"
+    });
+  });
+
+  it("persists calendar completion from durable export evidence after refresh", () => {
+    const activation = state([contract()]);
+    const firstRender = buildBetaActivationChecklist({
+      activation,
+      calendarExportDownloaded: false
+    });
+    const refreshed = buildBetaActivationChecklist({
+      activation,
+      calendarExportDownloaded: true
+    });
+
+    expect(checklistItem(firstRender, "download_calendar_event")).toMatchObject({
+      completed: false,
+      href: "/dashboard/contracts/contract-1/ics"
+    });
+    expect(checklistItem(refreshed, "download_calendar_event")).toMatchObject({
+      completed: true,
+      href: "/dashboard/contracts/contract-1/ics"
+    });
+  });
+
+  it("derives email readiness from configuration without exposing secret values", () => {
+    const missingReplyTo = buildEmailConfigurationReadiness({
+      resendApiKey: "secret-key",
+      fromEmail: "notices@example.com",
+      replyToEmail: null
+    });
+    const ready = buildEmailConfigurationReadiness({
+      resendApiKey: "secret-key",
+      fromEmail: "notices@example.com",
+      replyToEmail: "reply@example.com"
+    });
+
+    expect(missingReplyTo).toEqual({
+      configured: false,
+      missing: ["reply_to_email"],
+      source: "app_config"
+    });
+    expect(ready).toEqual({
+      configured: true,
+      missing: [],
+      source: "app_config"
+    });
+    expect(JSON.stringify({ missingReplyTo, ready })).not.toContain("secret-key");
   });
 
   it("does not treat weak or impossible extracted deadlines as reviewed activation progress", () => {

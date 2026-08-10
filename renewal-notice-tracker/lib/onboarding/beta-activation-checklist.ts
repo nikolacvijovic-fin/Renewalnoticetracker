@@ -9,6 +9,7 @@ export type BetaActivationChecklistItemId =
   | "record_first_decision";
 
 export type BetaActivationChecklistStatus = "complete" | "available" | "blocked";
+export type BetaActivationScope = "workspace" | "target_contract";
 
 export type BetaActivationChecklistItem = {
   id: BetaActivationChecklistItemId;
@@ -17,6 +18,8 @@ export type BetaActivationChecklistItem = {
   status: BetaActivationChecklistStatus;
   href: string;
   shortHelp: string;
+  scope: BetaActivationScope;
+  targetContractId: string | null;
 };
 
 export type BetaSetupHealthCheckId =
@@ -34,6 +37,8 @@ export type BetaSetupHealthCheck = {
   label: string;
   status: BetaSetupHealthStatus;
   message: string;
+  scope: BetaActivationScope;
+  targetContractId: string | null;
 };
 
 export type BetaActivationChecklist = {
@@ -73,9 +78,11 @@ function health(
   id: BetaSetupHealthCheckId,
   label: string,
   status: BetaSetupHealthStatus,
-  message: string
+  message: string,
+  scope: BetaActivationScope,
+  targetContractId: string | null = null
 ): BetaSetupHealthCheck {
-  return { id, label, status, message };
+  return { id, label, status, message, scope, targetContractId };
 }
 
 export function buildBetaActivationChecklist(input: {
@@ -85,12 +92,16 @@ export function buildBetaActivationChecklist(input: {
 }): BetaActivationChecklist {
   const activation = input.activation;
   const contractHrefValue = contractHref(activation.recommendedContractId);
+  const targetContract =
+    activation.contractAssessments.find((contract) => contract.contractId === activation.recommendedContractId) ??
+    null;
+  const targetContractId = targetContract?.contractId ?? null;
   const hasContract = activation.contractAssessments.length > 0;
-  const hasReviewedDeadline = activation.contractAssessments.some((contract) => contract.noticeDeadlineReviewed);
-  const hasOwner = activation.contractAssessments.some((contract) => contract.ownerAssigned);
-  const hasDecision = activation.contractAssessments.some((contract) => contract.hasRenewalDecision);
-  const reminderReady = activation.contractAssessments.some((contract) => contract.trustedReminderGate.canActivate);
-  const hasReminder = activation.hasActiveTrustedReminder;
+  const hasReviewedDeadline = Boolean(targetContract?.noticeDeadlineReviewed);
+  const hasOwner = Boolean(targetContract?.ownerAssigned);
+  const hasDecision = Boolean(targetContract?.hasRenewalDecision);
+  const reminderReady = Boolean(targetContract?.trustedReminderGate.canActivate);
+  const hasReminder = Boolean(targetContract?.hasActiveTrustedReminder && targetContract.trustedReminderGate.canActivate);
   const calendarAvailable = hasReviewedDeadline && Boolean(activation.recommendedContractId);
 
   const items: BetaActivationChecklistItem[] = [
@@ -99,7 +110,9 @@ export function buildBetaActivationChecklist(input: {
       label: "Upload first contract",
       completed: hasContract,
       href: "/dashboard/contracts/new",
-      shortHelp: hasContract ? "Contract is in the workspace." : "Upload your first contract PDF."
+      shortHelp: hasContract ? "Contract is in the workspace." : "Upload your first contract PDF.",
+      scope: "workspace",
+      targetContractId: null
     }),
     hasContract
       ? item({
@@ -109,13 +122,17 @@ export function buildBetaActivationChecklist(input: {
           href: contractHrefValue,
           shortHelp: hasReviewedDeadline
             ? "Notice deadline is reviewed."
-            : "Confirm or correct the notice deadline."
+            : "Confirm or correct the notice deadline on the selected activation contract.",
+          scope: "target_contract",
+          targetContractId
         })
       : blockedItem({
           id: "review_extracted_deadline",
           label: "Review extracted deadline",
           href: "/dashboard/contracts/new",
-          shortHelp: "Upload a contract before reviewing extracted fields."
+          shortHelp: "Upload a contract before reviewing extracted fields.",
+          scope: "target_contract",
+          targetContractId: null
         }),
     hasContract
       ? item({
@@ -123,13 +140,19 @@ export function buildBetaActivationChecklist(input: {
           label: "Assign owner",
           completed: hasOwner,
           href: `${contractHrefValue}#owner-panel`,
-          shortHelp: hasOwner ? "An accountable internal owner is assigned." : "Assign yourself or another internal owner."
+          shortHelp: hasOwner
+            ? "An accountable internal owner is assigned to the selected activation contract."
+            : "Assign yourself or another internal owner to the selected activation contract.",
+          scope: "target_contract",
+          targetContractId
         })
       : blockedItem({
           id: "assign_owner",
           label: "Assign owner",
           href: "/dashboard/contracts/new",
-          shortHelp: "Upload a contract before assigning ownership."
+          shortHelp: "Upload a contract before assigning ownership.",
+          scope: "target_contract",
+          targetContractId: null
         }),
     reminderReady
       ? item({
@@ -139,13 +162,17 @@ export function buildBetaActivationChecklist(input: {
           href: `${contractHrefValue}#reminders`,
           shortHelp: hasReminder
             ? "A trusted reminder clock is active."
-            : "Use the default 30/14/7/3/0 reminder windows."
+            : "Use the default 30/14/7/3/0 reminder windows for the selected activation contract.",
+          scope: "target_contract",
+          targetContractId
         })
       : blockedItem({
           id: "enable_internal_reminders",
           label: "Enable internal reminders",
           href: contractHrefValue,
-          shortHelp: "Review deadline, owner, and evidence before reminders activate."
+          shortHelp: "Review deadline, owner, and evidence on the selected activation contract before reminders activate.",
+          scope: "target_contract",
+          targetContractId
         }),
     calendarAvailable
       ? item({
@@ -153,13 +180,19 @@ export function buildBetaActivationChecklist(input: {
           label: "Download calendar event",
           completed: Boolean(input.calendarExportDownloaded),
           href: contractIcsHref(activation.recommendedContractId),
-          shortHelp: "Put the reviewed deadline into Google Calendar, Outlook, or Apple Calendar."
+          shortHelp: input.calendarExportDownloaded
+            ? "Calendar event download is recorded for the selected activation contract."
+            : "Put the selected activation contract deadline into Google Calendar, Outlook, or Apple Calendar.",
+          scope: "target_contract",
+          targetContractId
         })
       : blockedItem({
           id: "download_calendar_event",
           label: "Download calendar event",
           href: "/dashboard/contracts/trusted-upcoming/ics",
-          shortHelp: "Calendar export unlocks after a reviewed deadline exists."
+          shortHelp: "Calendar export unlocks after the selected activation contract has a reviewed deadline.",
+          scope: "target_contract",
+          targetContractId
         }),
     hasContract
       ? item({
@@ -167,13 +200,19 @@ export function buildBetaActivationChecklist(input: {
           label: "Record first renewal decision",
           completed: hasDecision,
           href: `${contractHrefValue}#decision-panel`,
-          shortHelp: hasDecision ? "First renewal decision is recorded." : "Record renew, cancel, renegotiate, defer, or accept risk."
+          shortHelp: hasDecision
+            ? "First renewal decision is recorded on the selected activation contract."
+            : "Record renew, terminate, renegotiate, defer, or no-action decision on the selected activation contract.",
+          scope: "target_contract",
+          targetContractId
         })
       : blockedItem({
           id: "record_first_decision",
           label: "Record first renewal decision",
           href: "/dashboard/contracts/new",
-          shortHelp: "Upload a contract before recording a decision."
+          shortHelp: "Upload a contract before recording a decision.",
+          scope: "target_contract",
+          targetContractId: null
         })
   ];
 
@@ -185,7 +224,8 @@ export function buildBetaActivationChecklist(input: {
       input.emailConfigured === true || hasReminder ? "healthy" : input.emailConfigured === false ? "needs_action" : "unknown",
       input.emailConfigured === true || hasReminder
         ? "Internal reminder email is ready."
-        : "Send a test internal reminder to verify email before relying on alerts."
+        : "Configure sender and reply-to email before relying on internal alerts.",
+      "workspace"
     ),
     health(
       "reminder_windows",
@@ -195,31 +235,46 @@ export function buildBetaActivationChecklist(input: {
         ? "Reminder clock is active."
         : reminderReady
           ? "Use the default 30/14/7/3/0 windows."
-          : "Review the deadline and owner before reminder windows can be trusted."
+          : "Review the selected contract deadline and owner before reminder windows can be trusted.",
+      "target_contract",
+      targetContractId
     ),
     health(
       "contract_uploaded",
       "Contract uploaded",
       hasContract ? "healthy" : "needs_action",
-      hasContract ? "At least one contract exists." : "Upload your first contract PDF."
+      hasContract ? "At least one contract exists." : "Upload your first contract PDF.",
+      "workspace"
     ),
     health(
       "trusted_notice_deadline",
       "Trusted notice deadline",
       hasReviewedDeadline ? "healthy" : hasContract ? "needs_action" : "blocked",
-      hasReviewedDeadline ? "A reviewed deadline exists." : "Confirm or correct the extracted notice deadline."
+      hasReviewedDeadline
+        ? "The selected activation contract has a reviewed deadline."
+        : "Confirm or correct the selected activation contract notice deadline.",
+      "target_contract",
+      targetContractId
     ),
     health(
       "owner_assigned",
       "Owner assigned",
       hasOwner ? "healthy" : hasContract ? "needs_action" : "blocked",
-      hasOwner ? "At least one contract has an accountable owner." : "Assign an internal owner before the deadline."
+      hasOwner
+        ? "The selected activation contract has an accountable owner."
+        : "Assign an internal owner to the selected activation contract before the deadline.",
+      "target_contract",
+      targetContractId
     ),
     health(
       "calendar_export_available",
       "Calendar export",
       calendarAvailable ? "healthy" : "blocked",
-      calendarAvailable ? "Reviewed deadlines can be downloaded as ICS." : "Calendar export needs a reviewed deadline."
+      calendarAvailable
+        ? "The selected activation contract deadline can be downloaded as ICS."
+        : "Calendar export needs a reviewed deadline on the selected activation contract.",
+      "target_contract",
+      targetContractId
     )
   ];
 

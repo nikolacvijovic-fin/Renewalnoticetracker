@@ -14,6 +14,7 @@ Enterprise onboarding readiness lives in `lib/product/enterprise-onboarding-read
 | --- | --- | --- |
 | `account_health_snapshot` | future | none |
 | `onboarding_checklist` | shipped | customer services/checklist copy |
+| `customer_feedback_request` | shipped | customer workflow surfaces and internal beta-health triage |
 | `support_diagnostic_bundle` | shipped | internal ops, code-first diagnostics |
 | `safe_account_notes` | future | none |
 | `escalation_workflow` | future | none |
@@ -24,7 +25,9 @@ Enterprise onboarding readiness lives in `lib/product/enterprise-onboarding-read
 | `billing_exception_support` | shipped | internal ops and support-led billing exceptions |
 | `data_export_deletion_support` | deferred | internal ops status only |
 
-Shipped support surfaces are intentionally narrow: the customer onboarding checklist, internal ops diagnostics, billing exception visibility, and assisted troubleshooting using codes and counts. Future support/success tooling needs an Enterprise support gate before becoming runtime product.
+Shipped support surfaces are intentionally narrow: the customer onboarding checklist, customer workflow feedback/help requests, internal ops diagnostics, billing exception visibility, and assisted troubleshooting using codes and counts. Future support/success tooling needs an Enterprise support gate before becoming runtime product.
+
+Customer feedback requests may collect an optional bounded message for protected internal triage. Audit, analytics, monitoring, and event taxonomy metadata must remain categorical and ID-only: feedback type, severity, status, organization ID, actor user ID, contract ID, entity type, and source surface. Customers can submit and read organization-scoped feedback; only internal support/admin can change triage status.
 
 The current governance runtime has a narrow support-access review evidence helper for internal support/admin use. It can prepare purpose-limited, expiring, tenant-scoped, audit-safe review evidence, but it is not a customer-facing support-access portal and does not allow impersonation or raw-data browsing.
 
@@ -75,10 +78,10 @@ Computable today from safe event or state/query sources:
 - `export_failed_repeatedly`
 - `billing_exception_needs_followup`
 - `ocr_queue_delayed`
+- `support_escalation_open` from shipped customer feedback/help-request submissions and internal status changes
 
 Future-only signals:
 
-- `support_escalation_open`
 - `enterprise_security_review_pending`
 
 Each signal must declare whether it is `computable_today` or `future_only`. Computable-today signals must reference real emitted events from [EVENT_TAXONOMY.md](EVENT_TAXONOMY.md) or real state/query sources. Future-only signals must reference future/deferred event contracts only. Each signal must use safe metadata only and must not carry customer content.

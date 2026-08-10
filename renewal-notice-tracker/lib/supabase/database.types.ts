@@ -21,6 +21,12 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["analytics_events"]["Insert"]>;
         Relationships: [];
       };
+      customer_feedback: {
+        Row: { id: string; organization_id: string; contract_id: string | null; entity_type: string | null; entity_id: string | null; submitted_by_user_id: string; feedback_type: string; severity: string; status: string; message: string | null; safe_context: Json; idempotency_key: string; created_at: string; updated_at: string; resolved_at: string | null; resolved_by_user_id: string | null; resolution_note: string | null };
+        Insert: { id?: string; organization_id: string; contract_id?: string | null; entity_type?: string | null; entity_id?: string | null; submitted_by_user_id: string; feedback_type: string; severity?: string; status?: string; message?: string | null; safe_context?: Json; idempotency_key: string; created_at?: string; updated_at?: string; resolved_at?: string | null; resolved_by_user_id?: string | null; resolution_note?: string | null };
+        Update: Partial<Database["public"]["Tables"]["customer_feedback"]["Insert"]>;
+        Relationships: [];
+      };
       organization_activation_events: {
         Row: { id: string; organization_id: string; actor_user_id: string | null; event_type: string; contract_id: string | null; metadata: Json; created_at: string };
         Insert: { id?: string; organization_id: string; actor_user_id?: string | null; event_type: string; contract_id?: string | null; metadata?: Json; created_at?: string };
@@ -46,8 +52,8 @@ export type Database = {
         Relationships: [];
       };
       contracts: {
-        Row: { id: string; organization_id: string; created_by: string; status: string; source_type: string; latest_file_id: string | null; created_at: string; updated_at: string; owner_user_id: string | null; department: string | null; status_tag: string; counterparty_id: string | null; renewal_decision_status: string; renewal_decision_date: string | null; cycle_status: string; last_acknowledged_at: string | null; last_acknowledged_by: string | null };
-        Insert: { id?: string; organization_id: string; created_by: string; status?: string; source_type?: string; latest_file_id?: string | null; created_at?: string; updated_at?: string; owner_user_id?: string | null; department?: string | null; status_tag?: string; counterparty_id?: string | null; renewal_decision_status?: string; renewal_decision_date?: string | null; cycle_status?: string; last_acknowledged_at?: string | null; last_acknowledged_by?: string | null };
+        Row: { id: string; organization_id: string; created_by: string; status: string; source_type: string; is_sample: boolean; latest_file_id: string | null; created_at: string; updated_at: string; owner_user_id: string | null; department: string | null; status_tag: string; counterparty_id: string | null; renewal_decision_status: string; renewal_decision_date: string | null; cycle_status: string; last_acknowledged_at: string | null; last_acknowledged_by: string | null };
+        Insert: { id?: string; organization_id: string; created_by: string; status?: string; source_type?: string; is_sample?: boolean; latest_file_id?: string | null; created_at?: string; updated_at?: string; owner_user_id?: string | null; department?: string | null; status_tag?: string; counterparty_id?: string | null; renewal_decision_status?: string; renewal_decision_date?: string | null; cycle_status?: string; last_acknowledged_at?: string | null; last_acknowledged_by?: string | null };
         Update: Partial<Database["public"]["Tables"]["contracts"]["Insert"]>;
         Relationships: [];
       };

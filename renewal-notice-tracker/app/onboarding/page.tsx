@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/layout/dashboard-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { requireOrganization } from "@/lib/auth";
+import { createSampleContractAction } from "@/lib/actions/contracts";
 import { buildOrganizationActivationState } from "@/lib/onboarding/activation-state";
 import { recordOrganizationActivationMilestonesOnce } from "@/lib/onboarding/activation-events";
 import {
@@ -10,7 +11,11 @@ import {
   type BetaActivationChecklistStatus,
   type BetaSetupHealthStatus
 } from "@/lib/onboarding/beta-activation-checklist";
-import { getOrganizationActivationContracts } from "@/lib/onboarding/queries";
+import {
+  getEmailConfigurationReadiness,
+  getOrganizationActivationContracts,
+  hasContractCalendarExportAudit
+} from "@/lib/onboarding/queries";
 
 const STATE_LABELS: Record<string, string> = {
   empty_workspace: "Empty workspace",
@@ -60,8 +65,15 @@ export default async function OnboardingPage() {
     organizationId: context.organizationId,
     contracts
   });
+  const emailReadiness = getEmailConfigurationReadiness();
+  const calendarExportDownloaded = await hasContractCalendarExportAudit({
+    organizationId: context.organizationId,
+    contractId: activation.recommendedContractId
+  });
   const betaChecklist = buildBetaActivationChecklist({
-    activation
+    activation,
+    emailConfigured: emailReadiness.configured,
+    calendarExportDownloaded
   });
 
   recordOrganizationActivationMilestonesOnce({
@@ -178,6 +190,9 @@ export default async function OnboardingPage() {
                 <p className="text-sm font-semibold text-ink">{item.label}</p>
                 <Badge tone={checklistTone(item.status)}>{checklistStatusLabel(item.status)}</Badge>
               </div>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                {item.scope === "workspace" ? "Workspace-level" : "Selected contract"}
+              </p>
               <p className="mt-2 text-sm text-muted">{item.shortHelp}</p>
             </Link>
           ))}
@@ -198,6 +213,9 @@ export default async function OnboardingPage() {
                 <p className="text-sm font-semibold text-ink">{check.label}</p>
                 <Badge tone={healthTone(check.status)}>{healthLabel(check.status)}</Badge>
               </div>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                {check.scope === "workspace" ? "Workspace-level" : "Selected contract"}
+              </p>
               <p className="mt-2 text-sm text-muted">{check.message}</p>
             </div>
           ))}
@@ -211,9 +229,20 @@ export default async function OnboardingPage() {
             The first useful screen is one reviewed opt-out deadline with an internal owner. If extraction
             fails, enter the key dates manually and keep weak fields in review.
           </p>
-          <Button asChild className="mt-5">
-            <Link href="/dashboard/contracts/new">Upload first PDF</Link>
-          </Button>
+          <div className="mt-5 flex flex-col items-center justify-center gap-3 sm:flex-row">
+            <Button asChild>
+              <Link href="/dashboard/contracts/new">Upload first PDF</Link>
+            </Button>
+            <form action={createSampleContractAction}>
+              <Button type="submit" variant="secondary">
+                Try with sample contract
+              </Button>
+            </form>
+          </div>
+          <p className="mx-auto mt-3 max-w-xl text-xs text-slate-500">
+            The sample is clearly marked as fictional, uses synthetic dates relative to today, never sends
+            notices, and can be removed before you upload real contracts.
+          </p>
         </section>
       ) : null}
 

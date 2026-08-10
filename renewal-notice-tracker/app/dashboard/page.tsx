@@ -16,6 +16,7 @@ import {
 } from "@/lib/dashboard/urgent-renewal-items";
 import { getMyRenewalActionItems } from "@/lib/contracts/kernel-queries";
 import { getSaasOptOutClock, getSaasRenewalImportReviewQueue } from "@/lib/saas/queries";
+import { CustomerFeedbackPanel } from "@/components/customer-feedback/customer-feedback-panel";
 
 const SEVERITY_TONE: Record<RenewalCommandSeverity, "critical" | "urgent" | "warning" | "success"> = {
   critical: "critical",
@@ -193,6 +194,16 @@ export default async function DashboardPage({
           </Button>
         </div>
       </section>
+
+      <CustomerFeedbackPanel
+        title="Need founder help?"
+        description="Send a safe workspace-level note if you are stuck. Do not paste contract text, email bodies, or private notes."
+        defaultFeedbackType="request_help"
+        currentRoute="/dashboard"
+        entityType="dashboard"
+        sourceSurface="dashboard_workspace_help"
+        compact
+      />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <MetricCard

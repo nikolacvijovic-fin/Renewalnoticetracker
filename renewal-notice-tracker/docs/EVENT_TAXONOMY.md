@@ -179,6 +179,18 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `internal_rescue_action_recorded`
 - `admin.notification_resent`
 - `admin.reminder_rerun`
+- `feedback.submitted`
+- `feedback.deadline_correctness_recorded`
+- `feedback.status_changed`
+- `feedback.resolved`
+- `feedback.dismissed`
+- `customer_feedback_submitted`
+- `deadline_correctness_recorded`
+- `customer_feedback_resolved`
+- `customer_feedback_submitted_monitoring`
+- `customer_feedback_status_changed`
+
+Customer feedback/support-request events are shipped workflow support evidence. Customer-entered messages may be visible only in the protected internal support queue for triage; audit, analytics, monitoring, and event taxonomy metadata remain categorical and ID-only. Feedback does not mutate contract metadata, does not mark notice as sent, and does not create a customer-success health score.
 
 ## Future Or Deferred Event Evidence
 

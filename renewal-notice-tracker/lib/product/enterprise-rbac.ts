@@ -77,6 +77,7 @@ export const ENTERPRISE_SENSITIVE_ACTION_IDS = [
   "procurement_analytics_access",
   "billing_settings_manage_checkout",
   "org_settings_manage",
+  "support_feedback_request",
   "internal_operations",
   "workspace_deletion",
   "future_sso_settings",
@@ -108,6 +109,7 @@ const CURRENT_CUSTOMER_SENSITIVE_ACTIONS = [
   "procurement_analytics_access",
   "billing_settings_manage_checkout",
   "org_settings_manage",
+  "support_feedback_request",
   "workspace_deletion"
 ] as const satisfies readonly EnterpriseSensitiveActionId[];
 
@@ -403,6 +405,20 @@ export const ENTERPRISE_SENSITIVE_ACTION_RULES: Record<
     requiredTestsOrReleaseGates: ["test:permission-boundaries", "tests/settings-actions-authz.test.ts"],
     notes: "Org-level settings require administrative authority."
   }),
+  support_feedback_request: shippedRule({
+    id: "support_feedback_request",
+    label: "Customer feedback and support request",
+    action: "submit_feedback",
+    minimumPlanOrGate: "none",
+    ownerSurfaces: [
+      "/dashboard",
+      "/dashboard/contracts/[id]",
+      "/dashboard/exports",
+      "lib/actions/customer-feedback.ts"
+    ],
+    requiredTestsOrReleaseGates: ["test:ops-readiness", "tests/customer-feedback.test.ts"],
+    notes: "Workflow feedback is active-org scoped, support-triaged, and never mutates contract truth."
+  }),
   internal_operations: shippedRule({
     id: "internal_operations",
     label: "Internal operations",
@@ -546,7 +562,8 @@ export const ENTERPRISE_ROLE_REGISTRY: Record<EnterpriseRoleId, EnterpriseRoleDe
       "financial_intelligence_access",
       "procurement_analytics_access",
       "billing_settings_manage_checkout",
-      "org_settings_manage"
+      "org_settings_manage",
+      "support_feedback_request"
     ],
     explicitlyForbiddenActions: [
       "workspace_deletion",
@@ -578,7 +595,8 @@ export const ENTERPRISE_ROLE_REGISTRY: Record<EnterpriseRoleId, EnterpriseRoleDe
       "export_sensitive_rich_presets",
       "export_ics",
       "intelligence_risk_explanation_access",
-      "procurement_analytics_access"
+      "procurement_analytics_access",
+      "support_feedback_request"
     ],
     explicitlyForbiddenActions: [
       "financial_intelligence_access",
@@ -608,7 +626,8 @@ export const ENTERPRISE_ROLE_REGISTRY: Record<EnterpriseRoleId, EnterpriseRoleDe
       "export_basic",
       "export_sensitive_rich_presets",
       "export_ics",
-      "intelligence_risk_explanation_access"
+      "intelligence_risk_explanation_access",
+      "support_feedback_request"
     ],
     explicitlyForbiddenActions: [
       "contract_upload_import",
@@ -642,7 +661,8 @@ export const ENTERPRISE_ROLE_REGISTRY: Record<EnterpriseRoleId, EnterpriseRoleDe
       "intelligence_risk_explanation_access",
       "billing_settings_manage_checkout",
       "org_settings_manage",
-      "workspace_deletion"
+      "workspace_deletion",
+      "support_feedback_request"
     ],
     explicitlyForbiddenActions: [
       "contract_upload_import",
@@ -810,4 +830,3 @@ export function getEnterpriseRoleDefinition(role: EnterpriseRoleId) {
 export function isFutureEnterpriseRole(role: EnterpriseRoleId) {
   return ENTERPRISE_ROLE_REGISTRY[role].status === "future";
 }
-

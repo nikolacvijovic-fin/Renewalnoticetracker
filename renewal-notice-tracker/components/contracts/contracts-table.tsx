@@ -14,6 +14,7 @@ import type { SaasContractOptOutStatus } from "@/lib/saas/queries";
 type ContractRow = {
   id: string;
   status: string;
+  is_sample?: boolean | null;
   created_at: string;
   contract_metadata: {
     contract_title: string | null;
@@ -72,6 +73,12 @@ export function ContractsTable({
                 <Link href={`/dashboard/contracts/${contract.id}`} className="font-medium text-brand-700 hover:text-brand-800">
                   {contract.contract_metadata?.contract_title ?? "Untitled contract"}
                 </Link>
+                {contract.is_sample ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <Badge tone="warning">Sample data</Badge>
+                    <span className="text-xs text-slate-500">Fictional contract for onboarding</span>
+                  </div>
+                ) : null}
               </td>
               <td className="px-4 py-4 text-slate-600">
                 {contract.contract_metadata?.counterparty_name ?? "Not set"}

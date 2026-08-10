@@ -23,6 +23,8 @@ Gated intelligence, financial exposure, procurement analytics, the Revenue Intel
 
 Customer first-value onboarding is shipped as a renewal-control checklist. Enterprise onboarding readiness is a support-safe launch model in [ENTERPRISE_ONBOARDING_READINESS.md](ENTERPRISE_ONBOARDING_READINESS.md): it can summarize pilot, paid launch, and enterprise launch categories, but it does not ship customer success health scores, support impersonation, provider-backed SSO login, or live SCIM provisioning endpoints.
 
+Customer feedback and founder-help requests are shipped only as narrow workflow support signals. Customers can confirm whether a deadline looks correct, report a problem, or request help from selected renewal-control surfaces; internal support/admin can triage status in protected ops views. This is not a full helpdesk, CRM, customer health score, support impersonation system, or raw-data browsing surface.
+
 Market profile support is infrastructure only. The current shipped market is `global/default`; planned market compatibility is not runtime permission. Market activation approval contracts are future infrastructure only: they model organization-specific, time-bound legal/payment/provider/data review, but they do not ship local-market activation today. Restricted markets require legal/compliance review and cannot self-activate. The market profile layer must not be used for sanctions evasion, provider restriction workarounds, or claims that restricted markets are supported today.
 
 Anything outside this loop belongs in deferred capability records, future activation rules, or reference-only material.

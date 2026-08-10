@@ -267,7 +267,8 @@ export async function getOrganizationContractCount(organizationId: string) {
   const { count, error } = await supabase
     .from("contracts")
     .select("id", { count: "exact", head: true })
-    .eq("organization_id", organizationId);
+    .eq("organization_id", organizationId)
+    .neq("status", "archived");
 
   if (error) throw error;
   return count ?? 0;
@@ -289,6 +290,7 @@ export async function getContracts(
       `
       id,
       status,
+      is_sample,
       cycle_status,
       status_tag,
       department,

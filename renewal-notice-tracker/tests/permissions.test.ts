@@ -34,6 +34,12 @@ describe("role checks", () => {
       "operator",
       "owner"
     ]);
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.submit_feedback.customerRoles).toEqual([
+      "admin",
+      "operator",
+      "reviewer",
+      "owner"
+    ]);
     expect(SHIPPED_RUNTIME_ACTION_MATRIX.internal_rescue_actions.internalRoles).toEqual([
       "internal_support",
       "internal_admin"

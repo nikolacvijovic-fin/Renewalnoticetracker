@@ -60,6 +60,9 @@ describe("phase-1 analytics taxonomy", () => {
       "acknowledgment_recorded",
       "renewal_decision_recorded",
       "export_requested",
+      "customer_feedback_submitted",
+      "deadline_correctness_recorded",
+      "customer_feedback_resolved",
       "billing_checkout_started",
       "checkout_completed",
       "internal_rescue_action_recorded"

@@ -41,6 +41,7 @@ import {
 import { reminderSchema } from "@/lib/validation/reminder";
 import { createAuditLog } from "@/lib/audit";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
+import { recordSampleToFirstRealContractStartedIfNeeded } from "@/lib/actions/contracts/sample";
 import { getAppConfig } from "@/lib/config";
 import { splitEmails, uniqueEmails } from "@/lib/utils";
 import {
@@ -1044,6 +1045,13 @@ export async function createContractAction(formData: FormData) {
     }
   });
 
+  await recordSampleToFirstRealContractStartedIfNeeded({
+    organizationId,
+    actorUserId: user.id,
+    realContractId: contract.id,
+    realContractSourceType: "upload"
+  });
+
   await trackServerAnalyticsEvent({
     organizationId,
     actorUserId: user.id,
@@ -1326,6 +1334,13 @@ export async function createManualContractAction(formData: FormData) {
       superseded_reminder_count: supersededReminderCount,
       processing_status: payload.needs_review ? "needs_review" : reminderActivationState
     }
+  });
+
+  await recordSampleToFirstRealContractStartedIfNeeded({
+    organizationId,
+    actorUserId: user.id,
+    realContractId: contract.id,
+    realContractSourceType: "manual"
   });
 
   if (!payload.needs_review) {

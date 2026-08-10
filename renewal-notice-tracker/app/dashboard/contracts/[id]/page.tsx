@@ -11,8 +11,10 @@ import {
   assignContractOwnerAction,
   completeRenewalActionRequestAction,
   dismissRenewalActionRequestAction,
+  recordSampleContractOpened,
   requestRenewalActionAction
 } from "@/lib/actions/contracts";
+import { removeSampleContractAction } from "@/lib/actions/contracts/sample";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ReviewForm } from "@/components/contracts/review-form";
@@ -35,6 +37,10 @@ import { ContractExtractionReviewPanel } from "@/components/contracts/contract-e
 import { RenewalQuoteComparisonPanel } from "@/components/contracts/renewal-quote-comparison-panel";
 import { DecisionLoopLedger } from "@/components/contracts/decision-loop-ledger";
 import { ManualRenewalTemplatePanel } from "@/components/contracts/manual-renewal-template-panel";
+import {
+  CustomerFeedbackPanel,
+  DeadlineCorrectnessFeedback
+} from "@/components/customer-feedback/customer-feedback-panel";
 import {
   auditRiskBadgeViewed
 } from "@/lib/intelligence/audit";
@@ -120,6 +126,7 @@ export default async function ContractDetailPage({
   ]);
   const canReviewExtraction = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const canManageOwner = hasRequiredRole(context.role, ["owner", "admin", "operator"]);
+  const canManageSample = hasRequiredRole(context.role, ["admin", "operator"]);
   const defaultOwnerUserId =
     contract.owner_user_id ??
     (viewModel.memberLabels.some((member) => member.user_id === context.user.id) ? context.user.id : "");
@@ -140,12 +147,19 @@ export default async function ContractDetailPage({
       explanationAvailable: riskExplanationAccess.allowed
     });
   }
+  if (contract.is_sample) {
+    await recordSampleContractOpened(contract.id).catch(() => undefined);
+  }
 
   return (
     <ContractDetailShell
       title={viewModel.title}
       subtitle={`${viewModel.counterpartyName} | Updated ${formatDate(contract.updated_at)}`}
-      supportingLine="Run the contract through review, owner assignment, reminders, acknowledgment, decision, and closure from one calm workflow."
+      supportingLine={
+        contract.is_sample
+          ? "This is fictional sample data for onboarding. Use it to explore the workflow, then remove it before relying on real deadlines."
+          : "Run the contract through review, owner assignment, reminders, acknowledgment, decision, and closure from one calm workflow."
+      }
       primaryAction={
         <>
           <Button asChild>
@@ -182,6 +196,7 @@ export default async function ContractDetailPage({
           ) : null}
           {viewModel.ocrAssisted ? <Badge tone="warning">OCR-assisted</Badge> : null}
           {viewModel.metadata.auto_renewal ? <Badge>Auto-renewal</Badge> : null}
+          {contract.is_sample ? <Badge tone="warning">Sample data</Badge> : null}
         </>
       }
       statusStrip={
@@ -191,11 +206,64 @@ export default async function ContractDetailPage({
         />
       }
       reviewPanel={
-        <ReviewForm
-          contractId={contract.id}
-          metadata={viewModel.reviewMetadata as never}
-          members={viewModel.memberLabels}
-        />
+        <div className="space-y-6">
+          {contract.is_sample ? (
+            <div className="rounded-2xl border border-warning/30 bg-warning/5 p-5">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <Badge tone="warning">Fictional sample contract</Badge>
+                  <h2 className="mt-3 text-lg font-semibold text-ink">Explore, then replace with real data</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-slate-600">
+                    These vendor, date, value, and evidence fields are synthetic. NoticeControl has not sent
+                    reminders or vendor notices for this sample.
+                  </p>
+                </div>
+                {canManageSample ? (
+                  <form action={removeSampleContractAction.bind(null, contract.id)} className="rounded-xl bg-white p-3 text-left shadow-sm">
+                    <label className="flex max-w-sm items-start gap-2 text-xs text-slate-600">
+                      <input
+                        type="checkbox"
+                        name="confirm_sample_removal"
+                        value="yes"
+                        required
+                        className="mt-0.5 rounded border-slate-300"
+                      />
+                      Remove only this fictional sample contract. Real contracts are never removed from this
+                      sample action.
+                    </label>
+                    <Button type="submit" variant="secondary" className="mt-3">
+                      Remove sample
+                    </Button>
+                  </form>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          <ReviewForm
+            contractId={contract.id}
+            metadata={viewModel.reviewMetadata as never}
+            members={viewModel.memberLabels}
+          />
+          <CustomerFeedbackPanel
+            title="Deadline or metadata looks wrong?"
+            description="Tell founder/support what looks off. This does not change trusted dates; it creates a safe help request."
+            defaultFeedbackType={viewModel.metadata.notice_deadline_date ? "deadline_incorrect" : "extraction_problem"}
+            contractId={contract.id}
+            entityType="contract_metadata"
+            entityId={contract.id}
+            currentRoute={`/dashboard/contracts/${contract.id}`}
+            reviewStatus={viewModel.reviewBlocked ? "needs_review" : "reviewed"}
+            decisionStatus={contract.renewal_decision_status}
+            sourceSurface="contract_detail_metadata"
+          />
+          {viewModel.metadata.notice_deadline_date ? (
+            <DeadlineCorrectnessFeedback
+              contractId={contract.id}
+              currentRoute={`/dashboard/contracts/${contract.id}`}
+              reviewStatus={viewModel.reviewBlocked ? "needs_review" : "reviewed"}
+            />
+          ) : null}
+        </div>
       }
       ownerReminderPanel={
         <div className="space-y-6">
@@ -439,6 +507,17 @@ export default async function ContractDetailPage({
               noticeDeadlineDate: viewModel.metadata.notice_deadline_date
             }}
           />
+          <CustomerFeedbackPanel
+            title="Template or decision flow confusing?"
+            description="Report template or decision friction. NoticeControl will not send anything to the vendor."
+            defaultFeedbackType="request_help"
+            contractId={contract.id}
+            entityType="manual_action_template"
+            entityId={contract.id}
+            currentRoute={`/dashboard/contracts/${contract.id}`}
+            decisionStatus={contract.renewal_decision_status}
+            sourceSurface="contract_detail_manual_templates"
+          />
         </div>
       }
       secondaryPanel={
@@ -454,6 +533,7 @@ export default async function ContractDetailPage({
                     runs={extractionRuns}
                     fields={extractedFields}
                     canReview={canReviewExtraction}
+                    currentRoute={`/dashboard/contracts/${contract.id}`}
                   />
                   <RenewalQuoteComparisonPanel
                     contractId={contract.id}

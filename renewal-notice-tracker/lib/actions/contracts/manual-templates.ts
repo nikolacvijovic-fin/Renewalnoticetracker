@@ -7,6 +7,7 @@ import {
   RENEWAL_MANUAL_TEMPLATE_TYPES,
   type RenewalManualTemplateType
 } from "@/lib/contracts/renewal-action-templates";
+import { evaluateRenewalManualTemplateGate } from "@/lib/contracts/manual-template-gates";
 
 function assertTemplateType(value: string): asserts value is RenewalManualTemplateType {
   if (!RENEWAL_MANUAL_TEMPLATE_TYPES.includes(value as RenewalManualTemplateType)) {
@@ -38,9 +39,18 @@ export async function recordRenewalManualTemplateCopyAction(
   });
 
   const contract = await getContractById(contractId, context.organizationId);
+  const gate = evaluateRenewalManualTemplateGate({
+    templateType,
+    renewalDecisionStatus: contract.renewal_decision_status
+  });
+  if (!gate.allowed) {
+    throw new Error(gate.customerSafeMessage);
+  }
+
   const metadata = firstValue(contract.contract_metadata);
   const details = {
     templateType,
+    renewalDecisionStatus: gate.renewalDecisionStatus,
     hasNoticeDeadline: Boolean(metadata?.notice_deadline_date),
     hasRenewalDate: Boolean(metadata?.renewal_date),
     hasExpirationDate: Boolean(metadata?.expiration_date)

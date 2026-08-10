@@ -45,7 +45,7 @@ vi.mock("@/lib/config", () => ({
 describe("send reminders cron route", () => {
   beforeAll(async () => {
     ({ POST } = await import("@/app/api/cron/send-reminders/route"));
-  });
+  }, 30000);
 
   beforeEach(() => {
     vi.clearAllMocks();

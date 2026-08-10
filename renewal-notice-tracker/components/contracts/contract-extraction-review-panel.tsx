@@ -6,6 +6,7 @@ import type {
 import { Button } from "@/components/ui/button";
 import { ServerActionForm } from "@/components/ui/server-action-form";
 import { formatDate, formatPercent } from "@/lib/utils";
+import { CustomerFeedbackPanel } from "@/components/customer-feedback/customer-feedback-panel";
 
 function formatValue(value: unknown) {
   if (value === null || value === undefined) return "Not found";
@@ -25,12 +26,14 @@ export function ContractExtractionReviewPanel({
   contractId,
   runs,
   fields,
-  canReview
+  canReview,
+  currentRoute
 }: {
   contractId: string;
   runs: ContractExtractionRun[];
   fields: ContractExtractedField[];
   canReview: boolean;
+  currentRoute?: string;
 }) {
   const latestRun = runs[0] ?? null;
   const acceptedCount = fields.filter((field) => field.evidence_status === "accepted").length;
@@ -113,6 +116,20 @@ export function ContractExtractionReviewPanel({
                   </ServerActionForm>
                 </div>
               ) : null}
+              <div className="mt-4">
+                <CustomerFeedbackPanel
+                  compact
+                  title="Extraction looks wrong?"
+                  description="Flag this field for founder/support review without changing trusted metadata."
+                  defaultFeedbackType="extraction_problem"
+                  contractId={contractId}
+                  entityType="extracted_field"
+                  entityId={field.id}
+                  currentRoute={currentRoute ?? `/dashboard/contracts/${contractId}`}
+                  fieldName={field.field_key}
+                  reviewStatus={field.evidence_status}
+                />
+              </div>
             </div>
           ))}
         </div>

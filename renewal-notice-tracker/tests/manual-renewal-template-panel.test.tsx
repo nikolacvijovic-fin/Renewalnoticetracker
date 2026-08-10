@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManualRenewalTemplatePanel } from "@/components/contracts/manual-renewal-template-panel";
 
 const { recordRenewalManualTemplateCopyAction } = vi.hoisted(() => ({
@@ -19,6 +19,10 @@ describe("ManualRenewalTemplatePanel", () => {
       }
     });
     recordRenewalManualTemplateCopyAction.mockResolvedValue({ ok: true });
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it("renders manual-only cancellation and renegotiation copy without recipient or send controls", async () => {
@@ -71,5 +75,26 @@ describe("ManualRenewalTemplatePanel", () => {
     expect(screen.getByDisplayValue(/renewal discussion/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy renegotiation request" })).toBeInTheDocument();
     expect(screen.getByDisplayValue(/discuss pricing, terms/i)).toBeInTheDocument();
+  });
+
+  it("disables manual templates when no compatible renewal decision exists", () => {
+    render(
+      <ManualRenewalTemplatePanel
+        contractId="contract-1"
+        renewalDecisionStatus="renew"
+        initialInput={{
+          contractTitle: "Gamma Subscription",
+          counterpartyName: "Gamma",
+          renewalDate: "2026-12-01",
+          noticeDeadlineDate: "2026-11-01"
+        }}
+      />
+    );
+
+    expect(screen.getByText(/Record a terminate or renegotiate decision/i)).toBeInTheDocument();
+    expect(screen.getByText(/NoticeControl does not send vendor messages/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /copy/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/recipient|vendor email/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^send/i })).not.toBeInTheDocument();
   });
 });
