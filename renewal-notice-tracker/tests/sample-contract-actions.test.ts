@@ -108,10 +108,12 @@ function makeUpdateResult(error: unknown = null) {
   const query: {
     update: ReturnType<typeof vi.fn>;
     eq: ReturnType<typeof vi.fn>;
+    in: ReturnType<typeof vi.fn>;
     then?: (resolve: (value: { error: unknown }) => unknown) => unknown;
   } = {
     update: vi.fn(() => query),
-    eq: vi.fn(() => query)
+    eq: vi.fn(() => query),
+    in: vi.fn(() => query)
   };
   query.eq.mockImplementation(() => query);
   query.update.mockImplementation(() => query);
@@ -170,32 +172,35 @@ describe("sample contract onboarding actions", () => {
     }
   }, 15000);
 
-  it("creates one org-scoped sample contract with safe audit metadata and no reminders", async () => {
+  it("creates one org-scoped sample contract atomically with safe audit metadata and no reminders", async () => {
     const sampleLookup = makeSelectResult(null);
-    const contractInsert = makeInsertSingleResult({ id: "sample-contract-1" });
-    const metadataInsert = makeInsertSingleResult({ id: "metadata-1" });
-    const evidenceInsert = makeInsertResult();
+    const rpc = vi.fn().mockResolvedValue({ data: "sample-contract-1", error: null });
     const from = vi.fn((table: string) => {
       if (table === "contracts" && from.mock.calls.filter(([name]) => name === "contracts").length === 1) {
         return sampleLookup;
       }
-      if (table === "contracts") return contractInsert;
-      if (table === "contract_metadata") return metadataInsert;
-      if (table === "extracted_field_evidence") return evidenceInsert;
       throw new Error(`Unexpected table ${table}`);
     });
-    createServerSupabaseClient.mockReturnValue({ from });
+    createServerSupabaseClient.mockReturnValue({ from, rpc });
 
     const { createSampleContractAction } = await import("@/lib/actions/contracts/sample");
     await expect(createSampleContractAction()).rejects.toThrow("NEXT_REDIRECT:/dashboard/contracts/sample-contract-1");
 
-    expect(contractInsert.insert).toHaveBeenCalledWith(
+    expect(rpc).toHaveBeenCalledWith(
+      "create_sample_contract_with_metadata",
       expect.objectContaining({
-        organization_id: "org-1",
-        created_by: "user-1",
-        source_type: "sample",
-        is_sample: true,
-        owner_user_id: "user-1"
+        p_organization_id: "org-1",
+        p_actor_user_id: "user-1",
+        p_metadata: expect.objectContaining({
+          contract_template_key: "sample_contract",
+          needs_review: false
+        }),
+        p_evidence: expect.arrayContaining([
+          expect.objectContaining({
+            field_name: "notice_deadline_date",
+            source: "sample"
+          })
+        ])
       })
     );
     expect(createAuditLog).toHaveBeenCalledWith(
@@ -212,6 +217,25 @@ describe("sample contract onboarding actions", () => {
     );
     expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain("raw contract text");
     expect(from).not.toHaveBeenCalledWith("reminders");
+  });
+
+  it("redirects to the active sample when concurrent atomic creation hits the unique sample constraint", async () => {
+    const emptyLookup = makeSelectResult(null);
+    const activeLookup = makeSelectResult({ id: "existing-sample-1" });
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: "23505", message: "idx_contracts_one_active_sample_per_org" }
+    });
+    const from = vi.fn((table: string) => {
+      if (table !== "contracts") throw new Error(`Unexpected table ${table}`);
+      return from.mock.calls.filter(([name]) => name === "contracts").length === 1 ? emptyLookup : activeLookup;
+    });
+    createServerSupabaseClient.mockReturnValue({ from, rpc });
+
+    const { createSampleContractAction } = await import("@/lib/actions/contracts/sample");
+    await expect(createSampleContractAction()).rejects.toThrow("NEXT_REDIRECT:/dashboard/contracts/existing-sample-1");
+
+    expect(createAuditLog).not.toHaveBeenCalled();
   });
 
   it("is idempotent when an active sample already exists", async () => {
@@ -273,9 +297,13 @@ describe("sample contract onboarding actions", () => {
   it("archives sample contracts with safe removal audit metadata", async () => {
     const lookup = makeSelectResult({ id: "sample-contract-1", is_sample: true, status: "reviewed" });
     const update = makeUpdateResult();
+    const reminderUpdate = makeUpdateResult();
     const from = vi.fn((table: string) => {
-      if (table !== "contracts") throw new Error(`Unexpected table ${table}`);
-      return from.mock.calls.filter(([name]) => name === "contracts").length === 1 ? lookup : update;
+      if (table === "contracts") {
+        return from.mock.calls.filter(([name]) => name === "contracts").length === 1 ? lookup : update;
+      }
+      if (table === "reminders") return reminderUpdate;
+      throw new Error(`Unexpected table ${table}`);
     });
     createServerSupabaseClient.mockReturnValue({ from });
     const formData = new FormData();
@@ -291,12 +319,22 @@ describe("sample contract onboarding actions", () => {
         status_tag: "sample_removed"
       })
     );
+    expect(reminderUpdate.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "cancelled",
+        processing_started_at: null,
+        processing_token: null,
+        next_retry_at: null
+      })
+    );
+    expect(reminderUpdate.in).toHaveBeenCalledWith("status", ["pending", "processing", "retry_pending"]);
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "contract.sample_removed",
         details: expect.objectContaining({
           sample_contract: true,
           removal_mode: "archived",
+          sample_reminders_cancelled: true,
           real_contract_deleted: false
         })
       })
@@ -363,5 +401,18 @@ describe("sample contract onboarding actions", () => {
     expect(source).not.toContain("recipient_email");
     expect(source).not.toContain("provider.send");
     expect(source).toContain("vendor_send_enabled: false");
+  });
+
+  it("defines the sample creation RPC as the atomic contract metadata and evidence boundary", () => {
+    const migration = readFileSync(
+      join(process.cwd(), "supabase/migrations/202608100002_beta_hardening_sample_feedback.sql"),
+      "utf8"
+    );
+
+    expect(migration).toContain("create or replace function public.create_sample_contract_with_metadata");
+    expect(migration).toContain("insert into public.contracts");
+    expect(migration).toContain("insert into public.contract_metadata");
+    expect(migration).toContain("insert into public.extracted_field_evidence");
+    expect(migration).toContain("Creates the fictional onboarding sample contract, reviewed metadata, and sample evidence in one transaction");
   });
 });

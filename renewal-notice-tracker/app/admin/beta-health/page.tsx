@@ -28,6 +28,17 @@ function MetricCard({ label, value }: { label: string; value: number | string })
   );
 }
 
+const FILTER_LABELS = {
+  sample_only: "Sample only",
+  no_real_contract: "No real contract",
+  activation_blocked: "Activation blocked",
+  trial_ending_soon: "Trial ending soon",
+  extraction_upload_failure: "Extraction/upload failure",
+  reminder_email_failure: "Reminder/email failure",
+  open_customer_feedback: "Open customer feedback",
+  healthy_activated: "Healthy/activated"
+} as const;
+
 function feedbackLabel(value: string) {
   return value.replaceAll("_", " ");
 }
@@ -89,6 +100,7 @@ function OrganizationHealthRow({ organization }: { organization: BetaOrganizatio
 
       <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Contracts" value={metrics.contractCount} />
+        <MetricCard label="Sample contracts" value={metrics.sampleContractCount} />
         <MetricCard label="PDF uploads" value={metrics.pdfUploadCount} />
         <MetricCard label="Extraction failures" value={metrics.extractionFailureCount + metrics.ocrFailureCount} />
         <MetricCard label="Needs review" value={metrics.contractsNeedingReviewCount} />
@@ -100,6 +112,7 @@ function OrganizationHealthRow({ organization }: { organization: BetaOrganizatio
         <MetricCard label="Reminder/email failed" value={metrics.reminderEmailFailureCount} />
         <MetricCard label="Calendar exports" value={metrics.calendarExportCount} />
         <MetricCard label="Skipped/duplicates" value={metrics.skippedReminderCount + metrics.duplicateReminderConflictCount} />
+        <MetricCard label="Sample diagnostics" value={metrics.sampleDiagnosticIssueCount} />
       </div>
 
       <div className="mt-5 flex flex-wrap gap-3">
@@ -117,9 +130,23 @@ function OrganizationHealthRow({ organization }: { organization: BetaOrganizatio
   );
 }
 
-export default async function FounderBetaHealthPage() {
+export default async function FounderBetaHealthPage({
+  searchParams
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
+} = {}) {
   await requireInternalRole(["internal_admin", "internal_support"]);
-  const dashboard = await getFounderBetaReliabilityDashboard();
+  const resolvedSearchParams = await searchParams;
+  const page = Number(Array.isArray(resolvedSearchParams?.page) ? resolvedSearchParams?.page[0] : resolvedSearchParams?.page);
+  const search = Array.isArray(resolvedSearchParams?.q) ? resolvedSearchParams?.q[0] : resolvedSearchParams?.q;
+  const filter = Array.isArray(resolvedSearchParams?.filter)
+    ? resolvedSearchParams?.filter[0]
+    : resolvedSearchParams?.filter;
+  const dashboard = await getFounderBetaReliabilityDashboard({
+    page: Number.isFinite(page) && page > 0 ? page : 1,
+    search,
+    filter: filter && filter in FILTER_LABELS ? (filter as keyof typeof FILTER_LABELS) : undefined
+  });
 
   return (
     <section className="space-y-6">
@@ -130,7 +157,49 @@ export default async function FounderBetaHealthPage() {
           Internal-only view of beta activation, extraction health, reminder reliability, and contracts
           needing founder help. This is operational support telemetry, not customer-facing analytics.
         </p>
+        {"page" in dashboard ? (
+          <p className="mt-2 text-sm text-slate-500">
+            Showing bounded page {dashboard.page.page} of beta organizations. Returned{" "}
+            {numberLabel(dashboard.page.returnedOrganizationCount)} of{" "}
+            {numberLabel(dashboard.page.totalOrganizationCount)} matching organization records; row signals are capped at{" "}
+            {numberLabel(dashboard.page.rowLimitPerOrganization)} per organization.
+          </p>
+        ) : null}
       </div>
+
+      <form className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" method="get">
+        <div className="grid gap-3 lg:grid-cols-[1fr_260px_auto]">
+          <label className="text-sm font-medium text-slate-700">
+            Search organization
+            <input
+              name="q"
+              defaultValue={search ?? ""}
+              placeholder="Organization name"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Filter
+            <select
+              name="filter"
+              defaultValue={filter && filter in FILTER_LABELS ? filter : ""}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">All bounded-page organizations</option>
+              {Object.entries(FILTER_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end">
+            <Button type="submit" variant="secondary">
+              Apply
+            </Button>
+          </div>
+        </div>
+      </form>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Beta organizations" value={dashboard.totals.organizationCount} />

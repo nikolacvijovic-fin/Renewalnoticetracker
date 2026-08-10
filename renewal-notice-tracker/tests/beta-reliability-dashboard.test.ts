@@ -81,6 +81,30 @@ describe("founder beta reliability dashboard", () => {
     expect(summary.activationCompletionPercent).toBe(100);
   });
 
+  it("keeps sample-only organizations out of real activation while reporting sample presence", () => {
+    const summary = buildBetaOrganizationReliabilitySummary(
+      baseInput({
+        sampleContractCount: 1,
+        sampleExploredCount: 1,
+        sampleDiagnosticIssueCount: 1,
+        contractCount: 0,
+        pdfUploadCount: 0,
+        extractionSuccessCount: 0,
+        trustedNoticeDeadlinesCount: 0,
+        ownerAssignmentCount: 0,
+        reminderEmailSuccessCount: 0,
+        calendarExportCount: 0,
+        decisionCount: 0
+      })
+    );
+
+    expect(summary.currentStage).toBe("signed_up");
+    expect(summary.stuckReason).toBe("no_contract_uploaded");
+    expect(summary.metrics.sampleContractCount).toBe(1);
+    expect(summary.metrics.sampleExploredCount).toBe(1);
+    expect(summary.metrics.sampleDiagnosticIssueCount).toBe(1);
+  });
+
   it("orders stalled organizations before healthy organizations and totals beta risk", () => {
     const dashboard = buildFounderBetaReliabilityDashboard(
       [
@@ -164,8 +188,11 @@ describe("founder beta reliability dashboard", () => {
       "details,"
     ];
 
-    expect(source).toContain(".limit(organizationLimit)");
-    expect(source).toContain('.in("organization_id", organizationIds)');
+    expect(source).toContain(".range(offset, offset + organizationLimit - 1)");
+    expect(source).toContain("runPerOrganizationQuery");
+    expect(source).toContain('.eq("organization_id", organizationId)');
+    expect(source).toContain(".limit(rowLimitPerOrganization)");
+    expect(source).toContain("is_sample");
     expect(source).toContain('.select("id,contract_id,mime_type,ocr_status,ocr_confidence,uploaded_at,uploaded_by")');
     for (const column of forbiddenColumns) {
       expect(source).not.toContain(column);

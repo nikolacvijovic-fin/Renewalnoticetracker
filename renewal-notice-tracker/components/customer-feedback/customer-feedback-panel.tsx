@@ -5,6 +5,7 @@ import {
   type CustomerFeedbackSeverity,
   type CustomerFeedbackType
 } from "@/lib/customer-feedback/customer-feedback";
+import { getRecentCustomerFeedbackForCurrentOrganization } from "@/lib/customer-feedback/queries";
 import { Button } from "@/components/ui/button";
 import { ServerActionForm } from "@/components/ui/server-action-form";
 import { Textarea } from "@/components/ui/textarea";
@@ -51,7 +52,11 @@ function HiddenField({ name, value }: { name: string; value?: string | null }) {
   return <input type="hidden" name={name} value={value} />;
 }
 
-export function CustomerFeedbackPanel({
+function statusLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
+export async function CustomerFeedbackPanel({
   title = "Need founder help?",
   description = "Send a short note from this workflow. NoticeControl includes only safe context, not raw contract text or provider payloads.",
   defaultFeedbackType = "request_help",
@@ -68,6 +73,11 @@ export function CustomerFeedbackPanel({
   sourceSurface,
   compact = false
 }: CustomerFeedbackPanelProps) {
+  const recentFeedback = await getRecentCustomerFeedbackForCurrentOrganization({
+    contractId,
+    limit: compact ? 3 : 5
+  }).catch(() => []);
+
   return (
     <section className={compact ? "rounded-xl border border-slate-200 bg-slate-50 p-3" : "panel space-y-4 p-5"}>
       <div>
@@ -138,6 +148,24 @@ export function CustomerFeedbackPanel({
           </span>
         </div>
       </ServerActionForm>
+      <div className="rounded-xl border border-slate-200 bg-white p-3" aria-live="polite">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent feedback status</p>
+        {recentFeedback.length ? (
+          <ul className="mt-2 space-y-2 text-sm text-slate-600">
+            {recentFeedback.map((feedback) => (
+              <li key={feedback.id} className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium text-slate-800">{feedback.reference}</span>
+                <span>{FEEDBACK_LABELS[feedback.feedbackType]}</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                  {statusLabel(feedback.status)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-slate-500">No feedback submitted for this {contractId ? "contract" : "workspace"} yet.</p>
+        )}
+      </div>
     </section>
   );
 }

@@ -11,9 +11,11 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import {
   buildCustomerFeedbackEventMetadata,
   buildCustomerFeedbackInsert,
+  buildCustomerFeedbackReference,
   eventNameForFeedbackStatus,
   isCustomerFeedbackStatus,
   sanitizeCustomerFeedbackMessage,
+  type CustomerFeedbackReference,
   type CustomerFeedbackSeverity,
   type CustomerFeedbackStatus,
   type CustomerFeedbackType
@@ -32,7 +34,12 @@ type UntypedSupabaseClient = {
     };
     select: (columns: string) => {
       eq: (column: string, value: unknown) => {
-        maybeSingle: () => Promise<{ data: unknown | null; error: { message?: string } | null }>;
+        eq: (column: string, value: unknown) => {
+          limit: (count: number) => Promise<{
+            data: Array<{ id: string; feedback_type: string; status: string; created_at: string }> | null;
+            error: { message?: string } | null;
+          }>;
+        };
       };
     };
     update: (payload: unknown) => {
@@ -93,7 +100,30 @@ function shouldAlertOnFeedback(feedbackType: CustomerFeedbackType, severity: Cus
   );
 }
 
-export async function submitCustomerFeedbackFormAction(formData: FormData) {
+async function findExistingFeedbackReference(
+  supabase: UntypedSupabaseClient,
+  input: { organizationId: string; idempotencyKey: string }
+): Promise<CustomerFeedbackReference | null> {
+  const { data, error } = await supabase
+    .from("customer_feedback")
+    .select("id,feedback_type,status,created_at")
+    .eq("organization_id", input.organizationId)
+    .eq("idempotency_key", input.idempotencyKey)
+    .limit(1);
+  if (error) throw new Error(error.message ?? "customer_feedback_duplicate_lookup_failed");
+  const row = data?.[0] ?? null;
+  return row
+    ? buildCustomerFeedbackReference({
+        id: row.id,
+        feedbackType: row.feedback_type,
+        status: row.status,
+        createdAt: row.created_at,
+        duplicate: true
+      })
+    : null;
+}
+
+export async function submitCustomerFeedbackFormAction(formData: FormData): Promise<CustomerFeedbackReference | void> {
   const context = await requireOrganization();
   await assertCanUseShippedAction(context, "submit_feedback");
   const contractId = optionalStringValue(formData, "contract_id");
@@ -119,7 +149,10 @@ export async function submitCustomerFeedbackFormAction(formData: FormData) {
     if (error?.code === "23505") {
       revalidatePath(customerFeedbackPath(optionalStringValue(formData, "current_route")));
       if (contractId) revalidatePath(`/dashboard/contracts/${contractId}`);
-      return;
+      return (await findExistingFeedbackReference(supabase, {
+        organizationId: context.organizationId,
+        idempotencyKey: payload.idempotency_key
+      })) ?? undefined;
     }
     throw new Error(error?.message ?? "customer_feedback_submit_failed");
   }
@@ -218,6 +251,12 @@ export async function submitCustomerFeedbackFormAction(formData: FormData) {
   revalidatePath(customerFeedbackPath(optionalStringValue(formData, "current_route")));
   if (contractId) revalidatePath(`/dashboard/contracts/${contractId}`);
   revalidatePath("/admin/beta-health");
+
+  return buildCustomerFeedbackReference({
+    id: data.id,
+    feedbackType: payload.feedback_type,
+    status: payload.status
+  });
 }
 
 export async function updateCustomerFeedbackStatusFormAction(formData: FormData) {

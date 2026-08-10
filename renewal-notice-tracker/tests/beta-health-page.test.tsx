@@ -95,6 +95,9 @@ describe("founder beta health page", () => {
             ocrFailureCount: 0,
             skippedReminderCount: 0,
             duplicateReminderConflictCount: 0,
+            sampleContractCount: 0,
+            sampleExploredCount: 0,
+            sampleDiagnosticIssueCount: 0,
             lastActivityAt: "2026-08-08T00:00:00.000Z"
           }
         }

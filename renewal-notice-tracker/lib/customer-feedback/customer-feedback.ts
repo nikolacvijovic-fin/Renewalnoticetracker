@@ -42,6 +42,7 @@ export type CustomerFeedbackInput = {
   severity?: CustomerFeedbackSeverity;
   message?: string | null;
   safeContext?: Record<string, unknown>;
+  submittedAt?: Date;
 };
 
 export type CustomerFeedbackInsert = {
@@ -57,6 +58,17 @@ export type CustomerFeedbackInsert = {
   safe_context: CustomerFeedbackSafeContext;
   idempotency_key: string;
 };
+
+export type CustomerFeedbackReference = {
+  id: string;
+  reference: string;
+  status: CustomerFeedbackStatus;
+  feedbackType: CustomerFeedbackType;
+  createdAt?: string | null;
+  duplicate?: boolean;
+};
+
+const FEEDBACK_IDEMPOTENCY_BUCKET_MS = 5 * 60 * 1000;
 
 export type CustomerFeedbackStatusChangeInput = {
   organizationId: string;
@@ -176,7 +188,8 @@ export function buildCustomerFeedbackInsert(input: CustomerFeedbackInput): Custo
     entityId,
     feedbackType: input.feedbackType,
     message,
-    safeContext
+    safeContext,
+    submittedAt: input.submittedAt
   });
 
   return {
@@ -203,7 +216,9 @@ export function buildCustomerFeedbackIdempotencyKey(input: {
   feedbackType: CustomerFeedbackType;
   message?: string | null;
   safeContext?: CustomerFeedbackSafeContext;
+  submittedAt?: Date;
 }) {
+  const bucket = Math.floor((input.submittedAt ?? new Date()).getTime() / FEEDBACK_IDEMPOTENCY_BUCKET_MS);
   const fingerprint = [
     input.organizationId,
     input.submittedByUserId,
@@ -213,16 +228,32 @@ export function buildCustomerFeedbackIdempotencyKey(input: {
     input.feedbackType,
     input.safeContext?.currentRoute ?? "",
     input.safeContext?.fieldName ?? "",
-    input.message ?? ""
+    input.message ?? "",
+    String(bucket)
   ].join("|");
 
-  let hash = 0;
-  for (let index = 0; index < fingerprint.length; index += 1) {
-    hash = (hash << 5) - hash + fingerprint.charCodeAt(index);
-    hash |= 0;
-  }
+  return `customer_feedback:${createHash("sha256").update(fingerprint).digest("hex")}`;
+}
 
-  return `customer_feedback:${Math.abs(hash)}`;
+export function buildCustomerFeedbackReference(input: {
+  id: string;
+  status: string;
+  feedbackType: string;
+  createdAt?: string | null;
+  duplicate?: boolean;
+}): CustomerFeedbackReference {
+  const id = cleanIdentifier(input.id);
+  if (!id) throw new Error("feedback_id_required");
+  const status = isCustomerFeedbackStatus(input.status) ? input.status : "open";
+  const feedbackType = isFeedbackType(input.feedbackType) ? input.feedbackType : "other";
+  return {
+    id,
+    reference: `FB-${id.slice(0, 8).toUpperCase()}`,
+    status,
+    feedbackType,
+    createdAt: input.createdAt ?? null,
+    duplicate: input.duplicate ?? false
+  };
 }
 
 export function buildCustomerFeedbackEventMetadata(input: CustomerFeedbackStatusChangeInput) {
@@ -255,3 +286,4 @@ export function eventNameForFeedbackStatus(toStatus: CustomerFeedbackStatus): Cu
   if (toStatus === "dismissed") return "feedback.dismissed";
   return "feedback.status_changed";
 }
+import { createHash } from "node:crypto";

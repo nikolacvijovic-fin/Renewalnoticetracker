@@ -92,6 +92,9 @@ create index if not exists idx_customer_feedback_contract
 create unique index if not exists idx_customer_feedback_idempotency
   on public.customer_feedback(organization_id, submitted_by_user_id, idempotency_key);
 
+comment on index public.idx_customer_feedback_idempotency is
+  'Immediate duplicate protection only. Application idempotency keys include a short server time bucket and SHA-256 fingerprint so identical later feedback is allowed.';
+
 alter table public.customer_feedback enable row level security;
 
 drop policy if exists "members can insert organization feedback" on public.customer_feedback;

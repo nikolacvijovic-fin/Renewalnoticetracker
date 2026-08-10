@@ -1,4 +1,8 @@
-import { buildBetaSupportNoteInsert, buildFounderBetaReliabilityDashboard } from "@/lib/internal/beta-reliability";
+import {
+  buildBetaOrganizationReliabilitySummary,
+  buildBetaSupportNoteInsert,
+  buildFounderBetaReliabilityDashboard
+} from "@/lib/internal/beta-reliability";
 import type {
   BetaOrganizationReliabilityInput,
   BetaOrganizationReliabilityMetrics,
@@ -21,9 +25,11 @@ type UntypedSupabaseClient = {
 type QueryBuilder = PromiseLike<{ data: unknown[] | null; count?: number | null; error: { message?: string } | null }> & {
   in: (column: string, values: string[]) => QueryBuilder;
   eq: (column: string, value: unknown) => QueryBuilder;
+  ilike: (column: string, value: string) => QueryBuilder;
   is: (column: string, value: unknown) => QueryBuilder;
   order: (column: string, options?: { ascending?: boolean }) => QueryBuilder;
   limit: (count: number) => QueryBuilder;
+  range: (from: number, to: number) => QueryBuilder;
 };
 
 type OrganizationRow = {
@@ -38,6 +44,7 @@ type ContractRow = {
   owner_user_id: string | null;
   status: string;
   cycle_status: string;
+  is_sample: boolean | null;
   renewal_decision_status: string;
   created_at: string;
   updated_at: string;
@@ -135,6 +142,17 @@ type CustomerFeedbackStatusRow = CustomerFeedbackSignalRow;
 
 export type FounderBetaReliabilityOptions = {
   organizationLimit?: number;
+  page?: number;
+  search?: string;
+  filter?:
+    | "sample_only"
+    | "no_real_contract"
+    | "activation_blocked"
+    | "trial_ending_soon"
+    | "extraction_upload_failure"
+    | "reminder_email_failure"
+    | "open_customer_feedback"
+    | "healthy_activated";
   rowLimitPerOrganization?: number;
   now?: string;
 };
@@ -151,6 +169,55 @@ async function runQuery<T>(query: QueryBuilder): Promise<T[]> {
   const { data, error } = await query;
   if (error) throw new Error(error.message ?? "admin_beta_reliability_query_failed");
   return (data ?? []) as T[];
+}
+
+async function runQueryWithCount<T>(query: QueryBuilder): Promise<{ rows: T[]; count: number | null }> {
+  const { data, count, error } = await query;
+  if (error) throw new Error(error.message ?? "admin_beta_reliability_query_failed");
+  return { rows: (data ?? []) as T[], count: count ?? null };
+}
+
+async function runPerOrganizationQuery<T>(
+  organizationIds: string[],
+  rowLimitPerOrganization: number,
+  buildQuery: (organizationId: string) => QueryBuilder
+): Promise<T[]> {
+  const batches = await Promise.all(
+    organizationIds.map((organizationId) => runQuery<T>(buildQuery(organizationId).limit(rowLimitPerOrganization)))
+  );
+  return batches.flat();
+}
+
+function matchesFounderFilter(
+  input: BetaOrganizationReliabilityInput,
+  feedbackRows: CustomerFeedbackSummaryRow[],
+  filter: FounderBetaReliabilityOptions["filter"]
+) {
+  const metrics = input.metrics;
+  switch (filter) {
+    case "sample_only":
+      return (metrics.sampleContractCount ?? 0) > 0 && metrics.contractCount === 0;
+    case "no_real_contract":
+      return metrics.contractCount === 0;
+    case "activation_blocked":
+      return buildBetaOrganizationReliabilitySummary(input).stuckReason !== null;
+    case "trial_ending_soon":
+      return false;
+    case "extraction_upload_failure":
+      return metrics.extractionFailureCount > 0 || (metrics.failedUploadCount ?? 0) > 0 || (metrics.ocrFailureCount ?? 0) > 0;
+    case "reminder_email_failure":
+      return metrics.reminderEmailFailureCount > 0 || (metrics.skippedReminderCount ?? 0) > 0;
+    case "open_customer_feedback":
+      return feedbackRows.some(
+        (row) =>
+          row.organizationId === input.organizationId &&
+          (row.status === "open" || row.status === "in_review")
+      );
+    case "healthy_activated":
+      return buildBetaOrganizationReliabilitySummary(input).currentStage === "activated";
+    default:
+      return true;
+  }
 }
 
 function groupByOrganization<T extends { organization_id: string }>(rows: T[]) {
@@ -225,27 +292,32 @@ function buildOrganizationInput(params: {
   const activeContracts = params.contracts.filter(
     (contract) => contract.status !== "archived" && contract.cycle_status !== "archived"
   );
-  const contractIds = new Set(activeContracts.map((contract) => contract.id));
-  const files = activeContracts.flatMap((contract) => params.filesByContract.get(contract.id) ?? []);
-  const metadataRows = activeContracts
+  const sampleContracts = activeContracts.filter((contract) => contract.is_sample === true);
+  const realContracts = activeContracts.filter((contract) => contract.is_sample !== true);
+  const sampleContractIds = new Set(sampleContracts.map((contract) => contract.id));
+  const realContractIds = new Set(realContracts.map((contract) => contract.id));
+  const files = realContracts.flatMap((contract) => params.filesByContract.get(contract.id) ?? []);
+  const metadataRows = realContracts
     .map((contract) => params.metadataByContract.get(contract.id))
     .filter((metadata): metadata is MetadataSignalRow => Boolean(metadata));
-  const unresolvedProcessingErrors = params.processingErrors.filter((row) => row.resolved_at === null);
+  const sampleFiles = sampleContracts.flatMap((contract) => params.filesByContract.get(contract.id) ?? []);
+  const sampleProcessingErrors = params.processingErrors.filter((row) => sampleContractIds.has(row.contract_id));
+  const realProcessingErrors = params.processingErrors.filter((row) => !row.contract_id || realContractIds.has(row.contract_id));
   const calendarExportCount =
     params.auditSignals.filter((row) => row.action === "contract.ics_exported" || row.action === "contracts.exported").length +
     params.activationEvents.filter((row) => row.event_type === "calendar_exported").length;
 
   const metrics: BetaOrganizationReliabilityMetrics = {
-    contractCount: activeContracts.length,
+    contractCount: realContracts.length,
     pdfUploadCount: files.filter((file) => file.mime_type === "application/pdf").length,
     extractionSuccessCount: metadataRows.filter((metadata) => metadata.reviewed_at || !metadata.needs_review).length,
-    extractionFailureCount: unresolvedProcessingErrors.filter((row) =>
+    extractionFailureCount: realProcessingErrors.filter((row) => row.resolved_at === null).filter((row) =>
       ["text_extraction", "field_extraction", "ocr", "upload"].includes(row.stage)
     ).length,
     contractsNeedingReviewCount: metadataRows.filter((metadata) => metadata.needs_review).length,
     trustedNoticeDeadlinesCount: metadataRows.filter(isTrustedDeadline).length,
     urgentDeadlineCount: metadataRows.filter((metadata) => isUrgentDeadline(metadata, nowMs)).length,
-    ownerAssignmentCount: activeContracts.filter((contract) => contract.owner_user_id).length,
+    ownerAssignmentCount: realContracts.filter((contract) => contract.owner_user_id).length,
     reminderEmailSuccessCount:
       params.notifications.filter((row) => row.status === "sent" || row.status === "delivered").length +
       params.reminders.filter((row) => row.status === "sent").length,
@@ -253,12 +325,17 @@ function buildOrganizationInput(params: {
       params.notifications.filter((row) => row.status === "failed").length +
       params.reminders.filter((row) => row.status === "failed").length,
     calendarExportCount,
-    decisionCount: params.decisions.filter((decision) => contractIds.has(decision.contract_id)).length,
+    decisionCount: params.decisions.filter((decision) => realContractIds.has(decision.contract_id)).length,
     lowConfidenceCriticalFieldCount: metadataRows.filter(isLowConfidenceCriticalField).length,
-    failedUploadCount: unresolvedProcessingErrors.filter((row) => row.stage === "upload").length,
-    ocrFailureCount: unresolvedProcessingErrors.filter((row) => row.stage === "ocr").length,
+    failedUploadCount: realProcessingErrors.filter((row) => row.resolved_at === null && row.stage === "upload").length,
+    ocrFailureCount: realProcessingErrors.filter((row) => row.resolved_at === null && row.stage === "ocr").length,
     skippedReminderCount: params.notifications.filter((row) => row.status === "skipped").length,
     duplicateReminderConflictCount: params.notifications.filter((row) => row.status === "duplicate_suppressed").length,
+    sampleContractCount: sampleContracts.length,
+    sampleExploredCount: params.auditSignals.filter((row) => row.action === "contract.sample_opened").length,
+    sampleDiagnosticIssueCount:
+      sampleProcessingErrors.filter((row) => row.resolved_at === null).length +
+      sampleFiles.filter((file) => file.ocr_status === "failed").length,
     lastActivityAt: maxIso([
       ...activeContracts.map((contract) => contract.updated_at),
       ...files.map((file) => file.uploaded_at),
@@ -281,6 +358,8 @@ function buildOrganizationInput(params: {
 
 export async function getFounderBetaReliabilityDashboard(options: FounderBetaReliabilityOptions = {}) {
   const organizationLimit = Math.max(1, Math.min(options.organizationLimit ?? DEFAULT_ORGANIZATION_LIMIT, 100));
+  const page = Math.max(1, Math.trunc(options.page ?? 1));
+  const offset = (page - 1) * organizationLimit;
   const rowLimitPerOrganization = Math.max(
     25,
     Math.min(options.rowLimitPerOrganization ?? DEFAULT_ROW_LIMIT_PER_ORGANIZATION, 500)
@@ -288,28 +367,44 @@ export async function getFounderBetaReliabilityDashboard(options: FounderBetaRel
   const now = options.now ?? new Date().toISOString();
   const admin = adminClient();
 
-  const organizations = await runQuery<OrganizationRow>(
-    admin
-      .from("organizations")
-      .select("id,name,created_at")
-      .order("created_at", { ascending: false })
-      .limit(organizationLimit)
-  );
+  let organizationQuery = admin
+    .from("organizations")
+    .select("id,name,created_at", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(offset, offset + organizationLimit - 1);
+  const search = options.search?.trim();
+  if (search) {
+    organizationQuery = organizationQuery.ilike("name", `%${search.slice(0, 80)}%`);
+  }
+  const { rows: organizations, count: totalOrganizationCount } =
+    await runQueryWithCount<OrganizationRow>(organizationQuery);
   const organizationIds = organizations.map((organization) => organization.id);
   if (organizationIds.length === 0) {
-    return buildFounderBetaReliabilityDashboard([], now);
+    return {
+      ...buildFounderBetaReliabilityDashboard([], [], now),
+      page: {
+        page,
+        pageSize: organizationLimit,
+        totalOrganizationCount: totalOrganizationCount ?? 0,
+        returnedOrganizationCount: 0,
+        boundedPage: true,
+        rowLimitPerOrganization
+      }
+    };
   }
 
-  const rowLimit = organizationIds.length * rowLimitPerOrganization;
-  const contracts = await runQuery<ContractRow>(
-    admin
-      .from("contracts")
-      .select("id,organization_id,owner_user_id,status,cycle_status,renewal_decision_status,created_at,updated_at")
-      .in("organization_id", organizationIds)
-      .order("updated_at", { ascending: false })
-      .limit(rowLimit)
+  const contracts = await runPerOrganizationQuery<ContractRow>(
+    organizationIds,
+    rowLimitPerOrganization,
+    (organizationId) =>
+      admin
+        .from("contracts")
+        .select("id,organization_id,owner_user_id,status,cycle_status,is_sample,renewal_decision_status,created_at,updated_at")
+        .eq("organization_id", organizationId)
+        .order("updated_at", { ascending: false })
   );
   const contractIds = contracts.map((contract) => contract.id);
+  const rowLimit = Math.max(contractIds.length, organizationIds.length) * rowLimitPerOrganization;
 
   const [
     files,
@@ -343,63 +438,77 @@ export async function getFounderBetaReliabilityDashboard(options: FounderBetaRel
             .limit(contractIds.length)
         )
       : Promise.resolve([]),
-    runQuery<ProcessingErrorSignalRow>(
-      admin
-        .from("processing_errors")
-        .select("id,organization_id,contract_id,contract_file_id,stage,resolved_at,created_at")
-        .in("organization_id", organizationIds)
-        .order("created_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<ProcessingErrorSignalRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("processing_errors")
+          .select("id,organization_id,contract_id,contract_file_id,stage,resolved_at,created_at")
+          .eq("organization_id", organizationId)
+          .order("created_at", { ascending: false })
     ),
-    runQuery<ReminderSignalRow>(
-      admin
-        .from("reminders")
-        .select("id,organization_id,contract_id,reminder_type,status,remind_at,sent_at,delivery_key,created_at")
-        .in("organization_id", organizationIds)
-        .order("created_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<ReminderSignalRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("reminders")
+          .select("id,organization_id,contract_id,reminder_type,status,remind_at,sent_at,delivery_key,created_at")
+          .eq("organization_id", organizationId)
+          .order("created_at", { ascending: false })
     ),
-    runQuery<NotificationSignalRow>(
-      admin
-        .from("notification_logs")
-        .select("id,organization_id,channel,status,notification_kind,delivery_key,sent_at")
-        .in("organization_id", organizationIds)
-        .order("sent_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<NotificationSignalRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("notification_logs")
+          .select("id,organization_id,channel,status,notification_kind,delivery_key,sent_at")
+          .eq("organization_id", organizationId)
+          .order("sent_at", { ascending: false })
     ),
-    runQuery<DecisionSignalRow>(
-      admin
-        .from("renewal_decisions")
-        .select("id,organization_id,contract_id,status,created_at")
-        .in("organization_id", organizationIds)
-        .order("created_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<DecisionSignalRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("renewal_decisions")
+          .select("id,organization_id,contract_id,status,created_at")
+          .eq("organization_id", organizationId)
+          .order("created_at", { ascending: false })
     ),
-    runQuery<AuditSignalRow>(
-      admin
-        .from("audit_logs")
-        .select("id,organization_id,action,created_at")
-        .in("organization_id", organizationIds)
-        .order("created_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<AuditSignalRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("audit_logs")
+          .select("id,organization_id,action,created_at")
+          .eq("organization_id", organizationId)
+          .order("created_at", { ascending: false })
     ),
-    runQuery<ActivationEventRow>(
-      admin
-        .from("organization_activation_events")
-        .select("id,organization_id,event_type,created_at")
-        .in("organization_id", organizationIds)
-        .order("created_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<ActivationEventRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("organization_activation_events")
+          .select("id,organization_id,event_type,created_at")
+          .eq("organization_id", organizationId)
+          .order("created_at", { ascending: false })
     ),
-    runQuery<CustomerFeedbackSignalRow>(
-      admin
-        .from("customer_feedback")
-        .select(
-          "id,organization_id,contract_id,entity_type,entity_id,submitted_by_user_id,feedback_type,severity,status,message,created_at"
-        )
-        .in("organization_id", organizationIds)
-        .order("created_at", { ascending: false })
-        .limit(rowLimit)
+    runPerOrganizationQuery<CustomerFeedbackSignalRow>(
+      organizationIds,
+      rowLimitPerOrganization,
+      (organizationId) =>
+        admin
+          .from("customer_feedback")
+          .select(
+            "id,organization_id,contract_id,entity_type,entity_id,submitted_by_user_id,feedback_type,severity,status,message,created_at"
+          )
+          .eq("organization_id", organizationId)
+          .order("created_at", { ascending: false })
     )
   ]);
 
@@ -428,8 +537,7 @@ export async function getFounderBetaReliabilityDashboard(options: FounderBetaRel
     createdAt: row.created_at
   }));
 
-  return buildFounderBetaReliabilityDashboard(
-    organizations.map((organization) =>
+  const organizationInputs = organizations.map((organization) =>
       buildOrganizationInput({
         organization,
         contracts: contractsByOrg.get(organization.id) ?? [],
@@ -443,10 +551,21 @@ export async function getFounderBetaReliabilityDashboard(options: FounderBetaRel
         activationEvents: activationEventsByOrg.get(organization.id) ?? [],
         now
       })
-    ),
-    feedbackRows,
-    now
-  );
+    );
+  const filteredInputs = organizationInputs.filter((input) => matchesFounderFilter(input, feedbackRows, options.filter));
+  const dashboard = buildFounderBetaReliabilityDashboard(filteredInputs, feedbackRows, now);
+
+  return {
+    ...dashboard,
+    page: {
+      page,
+      pageSize: organizationLimit,
+      totalOrganizationCount: totalOrganizationCount ?? organizations.length,
+      returnedOrganizationCount: filteredInputs.length,
+      boundedPage: true,
+      rowLimitPerOrganization
+    }
+  };
 }
 
 export async function insertBetaSupportNote(input: BetaSupportNoteInput) {

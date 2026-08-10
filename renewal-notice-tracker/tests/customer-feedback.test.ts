@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CUSTOMER_FEEDBACK_EVENT_CONTRACTS,
   CUSTOMER_FEEDBACK_TYPES,
+  buildCustomerFeedbackIdempotencyKey,
   buildCustomerFeedbackEventMetadata,
   buildCustomerFeedbackInsert,
   sanitizeCustomerFeedbackSafeContext
@@ -80,9 +81,23 @@ function insertableSupabaseMock(error: { code?: string; message?: string } | nul
   });
   const select = vi.fn(() => ({ single }));
   const insert = vi.fn(() => ({ select }));
-  const from = vi.fn(() => ({ insert }));
+  const duplicateLimit = vi.fn().mockResolvedValue({
+    data: [
+      {
+        id: "feedback-duplicate",
+        feedback_type: "request_help",
+        status: "open",
+        created_at: "2026-08-10T10:00:00.000Z"
+      }
+    ],
+    error: null
+  });
+  const duplicateEqSecond = vi.fn(() => ({ limit: duplicateLimit }));
+  const duplicateEqFirst = vi.fn(() => ({ eq: duplicateEqSecond }));
+  const selectDuplicate = vi.fn(() => ({ eq: duplicateEqFirst }));
+  const from = vi.fn(() => ({ insert, select: selectDuplicate }));
   createServerSupabaseClient.mockReturnValue({ from });
-  return { from, insert, select, single };
+  return { from, insert, select, single, selectDuplicate, duplicateLimit };
 }
 
 describe("customer feedback model", () => {
@@ -137,7 +152,7 @@ describe("customer feedback model", () => {
       entityType: "contract_metadata",
       entityId: "contract-1"
     });
-    expect(row.idempotency_key).toMatch(/^customer_feedback:/);
+    expect(row.idempotency_key).toMatch(/^customer_feedback:[a-f0-9]{64}$/);
     expect(serialized).not.toContain("raw contract text");
     expect(serialized).not.toContain("provider payload");
     expect(serialized).not.toContain("email body");
@@ -155,6 +170,37 @@ describe("customer feedback model", () => {
 
     expect(row.message).toBeNull();
     expect(row.feedback_type).toBe("deadline_correct");
+  });
+
+  it("uses short-bucket SHA-256 idempotency so immediate duplicates collapse but later reports work", () => {
+    const immediate = buildCustomerFeedbackIdempotencyKey({
+      organizationId: "org-1",
+      submittedByUserId: "user-1",
+      contractId: "contract-1",
+      feedbackType: "deadline_incorrect",
+      message: "Deadline looks wrong",
+      submittedAt: new Date("2026-08-10T10:00:00.000Z")
+    });
+    const sameBucket = buildCustomerFeedbackIdempotencyKey({
+      organizationId: "org-1",
+      submittedByUserId: "user-1",
+      contractId: "contract-1",
+      feedbackType: "deadline_incorrect",
+      message: "Deadline looks wrong",
+      submittedAt: new Date("2026-08-10T10:03:00.000Z")
+    });
+    const later = buildCustomerFeedbackIdempotencyKey({
+      organizationId: "org-1",
+      submittedByUserId: "user-1",
+      contractId: "contract-1",
+      feedbackType: "deadline_incorrect",
+      message: "Deadline looks wrong",
+      submittedAt: new Date("2026-08-10T10:10:00.000Z")
+    });
+
+    expect(immediate).toBe(sameBucket);
+    expect(immediate).not.toBe(later);
+    expect(immediate).toMatch(/^customer_feedback:[a-f0-9]{64}$/);
   });
 
   it("enforces feedback type enum and safe status event metadata", () => {
@@ -368,11 +414,11 @@ describe("customer feedback action", () => {
     expect(JSON.stringify(emitOperationalEvent.mock.calls)).not.toContain("raw contract text");
   });
 
-  it("treats duplicate submission conflicts as safe no-ops", async () => {
+  it("returns the existing feedback reference when an immediate duplicate is detected", async () => {
     insertableSupabaseMock({ code: "23505", message: "duplicate key" });
     const { submitCustomerFeedbackFormAction } = await import("@/lib/actions/customer-feedback");
 
-    await submitCustomerFeedbackFormAction(
+    const result = await submitCustomerFeedbackFormAction(
       formData({
         current_route: "/dashboard",
         source_surface: "dashboard_workspace_help",
@@ -385,6 +431,12 @@ describe("customer feedback action", () => {
     expect(trackServerAnalyticsEvent).not.toHaveBeenCalled();
     expect(emitOperationalEvent).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(result).toMatchObject({
+      id: "feedback-duplicate",
+      reference: "FB-FEEDBACK",
+      duplicate: true,
+      status: "open"
+    });
   });
 
   it("captures export issue context without exported file contents", async () => {
@@ -484,6 +536,7 @@ describe("customer feedback release boundaries", () => {
     expect(migration).toContain("members can read own organization feedback");
     expect(migration).toContain("submitted_by_user_id = auth.uid()");
     expect(migration).toContain("idx_customer_feedback_idempotency");
+    expect(migration).toContain("Immediate duplicate protection only");
     expect(migration).toContain("enforce_customer_feedback_contract_scope");
     expect(migration).toContain("contracts.organization_id = new.organization_id");
     expect(migration).toContain("message is null or char_length(message) between 1 and 1000");

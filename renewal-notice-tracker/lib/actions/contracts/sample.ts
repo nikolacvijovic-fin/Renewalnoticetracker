@@ -107,17 +107,29 @@ export function buildSampleContractMetadata(now = new Date()) {
   };
 }
 
-function buildSampleEvidenceRows(metadataId: string, metadata: ReturnType<typeof buildSampleContractMetadata>) {
+function buildSampleEvidencePayload(metadata: ReturnType<typeof buildSampleContractMetadata>) {
   const snippets = metadata.field_source_snippets;
   const confidence = metadata.field_confidence;
   return Object.entries(snippets).map(([fieldName, snippet]) => ({
-    contract_metadata_id: metadataId,
     field_name: fieldName,
     snippet,
     confidence: confidence[fieldName as keyof typeof confidence] ?? 1,
     source: "sample"
   }));
 }
+
+type SampleRpcClient = {
+  rpc: (
+    name: "create_sample_contract_with_metadata",
+    payload: {
+      p_organization_id: string;
+      p_actor_user_id: string;
+      p_metadata: Record<string, unknown>;
+      p_evidence: Array<Record<string, unknown>>;
+    }
+  ) => Promise<{ data: string | null; error: { code?: string; message?: string } | null }>;
+  from: ReturnType<typeof createServerSupabaseClient>["from"];
+};
 
 function isUniqueSampleConstraint(error: unknown) {
   const maybeError = error as { code?: string; message?: string } | null;
@@ -180,48 +192,26 @@ export async function createSampleContractAction() {
 
   const supabase = createServerSupabaseClient();
   const metadata = buildSampleContractMetadata();
-  const now = new Date().toISOString();
 
-  const { data: contract, error: contractError } = await supabase
-    .from("contracts")
-    .insert({
-      organization_id: organizationId,
-      created_by: user.id,
-      status: "reviewed",
-      cycle_status: "open",
-      source_type: "sample",
-      is_sample: true,
-      owner_user_id: user.id,
-      status_tag: "renewal_watch"
-    })
-    .select("id")
-    .single();
+  const { data: rpcContractId, error: rpcError } = await (supabase as unknown as SampleRpcClient).rpc(
+    "create_sample_contract_with_metadata",
+    {
+      p_organization_id: organizationId,
+      p_actor_user_id: user.id,
+      p_metadata: metadata,
+      p_evidence: buildSampleEvidencePayload(metadata)
+    }
+  );
 
-  if (contractError) {
-    if (isUniqueSampleConstraint(contractError)) {
+  if (rpcError || !rpcContractId) {
+    if (isUniqueSampleConstraint(rpcError)) {
       const id = await findActiveSampleContractId(organizationId);
       if (id) redirect(`/dashboard/contracts/${id}`);
     }
-    throw contractError;
+    throw rpcError ?? new Error("sample_contract_rpc_failed");
   }
 
-  const contractId = (contract as { id: string }).id;
-  const { data: metadataRow, error: metadataError } = await supabase
-    .from("contract_metadata")
-    .insert({
-      contract_id: contractId,
-      ...metadata,
-      reviewed_at: now,
-      reviewed_by: user.id
-    })
-    .select("id")
-    .single();
-
-  if (metadataError) throw metadataError;
-
-  const evidenceRows = buildSampleEvidenceRows((metadataRow as { id: string }).id, metadata);
-  const { error: evidenceError } = await supabase.from("extracted_field_evidence").insert(evidenceRows);
-  if (evidenceError) throw evidenceError;
+  const contractId = rpcContractId;
 
   await createAuditLog({
     organizationId,
@@ -284,6 +274,21 @@ export async function removeSampleContractAction(contractId: string, formData: F
 
   if (updateError) throw updateError;
 
+  const { error: reminderCancelError } = await supabase
+    .from("reminders")
+    .update({
+      status: "cancelled",
+      last_error: "Fictional sample contract was removed before reminder delivery.",
+      processing_started_at: null,
+      processing_token: null,
+      next_retry_at: null
+    })
+    .eq("contract_id", contractId)
+    .eq("organization_id", organizationId)
+    .in("status", ["pending", "processing", "retry_pending"]);
+
+  if (reminderCancelError) throw reminderCancelError;
+
   await createAuditLog({
     organizationId,
     actorUserId: user.id,
@@ -295,6 +300,7 @@ export async function removeSampleContractAction(contractId: string, formData: F
       source_type: "sample",
       sample_contract: true,
       removal_mode: "archived",
+      sample_reminders_cancelled: true,
       real_contract_deleted: false
     }
   });

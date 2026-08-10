@@ -55,9 +55,17 @@ function buildJoinedReminder(overrides?: Partial<Record<string, unknown>>) {
     processing_token: null,
     contracts: {
       id: "contract-1",
+      status: "active",
+      cycle_status: "open",
+      is_sample: false,
+      owner_user_id: "owner-user-1",
       contract_metadata: {
         contract_title: "MSA",
-        counterparty_name: "Acme"
+        counterparty_name: "Acme",
+        needs_review: false,
+        notice_deadline_date: "2030-01-01",
+        renewal_date: "2030-02-01",
+        expiration_date: "2030-02-01"
       }
     },
     organizations: {},

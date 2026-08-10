@@ -37,6 +37,12 @@ Do not use real customer contracts, private notes, email bodies, provider payloa
 15. Copy the cancellation notice template and confirm the user must paste/send manually.
 16. Copy the renegotiation request template and confirm the user must paste/send manually.
 17. Review the audit trail and confirm only safe metadata is recorded.
+18. Create or open the sample contract and confirm it is clearly fictional/demo data.
+19. Confirm the sample contract does not count as the first real uploaded contract, trusted deadline activation, owner activation, reminder activation, calendar activation, or decision activation.
+20. Remove the sample contract and confirm any sample reminders are cancelled or cannot deliver.
+21. Submit customer feedback twice quickly and confirm the second submission returns the same safe feedback reference.
+22. Submit the same feedback later in a new retry window and confirm it is allowed as a new report.
+23. Confirm organization members can see recent feedback references and statuses without message bodies or internal notes.
 
 ## No-Send Boundary
 
@@ -76,3 +82,6 @@ The MVP is beta-ready when:
 - Cancellation and renegotiation templates are copy-only.
 - Audit events contain safe metadata only.
 - No reviewed path enables vendor sending or cross-organization access.
+- Sample exploration never counts as real activation.
+- Repeat feedback is idempotent only for immediate duplicate submissions.
+- Customers receive a safe feedback reference and can see organization-scoped feedback status.

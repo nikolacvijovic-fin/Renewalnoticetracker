@@ -56,6 +56,9 @@ export type BetaOrganizationReliabilityMetrics = {
   ocrFailureCount?: number;
   skippedReminderCount?: number;
   duplicateReminderConflictCount?: number;
+  sampleContractCount?: number;
+  sampleExploredCount?: number;
+  sampleDiagnosticIssueCount?: number;
   lastActivityAt?: string | null;
 };
 
@@ -141,6 +144,9 @@ const ZERO_METRICS: Required<BetaOrganizationReliabilityMetrics> = {
   ocrFailureCount: 0,
   skippedReminderCount: 0,
   duplicateReminderConflictCount: 0,
+  sampleContractCount: 0,
+  sampleExploredCount: 0,
+  sampleDiagnosticIssueCount: 0,
   lastActivityAt: null
 };
 
@@ -197,6 +203,9 @@ function normalizeMetrics(metrics: BetaOrganizationReliabilityMetrics): Required
     ocrFailureCount: safeCount(metrics.ocrFailureCount),
     skippedReminderCount: safeCount(metrics.skippedReminderCount),
     duplicateReminderConflictCount: safeCount(metrics.duplicateReminderConflictCount),
+    sampleContractCount: safeCount(metrics.sampleContractCount),
+    sampleExploredCount: safeCount(metrics.sampleExploredCount),
+    sampleDiagnosticIssueCount: safeCount(metrics.sampleDiagnosticIssueCount),
     lastActivityAt: metrics.lastActivityAt ?? null
   };
 }

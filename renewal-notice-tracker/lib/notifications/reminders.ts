@@ -50,6 +50,9 @@ type ReminderRecord = {
 type DeliveryContract = {
   id: string;
   owner_user_id?: string | null;
+  status?: string | null;
+  cycle_status?: string | null;
+  is_sample?: boolean | null;
   contract_metadata:
     | {
         contract_title: string | null;
@@ -131,6 +134,10 @@ export async function processDueReminders(untilIso: string) {
       *,
       contracts (
         id,
+        status,
+        cycle_status,
+        is_sample,
+        owner_user_id,
         contract_metadata (
           contract_title,
           counterparty_name
@@ -153,11 +160,26 @@ export async function processDueReminders(untilIso: string) {
     deliveryCount?: number;
   }> = [];
 
-  for (const reminder of (reminders ?? []) as JoinedReminderRecord[]) {
+  for (const reminder of (reminders ?? []) as unknown as JoinedReminderRecord[]) {
     const claim = await claimReminder(reminder.id, reminder.organization_id);
     if (!claim) continue;
 
     try {
+      const gate = evaluateDeliveryGate(claim);
+      if (gate.status !== "scheduled") {
+        await releaseReminderAfterBlockedGate({
+          reminderId: reminder.id,
+          organizationId: reminder.organization_id,
+          safeMessage: gate.safeMessage,
+          terminal: gate.status === "blocked_sample_contract" || gate.status === "blocked_archived_contract"
+        });
+        results.push({
+          id: reminder.id,
+          status: "blocked_by_gate",
+          error: gate.safeMessage
+        });
+        continue;
+      }
       const result = await deliverReminder({
         reminder: claim,
         contract: claim.contracts as DeliveryContract
@@ -237,7 +259,7 @@ export async function resendNotificationByLogId(notificationLogId: string, organ
   const typedReminder = (await getScopedReminderById(
     log.reminder_id,
     organizationId
-  )) as JoinedReminderRecord;
+  )) as unknown as JoinedReminderRecord;
 
   return deliverReminder({
     reminder: typedReminder,
@@ -319,6 +341,9 @@ async function claimReminder(
         *,
         contracts (
           id,
+          status,
+          cycle_status,
+          is_sample,
           owner_user_id,
           contract_metadata (
             contract_title,
@@ -341,7 +366,7 @@ async function claimReminder(
     }
   );
 
-  const claimed = result.data ?? null;
+  const claimed = (result.data ?? null) as JoinedReminderRecord | null;
   if (claimed) {
     emitReminderLifecycleEvent({
       eventName: "reminder_claimed",
@@ -387,7 +412,8 @@ export async function processTrustedReminderDeliveryJob(input: {
     await releaseReminderAfterBlockedGate({
       reminderId,
       organizationId: input.organizationId,
-      safeMessage: gate.safeMessage
+      safeMessage: gate.safeMessage,
+      terminal: gate.status === "blocked_sample_contract" || gate.status === "blocked_archived_contract"
     });
     emitReminderLifecycleEvent({
       eventName: "trusted_reminder_delivery_blocked_by_gate",
@@ -578,6 +604,18 @@ async function deliverReminder(input: {
 
 function evaluateDeliveryGate(reminder: JoinedReminderRecord) {
   const contract = reminder.contracts as DeliveryContract;
+  if (contract.is_sample) {
+    return {
+      status: "blocked_sample_contract" as const,
+      safeMessage: "Trusted reminders are blocked for fictional sample contracts."
+    };
+  }
+  if (contract.status === "archived" || contract.cycle_status === "closed") {
+    return {
+      status: "blocked_archived_contract" as const,
+      safeMessage: "Trusted reminders are blocked for archived or closed contracts."
+    };
+  }
   const metadata = Array.isArray(contract.contract_metadata)
     ? contract.contract_metadata[0]
     : contract.contract_metadata;
@@ -613,13 +651,14 @@ async function releaseReminderAfterBlockedGate(input: {
   reminderId: string;
   organizationId: string;
   safeMessage: string;
+  terminal?: boolean;
 }) {
   const admin = createAdminSupabaseClient();
   await checkedReminderWrite(
     admin
       .from("reminders")
       .update({
-        status: "retry_pending",
+        status: input.terminal ? "cancelled" : "retry_pending",
         last_error: input.safeMessage,
         processing_started_at: null,
         processing_token: null,
