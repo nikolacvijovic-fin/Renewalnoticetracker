@@ -33,7 +33,7 @@ describe("security and privacy boundaries", () => {
   });
 
   it("keeps note audit evidence metadata-only rather than storing note previews", () => {
-    const source = readRepoFile("lib", "actions", "contracts.ts");
+    const source = readRepoFile("lib", "actions", "contracts", "notes.ts");
     const noteActionStart = source.indexOf("export async function createNoteAction");
     const noteAction = source.slice(noteActionStart);
 
@@ -64,4 +64,3 @@ describe("security and privacy boundaries", () => {
     }
   });
 });
-

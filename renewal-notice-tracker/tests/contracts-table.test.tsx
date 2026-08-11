@@ -1,6 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ContractsTable } from "@/components/contracts/contracts-table";
+
+vi.mock("@/components/contracts/risk-explanation-drawer", () => ({
+  RiskExplanationDrawer: ({ explanation }: { explanation: { contractTitle: string } }) => (
+    <button type="button" aria-label={`Show risk details for ${explanation.contractTitle}`}>
+      Risk details
+    </button>
+  )
+}));
 
 describe("contracts table", () => {
   it("shows owner decoration and core metadata columns with risk detail for allowed viewers", () => {

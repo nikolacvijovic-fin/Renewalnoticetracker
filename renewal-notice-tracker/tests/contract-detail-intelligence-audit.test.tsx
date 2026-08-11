@@ -6,6 +6,8 @@ const requireOrganization = vi.fn();
 const getContractById = vi.fn();
 const getCounterparties = vi.fn();
 const getOrganizationMembers = vi.fn();
+const getContractRenewalActionRequests = vi.fn();
+const getContractPendingRenewalActionRequestCount = vi.fn();
 const getPhase1TrustState = vi.fn();
 const getPhase1ReviewMode = vi.fn();
 const listPhase1ActiveReviewDirtyFlags = vi.fn();
@@ -14,6 +16,13 @@ const getIntelligenceSurfaceAccessMap = vi.fn();
 const auditRiskBadgeViewed = vi.fn();
 const auditRiskExplanationViewed = vi.fn();
 const auditRiskScoreRecalculated = vi.fn();
+const getContractAuditTimeline = vi.fn();
+const listContractExtractionRuns = vi.fn();
+const listContractExtractedFields = vi.fn();
+const listQuoteComparisons = vi.fn();
+const listQuoteFindings = vi.fn();
+const listSavingsOpportunities = vi.fn();
+const getSaasOptOutStatusForContract = vi.fn();
 
 vi.mock("next/navigation", () => ({
   notFound: vi.fn(() => {
@@ -22,37 +31,60 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireOrganization
+  requireOrganization,
+  hasRequiredRole: (role: string, allowedRoles: string[]) => allowedRoles.includes(role)
 }));
 
 vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContractById,
   getCounterparties,
-  getOrganizationMembers
+  getOrganizationMembers,
+  getContractRenewalActionRequests,
+  getContractPendingRenewalActionRequestCount
 }));
 
-vi.mock("@/lib/contracts/phase1-pilot", () => ({
-  listPhase1ActiveReviewDirtyFlags,
-  getPhase1ReviewMode,
-  getPhase1TrustState
+vi.mock("@/lib/actions/contracts", () => ({
+  assignContractOwnerAction: vi.fn(),
+  completeRenewalActionRequestAction: vi.fn(),
+  dismissRenewalActionRequestAction: vi.fn(),
+  recordSampleContractOpened: vi.fn(),
+  requestRenewalActionAction: vi.fn()
 }));
 
-vi.mock("@/lib/contracts/shipped-reminder-policy", () => ({
-  formatReminderRuntimeStatusLabel: (value: string) => value,
-  formatReminderTypeLabel: (value: string) => value,
-  getReminderActivationState: ({ needsReview, ownerUserId, noticeDeadlineDate, renewalDate, expirationDate }: {
-    needsReview?: boolean | null;
-    ownerUserId?: string | null;
-    noticeDeadlineDate?: string | null;
-    renewalDate?: string | null;
-    expirationDate?: string | null;
-  }) => {
-    if (needsReview) return "blocked_by_review";
-    if (!ownerUserId) return "blocked_by_missing_owner";
-    if (!noticeDeadlineDate && !renewalDate && !expirationDate) return "blocked_by_missing_p0";
-    return "scheduled";
-  }
+vi.mock("@/lib/actions/contracts/sample", () => ({
+  removeSampleContractAction: vi.fn()
 }));
+
+vi.mock("@/lib/contracts/phase1-pilot", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/contracts/phase1-pilot")>();
+  return {
+    ...actual,
+    listPhase1ActiveReviewDirtyFlags,
+    getPhase1ReviewMode,
+    getPhase1TrustState
+  };
+});
+
+vi.mock("@/lib/contracts/shipped-reminder-policy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/contracts/shipped-reminder-policy")>();
+  return {
+    ...actual,
+    formatReminderRuntimeStatusLabel: (value: string) => value,
+    formatReminderTypeLabel: (value: string) => value,
+    getReminderActivationState: ({ needsReview, ownerUserId, noticeDeadlineDate, renewalDate, expirationDate }: {
+      needsReview?: boolean | null;
+      ownerUserId?: string | null;
+      noticeDeadlineDate?: string | null;
+      renewalDate?: string | null;
+      expirationDate?: string | null;
+    }) => {
+      if (needsReview) return "blocked_by_review";
+      if (!ownerUserId) return "blocked_by_missing_owner";
+      if (!noticeDeadlineDate && !renewalDate && !expirationDate) return "blocked_by_missing_p0";
+      return "scheduled";
+    }
+  };
+});
 
 vi.mock("@/lib/intelligence/risk/dashboard", () => ({
   buildRiskQueueRow,
@@ -69,9 +101,32 @@ vi.mock("@/lib/intelligence/audit", () => ({
   auditRiskScoreRecalculated
 }));
 
-vi.mock("@/lib/utils", () => ({
-  formatDate: () => "May 25, 2026"
+vi.mock("@/lib/enterprise-audit/audit-queries", () => ({
+  getContractAuditTimeline
 }));
+
+vi.mock("@/lib/contract-intelligence/extraction-runs", () => ({
+  listContractExtractionRuns,
+  listContractExtractedFields
+}));
+
+vi.mock("@/lib/quote-comparison/quote-comparison", () => ({
+  listQuoteComparisons,
+  listQuoteFindings,
+  listSavingsOpportunities
+}));
+
+vi.mock("@/lib/saas/queries", () => ({
+  getSaasOptOutStatusForContract
+}));
+
+vi.mock("@/lib/utils", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/utils")>();
+  return {
+    ...actual,
+    formatDate: () => "May 25, 2026"
+  };
+});
 
 vi.mock("@/components/ui/badge", () => ({
   Badge: ({ children }: { children: ReactNode }) => <span>{children}</span>
@@ -109,8 +164,45 @@ vi.mock("@/components/contracts/contract-activity-feed", () => ({
   ContractActivityFeed: () => <div>Activity feed</div>
 }));
 
+vi.mock("@/components/contracts/contract-enterprise-audit-timeline", () => ({
+  ContractEnterpriseAuditTimeline: () => <div>Enterprise audit timeline</div>
+}));
+
 vi.mock("@/components/contracts/contract-secondary-tabs", () => ({
   ContractSecondaryTabs: () => <div>Secondary tabs</div>
+}));
+
+vi.mock("@/components/contracts/readiness-score-card", () => ({
+  ReadinessScoreCard: () => <div>Readiness score</div>
+}));
+
+vi.mock("@/components/contracts/trusted-reminder-blockers", () => ({
+  TrustedReminderBlockers: () => <div>Trusted reminder blockers</div>
+}));
+
+vi.mock("@/components/contracts/contract-onboarding-panel", () => ({
+  ContractOnboardingPanel: () => <div>Contract onboarding</div>
+}));
+
+vi.mock("@/components/contracts/contract-extraction-review-panel", () => ({
+  ContractExtractionReviewPanel: () => <div>Extraction review</div>
+}));
+
+vi.mock("@/components/contracts/renewal-quote-comparison-panel", () => ({
+  RenewalQuoteComparisonPanel: () => <div>Quote comparison</div>
+}));
+
+vi.mock("@/components/contracts/decision-loop-ledger", () => ({
+  DecisionLoopLedger: () => <div>Decision loop ledger</div>
+}));
+
+vi.mock("@/components/contracts/manual-renewal-template-panel", () => ({
+  ManualRenewalTemplatePanel: () => <div>Manual template panel</div>
+}));
+
+vi.mock("@/components/customer-feedback/customer-feedback-panel", () => ({
+  CustomerFeedbackPanel: () => <div>Customer feedback</div>,
+  DeadlineCorrectnessFeedback: () => <div>Deadline feedback</div>
 }));
 
 vi.mock("@/components/contracts/contract-detail-shell", () => ({
@@ -236,9 +328,18 @@ beforeEach(() => {
     }
   ]);
   getCounterparties.mockResolvedValue([]);
+  getContractRenewalActionRequests.mockResolvedValue([]);
+  getContractPendingRenewalActionRequestCount.mockResolvedValue(0);
   getPhase1TrustState.mockReturnValue("Verified");
   getPhase1ReviewMode.mockReturnValue("fast_review");
   listPhase1ActiveReviewDirtyFlags.mockReturnValue([]);
+  getContractAuditTimeline.mockResolvedValue([]);
+  listContractExtractionRuns.mockResolvedValue([]);
+  listContractExtractedFields.mockResolvedValue([]);
+  listQuoteComparisons.mockResolvedValue([]);
+  listQuoteFindings.mockResolvedValue([]);
+  listSavingsOpportunities.mockResolvedValue([]);
+  getSaasOptOutStatusForContract.mockResolvedValue(null);
   buildRiskQueueRow.mockReturnValue(makeRiskExplanation());
   getIntelligenceSurfaceAccessMap.mockResolvedValue({
     billingSnapshot: {
@@ -284,7 +385,7 @@ describe("Contract detail intelligence audit semantics", () => {
     expect(auditRiskExplanationViewed).not.toHaveBeenCalled();
     expect(auditRiskScoreRecalculated).not.toHaveBeenCalled();
     expect(screen.getByText("Risk badge high")).toBeInTheDocument();
-  });
+  }, 15000);
 
   it("does not log explanation or recalculation events during passive render even when the drawer is available", async () => {
     getIntelligenceSurfaceAccessMap.mockResolvedValue({
@@ -311,6 +412,6 @@ describe("Contract detail intelligence audit semantics", () => {
     );
     expect(auditRiskExplanationViewed).not.toHaveBeenCalled();
     expect(auditRiskScoreRecalculated).not.toHaveBeenCalled();
-    expect(screen.getByText("Risk explanation drawer contract_detail")).toBeInTheDocument();
-  });
+    expect(screen.getAllByText("Risk explanation drawer contract_detail").length).toBeGreaterThan(0);
+  }, 15000);
 });

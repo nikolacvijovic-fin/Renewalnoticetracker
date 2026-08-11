@@ -7,6 +7,7 @@ const auditRiskExplanationViewed = vi.fn();
 
 class IntelligenceAuthorizationError extends Error {}
 class IntelligencePlanAccessError extends Error {}
+class IntelligencePlatformAccessError extends Error {}
 
 vi.mock("@/lib/auth", () => ({
   getOrganizationContextOrNull
@@ -19,7 +20,8 @@ vi.mock("@/lib/contracts/kernel-queries", () => ({
 vi.mock("@/lib/intelligence/access", () => ({
   assertCanAccessIntelligenceSurface,
   IntelligenceAuthorizationError,
-  IntelligencePlanAccessError
+  IntelligencePlanAccessError,
+  IntelligencePlatformAccessError
 }));
 
 vi.mock("@/lib/intelligence/audit", () => ({

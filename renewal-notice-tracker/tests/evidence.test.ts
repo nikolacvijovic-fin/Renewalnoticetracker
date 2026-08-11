@@ -19,12 +19,14 @@ describe("buildEvidenceRows", () => {
       {
         field_name: "contract_title",
         snippet: "Master Services Agreement",
-        confidence: 0.91
+        confidence: 0.91,
+        source: "extraction"
       },
       {
         field_name: "expiration_date",
         snippet: "2026-12-31",
-        confidence: 0.77
+        confidence: 0.77,
+        source: "extraction"
       }
     ]);
   });

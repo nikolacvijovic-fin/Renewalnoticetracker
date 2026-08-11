@@ -516,7 +516,12 @@ export function buildMarketActivationDiagnostic(input: {
       provider_name: input.providerName ?? null,
       module_id: input.moduleId ?? null,
       reason_code: input.reasonCode ?? null
-    }).filter(([key]) => allowedFields.includes(key as (typeof activationSafeMetadataFields)[number]))
+    }).filter(
+      ([key, value]) =>
+        value !== null &&
+        value !== undefined &&
+        allowedFields.includes(key as (typeof activationSafeMetadataFields)[number])
+    )
   );
 
   return {

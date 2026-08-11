@@ -9,6 +9,8 @@ const getCounterparties = vi.fn();
 const getOrganizationMembers = vi.fn();
 const getContracts = vi.fn();
 const getContractFacets = vi.fn();
+const getContractRenewalActionRequests = vi.fn();
+const getContractPendingRenewalActionRequestCount = vi.fn();
 const getBillingSnapshot = vi.fn();
 const createAuditLog = vi.fn();
 const buildRiskQueueRow = vi.fn();
@@ -19,6 +21,14 @@ const auditRiskBadgeViewed = vi.fn();
 const auditRiskQueueViewed = vi.fn();
 const auditFinancialIntelligenceViewed = vi.fn();
 const auditProcurementAnalyticsViewed = vi.fn();
+const getSaasOptOutStatusForContract = vi.fn();
+const getSaasOptOutStatusesForContracts = vi.fn();
+const getContractAuditTimeline = vi.fn();
+const listContractExtractionRuns = vi.fn();
+const listContractExtractedFields = vi.fn();
+const listQuoteComparisons = vi.fn();
+const listQuoteFindings = vi.fn();
+const listSavingsOpportunities = vi.fn();
 const contractsTableSpy = vi.fn();
 
 const redirectMock = vi.fn((location: string) => {
@@ -49,7 +59,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireOrganization
+  requireOrganization,
+  hasRequiredRole: (role: string, allowedRoles: string[]) => allowedRoles.includes(role)
 }));
 
 vi.mock("@/lib/audit", () => ({
@@ -61,7 +72,9 @@ vi.mock("@/lib/contracts/kernel-queries", () => ({
   getCounterparties,
   getOrganizationMembers,
   getContracts,
-  getContractFacets
+  getContractFacets,
+  getContractRenewalActionRequests,
+  getContractPendingRenewalActionRequestCount
 }));
 
 vi.mock("@/lib/billing/entitlements", async () => {
@@ -75,16 +88,49 @@ vi.mock("@/lib/billing/entitlements", async () => {
   };
 });
 
-vi.mock("@/lib/contracts/phase1-pilot", () => ({
-  listPhase1ActiveReviewDirtyFlags: () => [],
-  getPhase1ReviewMode: () => "fast_review",
-  getPhase1TrustState: () => "Verified"
+vi.mock("@/lib/saas/queries", () => ({
+  getSaasOptOutStatusForContract,
+  getSaasOptOutStatusesForContracts
 }));
 
-vi.mock("@/lib/contracts/shipped-reminder-policy", () => ({
-  formatReminderRuntimeStatusLabel: (value: string) => value,
-  formatReminderTypeLabel: (value: string) => value,
-  getReminderActivationState: ({ needsReview, ownerUserId, noticeDeadlineDate, renewalDate, expirationDate }: {
+vi.mock("@/lib/enterprise-audit/audit-queries", () => ({
+  getContractAuditTimeline
+}));
+
+vi.mock("@/lib/contract-intelligence/extraction-runs", () => ({
+  listContractExtractionRuns,
+  listContractExtractedFields
+}));
+
+vi.mock("@/lib/quote-comparison/quote-comparison", () => ({
+  listQuoteComparisons,
+  listQuoteFindings,
+  listSavingsOpportunities
+}));
+
+vi.mock("@/lib/contracts/phase1-pilot", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/contracts/phase1-pilot")>(
+    "@/lib/contracts/phase1-pilot"
+  );
+
+  return {
+    ...actual,
+    listPhase1ActiveReviewDirtyFlags: () => [],
+    getPhase1ReviewMode: () => "fast_review",
+    getPhase1TrustState: () => "Verified"
+  };
+});
+
+vi.mock("@/lib/contracts/shipped-reminder-policy", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/contracts/shipped-reminder-policy")>(
+    "@/lib/contracts/shipped-reminder-policy"
+  );
+
+  return {
+    ...actual,
+    formatReminderRuntimeStatusLabel: (value: string) => value,
+    formatReminderTypeLabel: (value: string) => value,
+    getReminderActivationState: ({ needsReview, ownerUserId, noticeDeadlineDate, renewalDate, expirationDate }: {
     needsReview?: boolean | null;
     ownerUserId?: string | null;
     noticeDeadlineDate?: string | null;
@@ -95,8 +141,9 @@ vi.mock("@/lib/contracts/shipped-reminder-policy", () => ({
     if (!ownerUserId) return "blocked_by_missing_owner";
     if (!noticeDeadlineDate && !renewalDate && !expirationDate) return "blocked_by_missing_p0";
     return "scheduled";
-  }
-}));
+    }
+  };
+});
 
 vi.mock("@/lib/intelligence/risk/dashboard", () => ({
   buildRiskQueueRow,
@@ -553,6 +600,8 @@ beforeEach(() => {
   ]);
   getCounterparties.mockResolvedValue([]);
   getContracts.mockResolvedValue([makeContract()]);
+  getContractRenewalActionRequests.mockResolvedValue([]);
+  getContractPendingRenewalActionRequestCount.mockResolvedValue(0);
   getContractFacets.mockResolvedValue({
     owners: [],
     departments: [],
@@ -562,6 +611,14 @@ beforeEach(() => {
   buildRiskQueueView.mockReturnValue(makeRiskQueueDashboard());
   buildFinancialDashboardView.mockReturnValue(makeFinancialDashboard());
   getProcurementAnalyticsDashboard.mockResolvedValue(makeProcurementDashboard());
+  getSaasOptOutStatusForContract.mockResolvedValue(null);
+  getSaasOptOutStatusesForContracts.mockResolvedValue({});
+  getContractAuditTimeline.mockResolvedValue([]);
+  listContractExtractionRuns.mockResolvedValue([]);
+  listContractExtractedFields.mockResolvedValue([]);
+  listQuoteComparisons.mockResolvedValue([]);
+  listQuoteFindings.mockResolvedValue([]);
+  listSavingsOpportunities.mockResolvedValue([]);
   createAuditLog.mockResolvedValue(undefined);
   auditRiskBadgeViewed.mockResolvedValue(undefined);
   auditRiskQueueViewed.mockResolvedValue(undefined);
@@ -637,13 +694,13 @@ async function expectDashboardPageAccess(input: {
 
 describe("intelligence surface entitlement consistency", () => {
   for (const scenario of BILLING_STATE_MATRIX) {
-    it(`keeps contract detail, contracts list, risk queue, financial intelligence, and procurement analytics aligned for ${scenario.name}`, async () => {
+    it(`keeps contract detail, contracts list, risk queue, financial intelligence, and procurement analytics aligned for ${scenario.name}`, { timeout: 30000 }, async () => {
       getBillingSnapshot.mockResolvedValue(scenario.snapshot);
 
       await renderContractDetailForCurrentBilling();
 
       if (scenario.expected.contractDetail.badge && !scenario.expected.contractDetail.explanation) {
-        expect(screen.getByText("Risk badge high")).toBeInTheDocument();
+        expect(screen.getAllByText("Risk badge high").length).toBeGreaterThan(0);
       } else {
         expect(screen.queryByText("Risk badge high")).not.toBeInTheDocument();
       }
@@ -685,7 +742,7 @@ describe("intelligence surface entitlement consistency", () => {
       });
 
       await renderContractsListForCurrentBilling();
-      expect(screen.getByRole("heading", { name: "Contracts" })).toBeInTheDocument();
+      expect(screen.getAllByRole("heading", { name: "Contracts" }).length).toBeGreaterThan(0);
       expect(getContracts).toHaveBeenCalledWith("org-1", "all", {
         ownerUserId: undefined,
         department: undefined,

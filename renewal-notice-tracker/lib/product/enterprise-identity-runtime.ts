@@ -861,6 +861,10 @@ const CUSTOMER_ROLES_ALLOWED_FROM_GROUP_MAPPING = CUSTOMER_ROLES.filter((role) =
 );
 const SENSITIVE_IDENTITY_VALUE_PATTERN =
   /saml|assertion|oidc|id[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|authorization[_\s-]?code|bearer|scim[_\s-]?payload|provider[_\s-]?(payload|request|response)|client[_\s-]?secret|private[_\s-]?key|certificate|password|secret|token|raw[_\s-]?group|group[_\s-]?payload|raw[_\s-]?profile|profile[_\s-]?payload|sensitive_/i;
+const SAFE_PROVIDER_METADATA_VALUES = new Set(["saml", "saml_2_0", "oidc", "scim", "scim_2_0"]);
+const SAFE_REASON_CODE_PATTERN = /^[a-z0-9_.:-]+$/i;
+const SENSITIVE_FINGERPRINT_VALUE_PATTERN =
+  /assertion|id[_\s-]?token|access[_\s-]?token|refresh[_\s-]?token|authorization[_\s-]?code|bearer|payload|client[_\s-]?secret|private[_\s-]?key|password|secret|token|raw[_\s-]?group|group[_\s-]?payload|raw[_\s-]?profile|profile[_\s-]?payload|sensitive_/i;
 
 function stableHash(value: string) {
   return createHash("sha256").update(value.trim().toLowerCase()).digest("hex");
@@ -2055,7 +2059,7 @@ export function prepareEnterpriseScimMutationDecision(
         })
       : undefined;
 
-  return {
+  const result: EnterpriseScimMutationDecisionResult = {
     allowed: true,
     reason: "allowed",
     organizationId: input.organizationId,
@@ -2076,9 +2080,12 @@ export function prepareEnterpriseScimMutationDecision(
         reason_code: mapping.reasonCode,
         initiated_by: "scim_directory"
       }
-    }),
-    sessionRevocationIntent
+    })
   };
+  if (sessionRevocationIntent) {
+    result.sessionRevocationIntent = sessionRevocationIntent;
+  }
+  return result;
 }
 
 export function evaluateEnterpriseIdentitySessionRevocationDecision(
@@ -2347,14 +2354,27 @@ export function sanitizeEnterpriseIdentityMetadata(
 function sanitizeIdentityRecord(
   metadata: Record<string, unknown>,
   allowedKeys: Set<string>,
-  forbiddenKeys: Set<string>
+  forbiddenKeys: Set<string>,
+  allowNestedContainers = false
 ) {
   const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    if (!allowedKeys.has(key)) continue;
     if (forbiddenKeys.has(key)) continue;
-    const safeValue = sanitizeIdentityValue(value, allowedKeys, forbiddenKeys);
+    const keyIsAllowed = allowedKeys.has(key);
+    if (!keyIsAllowed && !allowNestedContainers) continue;
+    if (!keyIsAllowed && (value === null || typeof value !== "object")) continue;
+    const safeValue = sanitizeIdentityValue(value, key, allowedKeys, forbiddenKeys);
     if (safeValue === undefined) continue;
+    if (!keyIsAllowed) {
+      if (Array.isArray(safeValue) && safeValue.length === 0) continue;
+      if (
+        typeof safeValue === "object" &&
+        safeValue !== null &&
+        Object.keys(safeValue as Record<string, unknown>).length === 0
+      ) {
+        continue;
+      }
+    }
     sanitized[key] = safeValue;
   }
   return sanitized;
@@ -2362,21 +2382,32 @@ function sanitizeIdentityRecord(
 
 function sanitizeIdentityValue(
   value: unknown,
+  key: string,
   allowedKeys: Set<string>,
   forbiddenKeys: Set<string>
 ): unknown {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") {
+    if (key === "reason_code" && SAFE_REASON_CODE_PATTERN.test(value)) return value;
+    if (key === "provider" && SAFE_PROVIDER_METADATA_VALUES.has(value)) return value;
+    if (key.endsWith("_fingerprint")) {
+      return SENSITIVE_FINGERPRINT_VALUE_PATTERN.test(value) ? undefined : value;
+    }
     return SENSITIVE_IDENTITY_VALUE_PATTERN.test(value) ? undefined : value;
   }
   if (typeof value === "number" || typeof value === "boolean") return value;
   if (Array.isArray(value)) {
     return value
-      .map((item) => sanitizeIdentityValue(item, allowedKeys, forbiddenKeys))
+      .map((item) => sanitizeIdentityValue(item, key, allowedKeys, forbiddenKeys))
       .filter((item) => item !== undefined);
   }
   if (typeof value === "object") {
-    return sanitizeIdentityRecord(value as Record<string, unknown>, allowedKeys, forbiddenKeys);
+    return sanitizeIdentityRecord(
+      value as Record<string, unknown>,
+      allowedKeys,
+      forbiddenKeys,
+      true
+    );
   }
   return undefined;
 }

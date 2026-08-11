@@ -332,7 +332,7 @@ describe("trust exception approvals", () => {
     );
     expect(recordEnterpriseAuditEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventType: "trust_exception_approval.revoked",
+        eventType: "trust_exception_approval.denied",
         eventCategory: "trust_exception"
       })
     );

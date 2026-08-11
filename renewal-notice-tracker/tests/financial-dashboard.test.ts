@@ -5,6 +5,12 @@ import {
 } from "@/lib/intelligence/financial/dashboard";
 import type { DashboardContractRow } from "@/lib/contracts/dashboard";
 
+function daysFromToday(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
 function makeContract(
   overrides: Partial<DashboardContractRow> = {},
   metadataOverrides: Partial<NonNullable<DashboardContractRow["contract_metadata"]>> = {}
@@ -22,9 +28,9 @@ function makeContract(
     contract_metadata: {
       contract_title: "MSA",
       counterparty_name: "Acme",
-      renewal_date: "2026-06-15",
+      renewal_date: daysFromToday(35),
       expiration_date: null,
-      notice_deadline_date: "2026-06-01",
+      notice_deadline_date: daysFromToday(20),
       auto_renewal: true,
       needs_review: false,
       field_confidence: 0.95,

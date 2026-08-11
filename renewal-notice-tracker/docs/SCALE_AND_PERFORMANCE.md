@@ -15,7 +15,7 @@ If a workspace regularly exceeds these limits, move heavy exports and recalculat
 
 ## Export And Reporting Limits
 
-Synchronous exports are capped at `5000` rows. Above that, the route returns a safe `413` with `ERR_EXPORT_BACKGROUND_REQUIRED_001` and points callers to `POST /api/exports/contracts`.
+Synchronous exports are capped at `5000` rows. Above that, the route returns a safe `413` with `ERR_EXPORT_BACKGROUND_REQUIRED_001` and points callers to `POST /api/exports/contracts`. Synchronous artifact-size failures use `ERR_EXPORT_TOO_LARGE_001`; background artifact-size failures use `ERR_EXPORT_BACKGROUND_ARTIFACT_TOO_LARGE_001`.
 
 Preset query behavior:
 - Basic Contract Register fetches only contract/register metadata.

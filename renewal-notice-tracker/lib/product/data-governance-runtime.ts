@@ -267,6 +267,7 @@ const SUPPORT_DIAGNOSTIC_METADATA_ALLOWLIST = new Set([
   "created_at",
   "updated_at",
   "requested_at",
+  "reviewed_at",
   "completed_at",
   "failed_at",
   "expired_at",

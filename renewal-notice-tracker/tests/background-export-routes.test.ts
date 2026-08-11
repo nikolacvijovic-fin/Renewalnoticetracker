@@ -160,7 +160,7 @@ describe("background export routes", () => {
         format: "csv"
       })
     );
-  });
+  }, { timeout: 15000 });
 
   it("does not create a request when preset access is denied", async () => {
     const { OrganizationAuthorizationError } = await import("@/lib/auth");

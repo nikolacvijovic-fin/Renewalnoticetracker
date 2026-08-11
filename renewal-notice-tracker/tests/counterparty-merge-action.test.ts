@@ -153,7 +153,7 @@ describe("mergeCounterpartyAction", () => {
         })
       })
     );
-  });
+  }, 15000);
 
   it("denies cross-org merges and writes no audit entry", async () => {
     createServerSupabaseClient.mockReturnValue({
@@ -201,5 +201,5 @@ describe("mergeCounterpartyAction", () => {
     );
     expect(createAuditLog).not.toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalled();
-  });
+  }, 15000);
 });

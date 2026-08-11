@@ -11,7 +11,10 @@ const shippedRoots = [
 ];
 
 const allowedFiles = new Set([
-  path.join(repoRoot, "lib", "product", "deferred-capabilities.ts")
+  path.join(repoRoot, "lib", "product", "deferred-capabilities.ts"),
+  // Compatibility shim only: it keeps old registry imports compiling while the
+  // future-only Revenue Intelligence implementation stays under /deferred.
+  path.join(repoRoot, "lib", "product", "revenue-intelligence.ts")
 ]);
 
 function walkFiles(root: string, files: string[] = []) {

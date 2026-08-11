@@ -16,11 +16,15 @@ vi.mock("@/lib/organization/workspace-deletion", () => ({
   executeWorkspaceDeletionRequest
 }));
 
-vi.mock("@/lib/observability/server-logger", () => ({
-  logServerError,
-  logServerInfo,
-  logServerWarn
-}));
+vi.mock("@/lib/observability/server-logger", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/observability/server-logger")>();
+  return {
+    ...actual,
+    logServerError,
+    logServerInfo,
+    logServerWarn
+  };
+});
 
 describe("workspace deletion internal route", () => {
   beforeEach(() => {

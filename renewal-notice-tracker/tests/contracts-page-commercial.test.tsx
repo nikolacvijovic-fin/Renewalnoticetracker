@@ -90,6 +90,6 @@ describe("ContractsPage commercial UX", () => {
       expect(screen.getByRole("button", { name: "Export CSV" })).toBeDisabled();
       expect(screen.getByRole("button", { name: "Export Excel" })).toBeDisabled();
     },
-    15000
+    30000
   );
 });

@@ -110,7 +110,7 @@ Diagnostics may include safe IDs, status, retry counts, timestamps, failure code
 
 ## Metrics And Alert Rules As Code
 
-Operational events are not metrics, and alert webhook delivery is not alert-rule evaluation. Operational events describe discrete runtime happenings. Metrics are aggregated numeric signals. Alert rules define backend-agnostic threshold logic over metric contracts. Audit and analytics remain separate signal types.
+operational events are not metrics, and alert webhook delivery is not alert-rule evaluation. Operational events describe discrete runtime happenings. Metrics are aggregated numeric signals. Alert rules define backend-agnostic threshold logic over metric contracts. Audit and analytics remain separate signal types.
 
 Metric contracts live in `lib/observability/metrics.ts`. Each metric defines:
 - metric name
@@ -131,7 +131,7 @@ Alert rules as code live in `lib/observability/alert-rules.ts`. Each rule define
 - safe diagnostic fields
 - forbidden diagnostic fields
 
-Incident snapshots are safe support/incident summaries derived from alert rules. They may include affected organization count, affected job count, oldest failed/stuck age, retry-exhausted count, recent safe event IDs, failure category, and runbook ID. They must not include raw contract text, notes, OCR output, SAML/OIDC/SCIM secrets, billing provider payloads, storage paths, raw provider responses, passwords, secrets, or tokens.
+incident snapshots are safe support/incident summaries derived from alert rules. They may include affected organization count, affected job count, oldest failed/stuck age, retry-exhausted count, recent safe event IDs, failure category, and runbook ID. They must not include raw contract text, notes, OCR output, SAML/OIDC/SCIM secrets, billing provider payloads, storage paths, raw provider responses, passwords, secrets, or tokens.
 
 Current state: NoticeControl defines backend-agnostic metric contracts, alert rules, and incident snapshot helpers. It does not yet push metrics to Datadog, Grafana, Sentry, OpenTelemetry, Prometheus, or another backend, and it does not yet provide dashboards, paging/on-call automation, or SLO reporting.
 

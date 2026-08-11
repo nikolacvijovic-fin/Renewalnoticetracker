@@ -55,6 +55,7 @@ The registry may contain neutral planning profiles such as:
 These profiles are not customer-facing launch claims. They describe future policy decisions for payment providers, AI/OCR providers, email providers, invoicing, data residency, compliance review, activation, and module availability.
 
 Restricted markets require legal/compliance review and cannot self-activate. The profile named `restricted_market_review` is a denial/review boundary, not a supported market.
+For release-gate clarity: restricted markets require legal/compliance review before any future activation work.
 
 ## Provider Policy
 

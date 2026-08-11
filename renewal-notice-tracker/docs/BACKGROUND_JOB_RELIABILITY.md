@@ -149,7 +149,7 @@ Internal operators can inspect job health at:
 
 - `/admin/background-jobs?organizationId=...`
 
-The page shows queued, processing, retry-scheduled, dead-lettered, recent attempts, oldest queued age, and trusted reminder delivery failure rate. Cancel/retry actions remain placeholders until reviewed.
+The page shows queued, processing, retry-scheduled, dead-lettered, recent attempts, oldest queued age, and trusted reminder delivery failure rate. Signed internal worker routes own claim, complete, fail/retry, and worker-cancel transitions. Admin cancellation is available only through the explicit audited queue helper with organization scope, actor identity, and reason code; it is intentionally not exposed as a broad dashboard shortcut.
 
 ## Known Limitations
 

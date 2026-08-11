@@ -76,8 +76,9 @@ export default async function AdminBackgroundJobsPage({
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold">Trusted reminder delivery</h2>
         <p className="mt-2 text-sm text-slate-500">
-          Failure rate: {failureRate}% · Oldest queued age: {oldestQueued ?? 0} minutes · Cancel/retry controls remain
-          internal-route placeholders until reviewed.
+          Failure rate: {failureRate}% · Oldest queued age: {oldestQueued ?? 0} minutes · Signed worker routes own
+          retry, completion, failure, and cancellation transitions; admin cancellation remains an explicit audited
+          operator action, not a broad dashboard shortcut.
         </p>
       </div>
 

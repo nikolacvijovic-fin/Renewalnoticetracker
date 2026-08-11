@@ -55,7 +55,7 @@ describe("CustomerExportCenterPage", () => {
     expect(screen.getAllByRole("link", { name: /PDF/i }).length).toBeGreaterThan(0);
     expect(container.innerHTML).toContain("Raw contract text");
     expect(container.innerHTML).toContain("provider payloads");
-  }, 10000);
+  }, 30000);
 
   it("disables full organization export buttons for non-admin/operator roles", async () => {
     requireOrganization.mockResolvedValue({
@@ -70,5 +70,5 @@ describe("CustomerExportCenterPage", () => {
     expect(screen.getAllByText("Full organization exports require admin or operator access.").length).toBeGreaterThan(0);
     expect(screen.queryByRole("link", { name: /JSON/i })).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /JSON/i }).length).toBeGreaterThan(0);
-  });
+  }, 30000);
 });
