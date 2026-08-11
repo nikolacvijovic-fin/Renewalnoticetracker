@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { sendRenewalActionRequestEmail } from "@/lib/email/send-reminder";
+import {
+  buildRenewalActionRequestEmailProviderRequest,
+  sendRenewalActionRequestEmailProviderRequest,
+  type RenewalActionRequestEmailProviderRequest
+} from "@/lib/email/send-reminder";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { checkedPrivilegedWrite } from "@/lib/supabase/checked-write";
 import type { Json } from "@/lib/supabase/database.types";
@@ -17,6 +21,7 @@ const MAX_ERROR_LENGTH = 180;
 const DEFAULT_OUTBOX_LIMIT = 25;
 const STALE_CLAIM_MINUTES = 10;
 const MAX_RETRY_DELAY_MINUTES = 60;
+const EMAIL_SNAPSHOT_VERSION = "renewal_action_request_email.v1";
 
 type RenewalActionNotificationRow = {
   id: string;
@@ -46,29 +51,36 @@ type RenewalActionRequestRow = {
   message: string | null;
 };
 
+type ContractMetadataRow = {
+  contract_title: string | null;
+  counterparty_name: string | null;
+  notice_deadline_date: string | null;
+  renewal_date: string | null;
+  expiration_date: string | null;
+  contract_value_amount: number | null;
+  contract_value_currency: string | null;
+};
+
+type RenewalActionEmailSnapshot = {
+  version: typeof EMAIL_SNAPSHOT_VERSION;
+  providerRequest: RenewalActionRequestEmailProviderRequest;
+  requestId: string;
+  contractId: string;
+  requestedAction: string;
+};
+
+type DeliveryErrorClassification = {
+  failureCode: string;
+  failureCategory: string;
+  permanent: boolean;
+  retryable: boolean;
+  alert: boolean;
+};
+
 type ContractContextRow = {
   id: string;
   owner_user_id: string | null;
-  contract_metadata:
-    | {
-        contract_title: string | null;
-        counterparty_name: string | null;
-        notice_deadline_date: string | null;
-        renewal_date: string | null;
-        expiration_date: string | null;
-        contract_value_amount: number | null;
-        contract_value_currency: string | null;
-      }
-    | Array<{
-        contract_title: string | null;
-        counterparty_name: string | null;
-        notice_deadline_date: string | null;
-        renewal_date: string | null;
-        expiration_date: string | null;
-        contract_value_amount: number | null;
-        contract_value_currency: string | null;
-      }>
-    | null;
+  contract_metadata: ContractMetadataRow | ContractMetadataRow[] | null;
 };
 
 export function buildRenewalActionRequestNotificationDeliveryKey(requestId: string) {
@@ -100,6 +112,128 @@ function firstValue<T>(value: T | T[] | null | undefined): T | null {
 
 function safeUserLabel(user: { full_name?: string | null; notification_email?: string | null } | null) {
   return user?.full_name ?? user?.notification_email ?? "NoticeControl operator";
+}
+
+function sanitizeEmailSnapshotText(value: string | null | undefined, fallback: string) {
+  const normalized = (value ?? fallback).replace(/\s+/g, " ").trim() || fallback;
+  return normalized
+    .replace(/raw contract text[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/ocr output[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/extracted clauses?[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/private notes?[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/provider payload[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/provider response[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/secret[^,.;\n<]*/gi, "[REDACTED]")
+    .replace(/token[^,.;\n<]*/gi, "[REDACTED]")
+    .slice(0, 500);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function getProviderPayloadRecord(payload: Json): Record<string, Json | undefined> {
+  return isRecord(payload) ? (payload as Record<string, Json | undefined>) : {};
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function readProviderRequest(value: unknown): RenewalActionRequestEmailProviderRequest | null {
+  if (!isRecord(value)) return null;
+  const from = readString(value.from);
+  const to = readString(value.to);
+  const subject = readString(value.subject);
+  const html = readString(value.html);
+  const replyTo = readString(value.replyTo);
+  if (!from || !to || !subject || !html) return null;
+  return {
+    from,
+    to,
+    ...(replyTo ? { replyTo } : {}),
+    subject,
+    html
+  };
+}
+
+function getEmailSnapshotFromPayload(payload: Json): RenewalActionEmailSnapshot | null {
+  const record = getProviderPayloadRecord(payload);
+  const snapshot = record.email_delivery_snapshot;
+  if (!isRecord(snapshot) || snapshot.version !== EMAIL_SNAPSHOT_VERSION) return null;
+  const providerRequest = readProviderRequest(snapshot.providerRequest);
+  const requestId = readString(snapshot.requestId);
+  const contractId = readString(snapshot.contractId);
+  const requestedAction = readString(snapshot.requestedAction);
+  if (!providerRequest || !requestId || !contractId || !requestedAction) return null;
+  return {
+    version: EMAIL_SNAPSHOT_VERSION,
+    providerRequest,
+    requestId,
+    contractId,
+    requestedAction
+  };
+}
+
+function toJsonEmailSnapshot(snapshot: RenewalActionEmailSnapshot): Json {
+  const providerRequest = {
+    from: snapshot.providerRequest.from,
+    to: typeof snapshot.providerRequest.to === "string" ? snapshot.providerRequest.to : snapshot.providerRequest.to[0] ?? "",
+    ...(typeof snapshot.providerRequest.replyTo === "string" ? { replyTo: snapshot.providerRequest.replyTo } : {}),
+    subject: snapshot.providerRequest.subject,
+    html: snapshot.providerRequest.html
+  };
+  return {
+    version: snapshot.version,
+    providerRequest,
+    requestId: snapshot.requestId,
+    contractId: snapshot.contractId,
+    requestedAction: snapshot.requestedAction
+  };
+}
+
+function mergeProviderPayloadWithSnapshot(row: RenewalActionNotificationRow, snapshot: RenewalActionEmailSnapshot) {
+  return {
+    ...getProviderPayloadRecord(row.provider_payload),
+    request_id: snapshot.requestId,
+    contract_id: snapshot.contractId,
+    requested_action: snapshot.requestedAction,
+    outbox_scope: "internal_owner_action_request",
+    email_delivery_snapshot: toJsonEmailSnapshot(snapshot)
+  } as Record<string, Json | undefined>;
+}
+
+function buildEmailSnapshot(input: {
+  row: RenewalActionNotificationRow;
+  request: RenewalActionRequestRow;
+  metadata: ContractMetadataRow | null;
+  requester: { full_name?: string | null; notification_email?: string | null } | null;
+}): RenewalActionEmailSnapshot {
+  return {
+    version: EMAIL_SNAPSHOT_VERSION,
+    requestId: input.request.id,
+    contractId: input.request.contract_id,
+    requestedAction: input.request.requested_action,
+    providerRequest: buildRenewalActionRequestEmailProviderRequest({
+      organizationId: input.row.organization_id,
+      recipientEmail: input.row.recipient_email,
+      contractId: input.request.contract_id,
+      contractTitle: sanitizeEmailSnapshotText(input.metadata?.contract_title, "Untitled contract"),
+      counterpartyName: input.metadata?.counterparty_name
+        ? sanitizeEmailSnapshotText(input.metadata.counterparty_name, "Not set")
+        : null,
+      requestedActionLabel: sanitizeEmailSnapshotText(input.request.requested_action.replaceAll("_", " "), "renewal action"),
+      noticeDeadlineDate: input.metadata?.notice_deadline_date ?? null,
+      renewalDate: input.metadata?.renewal_date ?? null,
+      expirationDate: input.metadata?.expiration_date ?? null,
+      dueAt: input.request.due_date ?? input.request.due_at,
+      ownerLabel: "Assigned owner",
+      contractValueAmount: input.metadata?.contract_value_amount ?? null,
+      contractValueCurrency: input.metadata?.contract_value_currency ?? null,
+      requesterLabel: sanitizeEmailSnapshotText(safeUserLabel(input.requester), "NoticeControl operator"),
+      message: input.request.message ? sanitizeEmailSnapshotText(input.request.message, "") : null
+    })
+  };
 }
 
 async function markNotification(
@@ -173,11 +307,6 @@ function nextRetryAt(attemptCount: number, now = new Date()) {
   return next.toISOString();
 }
 
-function isPermanentDeliveryError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  return /permanent|invalid recipient|suppressed|unsubscribed|hard bounce|blocked recipient/i.test(message);
-}
-
 function buildSafeOutboxMetadata(row: RenewalActionNotificationRow, extra?: Record<string, unknown>) {
   return {
     notification_id: row.id,
@@ -206,17 +335,168 @@ function emitRenewalActionOutboxEvent(input: {
   });
 }
 
+async function persistEmailSnapshot(
+  row: RenewalActionNotificationRow,
+  snapshot: RenewalActionEmailSnapshot
+) {
+  if (!row.processing_token) {
+    emitRenewalActionOutboxEvent({
+      eventName: "renewal_action_notification_claim_lost",
+      row,
+      severity: "P2",
+      metadata: {
+        claim_lost_reason: "missing_processing_token_before_snapshot"
+      }
+    });
+    return { claimLost: true as const };
+  }
+
+  const result = await checkedPrivilegedWrite(
+    updateAdminRenewalActionNotification({
+      notificationId: row.id,
+      organizationId: row.organization_id,
+      processingToken: row.processing_token,
+      update: {
+        status: "processing",
+        provider_payload: mergeProviderPayloadWithSnapshot(row, snapshot) as Json
+      }
+    }),
+    {
+      operation: "update",
+      table: "notification_logs",
+      context: `renewal_action_request_notification:${row.id}:snapshot`
+    }
+  );
+
+  if (!result.data) {
+    emitRenewalActionOutboxEvent({
+      eventName: "renewal_action_notification_claim_lost",
+      row,
+      severity: "P2",
+      metadata: {
+        claim_lost_reason: "processing_token_mismatch_before_snapshot"
+      }
+    });
+    return { claimLost: true as const };
+  }
+
+  return { claimLost: false as const };
+}
+
+function getErrorName(error: unknown) {
+  if (isRecord(error)) {
+    const name = readString(error.name) ?? readString(error.code);
+    if (name) return name;
+    if (isRecord(error.error)) {
+      return readString(error.error.name) ?? readString(error.error.code);
+    }
+  }
+  return null;
+}
+
+function getErrorStatus(error: unknown) {
+  if (!isRecord(error)) return null;
+  const status = error.statusCode ?? error.status ?? error.responseStatus;
+  return typeof status === "number" && Number.isFinite(status) ? status : null;
+}
+
+export function classifyRenewalActionNotificationDeliveryError(error: unknown): DeliveryErrorClassification {
+  const name = getErrorName(error);
+  const status = getErrorStatus(error);
+  const message = error instanceof Error ? error.message : isRecord(error) ? readString(error.message) ?? "" : String(error ?? "");
+
+  if (name === "invalid_idempotency_key") {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_INVALID_IDEMPOTENCY_KEY_001",
+      failureCategory: "provider_idempotency_configuration_failure",
+      permanent: true,
+      retryable: false,
+      alert: true
+    };
+  }
+
+  if (name === "invalid_idempotent_request") {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_IDEMPOTENCY_PAYLOAD_MISMATCH_001",
+      failureCategory: "provider_idempotency_payload_mismatch",
+      permanent: true,
+      retryable: false,
+      alert: true
+    };
+  }
+
+  if (name === "concurrent_idempotent_requests") {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_CONCURRENT_IDEMPOTENT_REQUEST_001",
+      failureCategory: "provider_idempotency_concurrent_request",
+      permanent: false,
+      retryable: true,
+      alert: false
+    };
+  }
+
+  if (status === 429 || /rate.?limit/i.test(name ?? "") || /rate.?limit/i.test(message)) {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_RATE_LIMITED_001",
+      failureCategory: "provider_rate_limited",
+      permanent: false,
+      retryable: true,
+      alert: false
+    };
+  }
+
+  if (
+    /invalid.*recipient|suppressed|unsubscribed|hard bounce|blocked recipient|recipient.*invalid/i.test(
+      `${name ?? ""} ${message}`
+    )
+  ) {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_PERMANENT_RECIPIENT_FAILURE_001",
+      failureCategory: "permanent_recipient_failure",
+      permanent: true,
+      retryable: false,
+      alert: true
+    };
+  }
+
+  if (status !== null && status >= 500) {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_PROVIDER_5XX_001",
+      failureCategory: "upstream_provider_failed",
+      permanent: false,
+      retryable: true,
+      alert: false
+    };
+  }
+
+  if (/timeout|network|fetch|ECONNRESET|ETIMEDOUT|temporar/i.test(message) || name === "application_error") {
+    return {
+      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_TRANSIENT_PROVIDER_FAILURE_001",
+      failureCategory: /timeout/i.test(message) ? "timeout" : "transient_provider_failure",
+      permanent: false,
+      retryable: true,
+      alert: false
+    };
+  }
+
+  return {
+    failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_DELIVERY_FAILED_001",
+    failureCategory: "unknown_provider_failure",
+    permanent: false,
+    retryable: true,
+    alert: false
+  };
+}
+
 async function markRetryOrTerminalFailure(input: {
   row: RenewalActionNotificationRow;
   requestId: string | null;
   error: unknown;
-  failureCode: string;
-  permanent?: boolean;
 }) {
   const attemptCount = (input.row.attempt_count ?? 0) + 1;
   const maxAttempts = Math.max(input.row.max_attempts ?? 4, 1);
-  const permanent = input.permanent ?? isPermanentDeliveryError(input.error);
-  const terminal = permanent || attemptCount >= maxAttempts;
+  const classification = classifyRenewalActionNotificationDeliveryError(input.error);
+  const terminal = classification.permanent || attemptCount >= maxAttempts;
   const safeMessage = sanitizeRenewalActionNotificationError(input.error);
   const retryAt = terminal ? null : nextRetryAt(attemptCount);
 
@@ -226,9 +506,10 @@ async function markRetryOrTerminalFailure(input: {
     attemptCount,
     nextRetryAt: retryAt,
     providerPayload: {
+      ...getProviderPayloadRecord(input.row.provider_payload),
       request_id: input.requestId ?? undefined,
-      failure_code: input.failureCode,
-      failure_category: terminal ? "retry_exhausted_or_permanent_failure" : "transient_provider_failure",
+      failure_code: classification.failureCode,
+      failure_category: terminal && !classification.permanent ? "retry_exhausted" : classification.failureCategory,
       attempt_count: attemptCount,
       max_attempts: maxAttempts
     }
@@ -245,11 +526,11 @@ async function markRetryOrTerminalFailure(input: {
   emitRenewalActionOutboxEvent({
     eventName: terminal ? "renewal_action_notification_terminal_failed" : "renewal_action_notification_retry_scheduled",
     row: input.row,
-    severity: terminal ? "P2" : "P3",
-    alert: terminal,
+    severity: classification.alert ? "P1" : terminal ? "P2" : "P3",
+    alert: classification.alert || terminal,
     metadata: {
-      failure_code: input.failureCode,
-      failure_category: terminal ? "retry_exhausted_or_permanent_failure" : "transient_provider_failure",
+      failure_code: classification.failureCode,
+      failure_category: terminal && !classification.permanent ? "retry_exhausted" : classification.failureCategory,
       attempt_count: attemptCount,
       max_attempts: maxAttempts
     }
@@ -287,6 +568,7 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
   }
 
   const requestId = getRenewalActionRequestIdFromPayload(row.provider_payload);
+  let activeProviderPayload = row.provider_payload;
   if (!requestId) {
     const markResult = await markNotification(row, {
       status: "failed_terminal",
@@ -332,44 +614,46 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
       return { id: row.id, status: "skipped" as const };
     }
 
-    const [{ data: contractData, error: contractError }, { data: requesterData }] = await Promise.all([
-      getAdminRenewalActionContractContext({
-        contractId: request.contract_id,
-        organizationId: row.organization_id
-      }),
-      getAdminNotificationUserLabel(request.requested_by_user_id)
-    ]);
-    if (contractError) throw contractError;
+    let snapshot = getEmailSnapshotFromPayload(activeProviderPayload);
+    if (!snapshot) {
+      const [{ data: contractData, error: contractError }, { data: requesterData }] = await Promise.all([
+        getAdminRenewalActionContractContext({
+          contractId: request.contract_id,
+          organizationId: row.organization_id
+        }),
+        getAdminNotificationUserLabel(request.requested_by_user_id)
+      ]);
+      if (contractError) throw contractError;
 
-    const contract = contractData as unknown as ContractContextRow | null;
-    const metadata = firstValue(contract?.contract_metadata);
-    const email = await sendRenewalActionRequestEmail({
-      organizationId: row.organization_id,
-      recipientEmail: row.recipient_email,
-      contractId: request.contract_id,
-      contractTitle: metadata?.contract_title ?? "Untitled contract",
-      counterpartyName: metadata?.counterparty_name ?? null,
-      requestedActionLabel: request.requested_action.replaceAll("_", " "),
-      noticeDeadlineDate: metadata?.notice_deadline_date ?? null,
-      renewalDate: metadata?.renewal_date ?? null,
-      expirationDate: metadata?.expiration_date ?? null,
-      dueAt: request.due_date ?? request.due_at,
-      ownerLabel: row.recipient_email,
-      contractValueAmount: metadata?.contract_value_amount ?? null,
-      contractValueCurrency: metadata?.contract_value_currency ?? null,
-      requesterLabel: safeUserLabel(requesterData as { full_name?: string | null; notification_email?: string | null } | null),
-      message: request.message,
-      deliveryKey: row.delivery_key ?? buildRenewalActionRequestNotificationDeliveryKey(request.id)
+      const contract = contractData as unknown as ContractContextRow | null;
+      const metadata = firstValue(contract?.contract_metadata);
+      snapshot = buildEmailSnapshot({
+        row,
+        request,
+        metadata,
+        requester: requesterData as { full_name?: string | null; notification_email?: string | null } | null
+      });
+      const snapshotResult = await persistEmailSnapshot(row, snapshot);
+      if (snapshotResult.claimLost) return { id: row.id, status: "claim_lost" as const };
+      activeProviderPayload = mergeProviderPayloadWithSnapshot(row, snapshot) as Json;
+    }
+
+    const deliveryKey = row.delivery_key ?? buildRenewalActionRequestNotificationDeliveryKey(request.id);
+    const email = await sendRenewalActionRequestEmailProviderRequest({
+      providerRequest: snapshot.providerRequest,
+      deliveryKey
     });
+    if (email.error) throw email.error;
 
     const markResult = await markNotification(row, {
       status: "sent",
       providerMessageId: email.data?.id ?? null,
       attemptCount: (row.attempt_count ?? 0) + 1,
       providerPayload: {
+        ...getProviderPayloadRecord(activeProviderPayload),
         request_id: request.id,
         contract_id: request.contract_id,
-        delivery_key: row.delivery_key,
+        delivery_key: deliveryKey,
         outbox_scope: "internal_owner_action_request"
       }
     });
@@ -386,10 +670,9 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
     return { id: row.id, status: "sent" as const };
   } catch (error) {
     return markRetryOrTerminalFailure({
-      row,
+      row: { ...row, provider_payload: activeProviderPayload },
       requestId,
-      error,
-      failureCode: "ERR_RENEWAL_ACTION_NOTIFICATION_DELIVERY_FAILED_001"
+      error
     });
   }
 }

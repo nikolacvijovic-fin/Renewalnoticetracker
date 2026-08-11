@@ -1,4 +1,4 @@
-import { Resend } from "resend";
+import { Resend, type CreateEmailOptions, type CreateEmailRequestOptions } from "resend";
 import { getAppConfig } from "@/lib/config";
 import { LEGAL_DISCLAIMER } from "@/lib/constants";
 import {
@@ -79,6 +79,35 @@ export async function sendRenewalActionRequestEmail(params: {
   requesterLabel?: string | null;
   message?: string | null;
 }) {
+  const providerRequest = buildRenewalActionRequestEmailProviderRequest(params);
+  return sendRenewalActionRequestEmailProviderRequest({
+    providerRequest,
+    deliveryKey: params.deliveryKey
+  });
+}
+
+export type RenewalActionRequestEmailProviderRequest = Pick<
+  CreateEmailOptions,
+  "from" | "to" | "replyTo" | "subject" | "html"
+>;
+
+export function buildRenewalActionRequestEmailProviderRequest(params: {
+  organizationId: string;
+  recipientEmail: string;
+  contractId: string;
+  contractTitle: string;
+  counterpartyName: string | null;
+  requestedActionLabel: string;
+  noticeDeadlineDate?: string | null;
+  renewalDate?: string | null;
+  expirationDate?: string | null;
+  dueAt?: string | null;
+  ownerLabel?: string | null;
+  contractValueAmount?: number | null;
+  contractValueCurrency?: string | null;
+  requesterLabel?: string | null;
+  message?: string | null;
+}): RenewalActionRequestEmailProviderRequest {
   const config = getAppConfig();
   const payload = buildRenewalActionRequestEmailPayload({
     ...params,
@@ -87,12 +116,22 @@ export async function sendRenewalActionRequestEmail(params: {
     replyToEmail: config.email.replyToEmail ?? undefined
   });
 
-  return resend.emails.send({
+  return {
     from: payload.from,
     to: params.recipientEmail,
     replyTo: payload.replyTo,
     subject: payload.subject,
-    html: payload.html,
-    headers: params.deliveryKey ? { "Idempotency-Key": params.deliveryKey } : undefined
-  } as Parameters<typeof resend.emails.send>[0]);
+    html: payload.html
+  };
+}
+
+export async function sendRenewalActionRequestEmailProviderRequest(input: {
+  providerRequest: RenewalActionRequestEmailProviderRequest;
+  deliveryKey?: string | null;
+}) {
+  const options: CreateEmailRequestOptions | undefined = input.deliveryKey
+    ? { idempotencyKey: input.deliveryKey }
+    : undefined;
+
+  return resend.emails.send(input.providerRequest as CreateEmailOptions, options);
 }

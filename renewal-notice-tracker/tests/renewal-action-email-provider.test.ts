@@ -48,7 +48,7 @@ describe("renewal action request email provider boundary", () => {
     mocks.send.mockResolvedValue({ data: { id: "email-1" } });
   });
 
-  it("passes the stable delivery key as a provider idempotency header", async () => {
+  it("passes the stable delivery key as Resend request-level idempotency", async () => {
     await sendRenewalActionRequestEmail({
       ...baseParams,
       deliveryKey: "renewal_action_request:request-1:email"
@@ -56,20 +56,19 @@ describe("renewal action request email provider boundary", () => {
 
     expect(mocks.send).toHaveBeenCalledWith(
       expect.objectContaining({
-        headers: {
-          "Idempotency-Key": "renewal_action_request:request-1:email"
-        }
-      })
+        html: expect.any(String),
+        subject: "Renewal decision requested: Acme MSA"
+      }),
+      {
+        idempotencyKey: "renewal_action_request:request-1:email"
+      }
     );
   });
 
-  it("does not send an idempotency header when no delivery key is available", async () => {
+  it("does not send request-level idempotency options when no delivery key is available", async () => {
     await sendRenewalActionRequestEmail(baseParams);
 
-    expect(mocks.send).toHaveBeenCalledWith(
-      expect.objectContaining({
-        headers: undefined
-      })
-    );
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ subject: "Renewal decision requested: Acme MSA" }), undefined);
+    expect(mocks.send.mock.calls[0]?.[0]).not.toHaveProperty("headers");
   });
 });

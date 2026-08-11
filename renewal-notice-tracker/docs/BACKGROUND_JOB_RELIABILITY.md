@@ -87,6 +87,24 @@ Flow:
 
 The existing reminder delivery engine still owns email idempotency, duplicate suppression, reminder runs, notification logs, and analytics.
 
+## Renewal Action Request Outbox
+
+Renewal-action request notifications use `notification_logs` as a narrow email outbox. Workers claim one row with a `processing_token`, freeze a minimal `email_delivery_snapshot` in `provider_payload`, and then call Resend with the stable `delivery_key` as the request-level `idempotencyKey`.
+
+Guarantees:
+
+- Completion updates require the same organization, notification kind, `processing` status, and `processing_token`.
+- Retries reuse the frozen provider request payload and the same Resend idempotency key.
+- A stale worker cannot overwrite a newer worker's database completion state.
+- If two workers reach Resend with the same frozen payload and key, Resend can suppress duplicate delivery within its documented 24-hour idempotency retention window.
+
+Limitations:
+
+- This is not unlimited exactly-once delivery.
+- If Resend accepts a request and the app crashes before recording `sent`, a later retry depends on Resend's idempotency window.
+- `invalid_idempotent_request` is alert-worthy because it means the app attempted to reuse a key with a different payload.
+- Operational logs and events must never include recipient addresses, idempotency keys, email bodies, provider responses, raw contract text, OCR output, full notes, storage paths, secrets, or tokens.
+
 ## Retry And Dead-Letter Policy
 
 Transient categories include provider failures and timeouts. Backoff is exponential and capped at 60 minutes.
