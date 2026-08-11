@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   getAdminRenewalActionContractContext: vi.fn(),
   getAdminNotificationUserLabel: vi.fn(),
   updateAdminRenewalActionNotification: vi.fn(),
+  getAdminRenewalActionNotificationPayload: vi.fn(),
+  createAdminRenewalActionNotificationPayload: vi.fn(),
+  deleteAdminRenewalActionNotificationPayload: vi.fn(),
+  listAdminExpiredRenewalActionNotificationPayloads: vi.fn(),
   emitOperationalEvent: vi.fn()
 }));
 
@@ -34,6 +38,13 @@ vi.mock("@/lib/notifications/repositories/admin-renewal-action-notifications-rep
   updateAdminRenewalActionNotification: mocks.updateAdminRenewalActionNotification
 }));
 
+vi.mock("@/lib/notifications/repositories/admin-renewal-action-notification-payloads-repository", () => ({
+  getAdminRenewalActionNotificationPayload: mocks.getAdminRenewalActionNotificationPayload,
+  createAdminRenewalActionNotificationPayload: mocks.createAdminRenewalActionNotificationPayload,
+  deleteAdminRenewalActionNotificationPayload: mocks.deleteAdminRenewalActionNotificationPayload,
+  listAdminExpiredRenewalActionNotificationPayloads: mocks.listAdminExpiredRenewalActionNotificationPayloads
+}));
+
 vi.mock("@/lib/observability/monitoring", () => ({
   emitOperationalEvent: mocks.emitOperationalEvent
 }));
@@ -41,6 +52,7 @@ vi.mock("@/lib/observability/monitoring", () => ({
 import {
   buildRenewalActionRequestNotificationDeliveryKey,
   classifyRenewalActionNotificationDeliveryError,
+  cleanupExpiredRenewalActionNotificationPayloads,
   processQueuedRenewalActionRequestNotifications,
   processRenewalActionRequestNotification,
   sanitizeRenewalActionNotificationError
@@ -72,6 +84,43 @@ const stableProviderRequest = {
   subject: "Renewal decision requested: Acme MSA",
   html: "<p>Frozen Acme MSA</p>"
 };
+
+const structuredDeliveryPayload = {
+  kind: "structured_renewal_action_request",
+  recipientEmail: "owner@example.com",
+  from: "NoticeControl <notifications@noticecontrol.com>",
+  replyTo: "support@noticecontrol.com",
+  organizationId: "org-1",
+  contractId: "contract-1",
+  contractTitle: "Acme MSA",
+  counterpartyName: "Acme",
+  requestedActionLabel: "decide renewal",
+  noticeDeadlineDate: "2030-01-01",
+  renewalDate: "2030-02-01",
+  expirationDate: null,
+  dueAt: "2030-01-01",
+  ownerLabel: "Assigned owner",
+  contractValueAmount: 100000,
+  contractValueCurrency: "USD",
+  requesterLabel: "Operator"
+};
+
+function protectedPayload(overrides?: Record<string, unknown>) {
+  return {
+    id: "payload-1",
+    organization_id: "org-1",
+    notification_log_id: "notification-1",
+    request_id: "request-1",
+    contract_id: "contract-1",
+    delivery_key: "renewal_action_request:request-1:email",
+    template_version: "renewal_action_request_email.v2",
+    delivery_payload: structuredDeliveryPayload,
+    payload_fingerprint: "payload-fingerprint-1",
+    created_at: "2030-01-01T00:00:00.000Z",
+    expires_at: "2030-01-03T00:00:00.000Z",
+    ...overrides
+  };
+}
 
 function notificationWithEmailSnapshot(overrides?: Record<string, unknown>) {
   return {
@@ -144,11 +193,26 @@ describe("renewal action request notification outbox", () => {
       data: { id: "notification-1", status: "sent" },
       error: null
     });
-    mocks.rescueAdminStaleRenewalActionNotifications.mockResolvedValue({ data: [], error: null });
-    mocks.getAdminNotificationUserLabel.mockResolvedValue({
-      data: { id: "operator-1", full_name: "Operator", notification_email: "operator@example.com" },
+    mocks.getAdminRenewalActionNotificationPayload.mockResolvedValue({ data: null, error: null });
+    mocks.createAdminRenewalActionNotificationPayload.mockImplementation(async (input: Record<string, unknown>) => ({
+      data: protectedPayload({
+        id: "payload-1",
+        delivery_payload: input.deliveryPayload,
+        payload_fingerprint: input.payloadFingerprint,
+        template_version: input.templateVersion
+      }),
       error: null
-    });
+    }));
+    mocks.deleteAdminRenewalActionNotificationPayload.mockResolvedValue({ data: { id: "payload-1" }, error: null });
+    mocks.listAdminExpiredRenewalActionNotificationPayloads.mockResolvedValue({ data: [], error: null });
+    mocks.rescueAdminStaleRenewalActionNotifications.mockResolvedValue({ data: [], error: null });
+    mocks.getAdminNotificationUserLabel.mockImplementation(async (userId: string | null | undefined) => ({
+      data:
+        userId === "owner-1"
+          ? { id: "owner-1", full_name: "Owner", notification_email: "owner@example.com" }
+          : { id: "operator-1", full_name: "Operator", notification_email: "operator@example.com" },
+      error: null
+    }));
     mocks.emitOperationalEvent.mockResolvedValue({});
     mockRequest();
     mockContract();
@@ -169,9 +233,25 @@ describe("renewal action request notification outbox", () => {
         providerRequest: expect.objectContaining({
           to: "owner@example.com",
           subject: "Renewal decision requested: Acme MSA",
-          html: expect.stringContaining("Internal decision request.")
+          html: expect.not.stringContaining("Internal decision request.")
         }),
         deliveryKey: "renewal_action_request:request-1:email",
+      })
+    );
+    expect(mocks.createAdminRenewalActionNotificationPayload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        organizationId: "org-1",
+        notificationId: "notification-1",
+        requestId: "request-1",
+        contractId: "contract-1",
+        deliveryKey: "renewal_action_request:request-1:email",
+        templateVersion: "renewal_action_request_email.v2",
+        deliveryPayload: expect.objectContaining({
+          kind: "structured_renewal_action_request",
+          recipientEmail: "owner@example.com",
+          contractTitle: "Acme MSA"
+        }),
+        payloadFingerprint: expect.any(String)
       })
     );
     expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
@@ -182,12 +262,9 @@ describe("renewal action request notification outbox", () => {
         update: expect.objectContaining({
           status: "processing",
           provider_payload: expect.objectContaining({
-            email_delivery_snapshot: expect.objectContaining({
-              version: "renewal_action_request_email.v1",
-              providerRequest: expect.objectContaining({
-                subject: "Renewal decision requested: Acme MSA"
-              })
-            })
+            delivery_payload_ref: "payload-1",
+            payload_template_version: "renewal_action_request_email.v2",
+            payload_fingerprint: expect.any(String)
           })
         })
       })
@@ -206,11 +283,19 @@ describe("renewal action request notification outbox", () => {
           provider_payload: expect.objectContaining({
             request_id: "request-1",
             contract_id: "contract-1",
+            delivery_payload_ref: "payload-1",
             outbox_scope: "internal_owner_action_request"
           })
         })
       })
     );
+    expect(JSON.stringify(mocks.updateAdminRenewalActionNotification.mock.calls)).not.toMatch(
+      /email_delivery_snapshot|owner@example\.com|Renewal decision requested|<p>/
+    );
+    expect(mocks.deleteAdminRenewalActionNotificationPayload).toHaveBeenCalledWith({
+      payloadId: "payload-1",
+      organizationId: "org-1"
+    });
   });
 
   it("does not send when the business request is no longer pending", async () => {
@@ -254,6 +339,7 @@ describe("renewal action request notification outbox", () => {
           error_message: expect.not.stringMatching(/raw contract text|secret token/i),
           provider_payload: expect.objectContaining({
             request_id: "request-1",
+            delivery_payload_ref: "payload-1",
             failure_code: "ERR_RENEWAL_ACTION_NOTIFICATION_TRANSIENT_PROVIDER_FAILURE_001",
             failure_category: "timeout",
             attempt_count: 1,
@@ -261,6 +347,9 @@ describe("renewal action request notification outbox", () => {
           })
         })
       })
+    );
+    expect(JSON.stringify(mocks.updateAdminRenewalActionNotification.mock.calls)).not.toMatch(
+      /email_delivery_snapshot|owner@example\.com|Renewal decision requested|<p>|secret token/i
     );
     expect(JSON.stringify(mocks.emitOperationalEvent.mock.calls)).not.toMatch(/owner@example\.com|raw contract text|secret token/i);
   });
@@ -334,10 +423,19 @@ describe("renewal action request notification outbox", () => {
   });
 
   it("prevents a stale worker from overwriting a newer worker completion", async () => {
-    mocks.updateAdminRenewalActionNotification.mockResolvedValueOnce({
-      data: null,
+    mocks.getAdminRenewalActionNotificationPayload.mockResolvedValueOnce({
+      data: protectedPayload({
+        template_version: "renewal_action_request_email.v1_protected",
+        delivery_payload: {
+          kind: "legacy_provider_request",
+          providerRequest: stableProviderRequest
+        }
+      }),
       error: null
     });
+    mocks.updateAdminRenewalActionNotification
+      .mockResolvedValueOnce({ data: { id: "notification-1", status: "processing" }, error: null })
+      .mockResolvedValueOnce({ data: null, error: null });
 
     const result = await processRenewalActionRequestNotification({
       ...notificationWithEmailSnapshot(),
@@ -394,17 +492,25 @@ describe("renewal action request notification outbox", () => {
     await processRenewalActionRequestNotification(notification);
 
     const firstProviderCall = mocks.sendRenewalActionRequestEmailProviderRequest.mock.calls[0]?.[0];
-    const snapshotUpdate = mocks.updateAdminRenewalActionNotification.mock.calls.find(
-      ([input]) => input.update?.status === "processing"
-    )?.[0];
-    const persistedPayload = snapshotUpdate?.update?.provider_payload;
-    expect(persistedPayload).toEqual(
+    const createdPayloadInput = mocks.createAdminRenewalActionNotificationPayload.mock.calls[0]?.[0];
+    const persistedProtectedPayload = protectedPayload({
+      delivery_payload: createdPayloadInput.deliveryPayload,
+      payload_fingerprint: createdPayloadInput.payloadFingerprint,
+      template_version: createdPayloadInput.templateVersion
+    });
+    expect(createdPayloadInput).toEqual(
       expect.objectContaining({
-        email_delivery_snapshot: expect.objectContaining({
-          version: "renewal_action_request_email.v1",
-          providerRequest: firstProviderCall.providerRequest
-        })
+        templateVersion: "renewal_action_request_email.v2",
+        deliveryPayload: expect.objectContaining({
+          kind: "structured_renewal_action_request",
+          contractTitle: "Acme MSA",
+          counterpartyName: "Acme"
+        }),
+        payloadFingerprint: expect.any(String)
       })
+    );
+    expect(JSON.stringify(mocks.updateAdminRenewalActionNotification.mock.calls)).not.toMatch(
+      /email_delivery_snapshot|owner@example\.com|Renewal decision requested|<p>|Internal decision request/i
     );
 
     mockRequest({ message: "Edited request message after first attempt." });
@@ -428,17 +534,54 @@ describe("renewal action request notification outbox", () => {
     mocks.sendRenewalActionRequestEmailProviderRequest.mockClear();
     mocks.buildRenewalActionRequestEmailProviderRequest.mockClear();
     mocks.updateAdminRenewalActionNotification.mockClear();
+    mocks.createAdminRenewalActionNotificationPayload.mockClear();
+    mocks.getAdminRenewalActionNotificationPayload.mockResolvedValueOnce({
+      data: persistedProtectedPayload,
+      error: null
+    });
     mocks.sendRenewalActionRequestEmailProviderRequest.mockResolvedValueOnce({ data: { id: "email-2" }, error: null });
 
     await processRenewalActionRequestNotification({
       ...notification,
       attempt_count: 1,
-      processing_token: "retry-token",
-      provider_payload: persistedPayload
+      processing_token: "retry-token"
     });
 
-    expect(mocks.buildRenewalActionRequestEmailProviderRequest).not.toHaveBeenCalled();
+    expect(mocks.createAdminRenewalActionNotificationPayload).not.toHaveBeenCalled();
+    expect(mocks.buildRenewalActionRequestEmailProviderRequest).toHaveBeenCalledTimes(1);
     expect(mocks.sendRenewalActionRequestEmailProviderRequest).toHaveBeenCalledWith(firstProviderCall);
+  });
+
+  it("handles concurrent protected payload creation by reusing the existing immutable payload", async () => {
+    mocks.createAdminRenewalActionNotificationPayload.mockResolvedValueOnce({
+      data: null,
+      error: null
+    });
+    mocks.getAdminRenewalActionNotificationPayload
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({
+        data: protectedPayload({
+          delivery_payload: {
+            kind: "legacy_provider_request",
+            providerRequest: stableProviderRequest
+          },
+          template_version: "renewal_action_request_email.v1_protected",
+          payload_fingerprint: "existing-payload-fingerprint"
+        }),
+        error: null
+      });
+
+    const result = await processRenewalActionRequestNotification(notificationWithEmailSnapshot());
+
+    expect(result).toEqual({ id: "notification-1", status: "sent" });
+    expect(mocks.createAdminRenewalActionNotificationPayload).toHaveBeenCalledTimes(1);
+    expect(mocks.sendRenewalActionRequestEmailProviderRequest).toHaveBeenCalledWith({
+      providerRequest: stableProviderRequest,
+      deliveryKey: "renewal_action_request:request-1:email"
+    });
+    expect(JSON.stringify(mocks.updateAdminRenewalActionNotification.mock.calls)).not.toMatch(
+      /email_delivery_snapshot|owner@example\.com|Frozen Acme|<p>/i
+    );
   });
 
   it("uses distinct provider idempotency keys for distinct renewal action notifications", async () => {
@@ -447,7 +590,7 @@ describe("renewal action request notification outbox", () => {
     );
   });
 
-  it("keeps sensitive marker strings out of the durable email snapshot", async () => {
+  it("keeps sensitive marker strings out of operational notification metadata and excludes free text from protected v2 payload", async () => {
     mockRequest({
       message: "raw contract text and provider payload and secret token should not persist"
     });
@@ -470,13 +613,19 @@ describe("renewal action request notification outbox", () => {
     });
 
     await processRenewalActionRequestNotification(notification);
-    const snapshotUpdate = mocks.updateAdminRenewalActionNotification.mock.calls.find(
+    const processingUpdate = mocks.updateAdminRenewalActionNotification.mock.calls.find(
       ([input]) => input.update?.status === "processing"
     )?.[0];
+    const createdPayloadInput = mocks.createAdminRenewalActionNotificationPayload.mock.calls[0]?.[0];
 
-    expect(JSON.stringify(snapshotUpdate?.update?.provider_payload)).not.toMatch(
+    expect(JSON.stringify(processingUpdate?.update?.provider_payload)).not.toMatch(
       /raw contract text|provider payload|secret token/i
     );
+    expect(JSON.stringify(mocks.updateAdminRenewalActionNotification.mock.calls)).not.toMatch(
+      /owner@example\.com|Renewal decision requested|<p>|email_delivery_snapshot/i
+    );
+    expect(createdPayloadInput.deliveryPayload).not.toHaveProperty("message");
+    expect(JSON.stringify(createdPayloadInput.deliveryPayload)).not.toMatch(/secret token/i);
   });
 
   it("classifies Resend idempotency, retry, and recipient errors with stable safe categories", () => {
@@ -542,8 +691,20 @@ describe("renewal action request notification outbox", () => {
   });
 
   it("keeps stale and reclaimed workers on the same provider key and payload when both reach Resend", async () => {
+    mocks.getAdminRenewalActionNotificationPayload.mockResolvedValue({
+      data: protectedPayload({
+        template_version: "renewal_action_request_email.v1_protected",
+        delivery_payload: {
+          kind: "legacy_provider_request",
+          providerRequest: stableProviderRequest
+        }
+      }),
+      error: null
+    });
     mocks.updateAdminRenewalActionNotification
+      .mockResolvedValueOnce({ data: { id: "notification-1", status: "processing" }, error: null })
       .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({ data: { id: "notification-1", status: "processing" }, error: null })
       .mockResolvedValueOnce({ data: { id: "notification-1", status: "sent" }, error: null });
 
     const staleResult = await processRenewalActionRequestNotification({
@@ -656,5 +817,30 @@ describe("renewal action request notification outbox", () => {
         new Error("raw contract text, private notes, provider response, secret token")
       )
     ).not.toMatch(/raw contract text|private notes|provider response|secret token/i);
+  });
+
+  it("cleans up expired protected payloads only through the service-role repository", async () => {
+    mocks.listAdminExpiredRenewalActionNotificationPayloads.mockResolvedValueOnce({
+      data: [protectedPayload({ id: "payload-expired" })],
+      error: null
+    });
+    mocks.deleteAdminRenewalActionNotificationPayload.mockResolvedValueOnce({
+      data: { id: "payload-expired" },
+      error: null
+    });
+
+    const result = await cleanupExpiredRenewalActionNotificationPayloads({
+      now: new Date("2030-01-05T00:00:00.000Z"),
+      limit: 10
+    });
+
+    expect(result).toEqual({ scannedCount: 1, deletedCount: 1 });
+    expect(mocks.deleteAdminRenewalActionNotificationPayload).toHaveBeenCalledWith({
+      payloadId: "payload-expired",
+      organizationId: "org-1"
+    });
+    expect(JSON.stringify(mocks.emitOperationalEvent.mock.calls)).not.toMatch(
+      /owner@example\.com|Renewal decision requested|<p>|providerRequest|secret|token/i
+    );
   });
 });

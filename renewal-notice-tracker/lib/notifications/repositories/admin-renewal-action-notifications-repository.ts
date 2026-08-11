@@ -3,6 +3,8 @@ import type { Json } from "@/lib/supabase/database.types";
 
 type NotificationUpdate = {
   status: string;
+  recipient_email?: string;
+  destination?: string | null;
   provider_message_id?: string | null;
   error_message?: string | null;
   provider_payload?: Json;

@@ -38,6 +38,35 @@ function readRetryHardeningMigration() {
   );
 }
 
+function readProtectedPayloadMigration() {
+  return fs.readFileSync(
+    path.join(
+      process.cwd(),
+      "supabase",
+      "migrations",
+      "202608110002_protected_renewal_action_notification_payloads.sql"
+    ),
+    "utf8"
+  );
+}
+
+function readProtectedPayloadRepository() {
+  return fs.readFileSync(
+    path.join(
+      process.cwd(),
+      "lib",
+      "notifications",
+      "repositories",
+      "admin-renewal-action-notification-payloads-repository.ts"
+    ),
+    "utf8"
+  );
+}
+
+function readSource(relativePath: string) {
+  return fs.readFileSync(path.join(process.cwd(), relativePath), "utf8");
+}
+
 describe("renewal action request security migration", () => {
   it("adds tenant and relational integrity constraints", () => {
     const migration = readMigration();
@@ -138,5 +167,68 @@ describe("renewal action request security migration", () => {
     expect(migration).toContain("idx_notification_logs_renewal_action_outbox_due");
     expect(migration).toContain("where notification_kind = 'renewal_action_request'");
     expect(migration).not.toMatch(/recipient_email\s*=|message_body|provider_payload.*raw_contract|secret token/i);
+  });
+
+  it("stores renewal-action delivery payloads behind a service-role-only protected table", () => {
+    const migration = readProtectedPayloadMigration();
+
+    expect(migration).toContain("create table if not exists public.renewal_action_notification_payloads");
+    expect(migration).toContain("alter table public.renewal_action_notification_payloads enable row level security");
+    expect(migration).toContain('create policy "deny customer reads for renewal action notification payloads"');
+    expect(migration).toContain("using (false)");
+    expect(migration).toContain("with check (false)");
+    expect(migration).toContain("revoke all on table public.renewal_action_notification_payloads from public");
+    expect(migration).toContain("revoke all on table public.renewal_action_notification_payloads from anon");
+    expect(migration).toContain("revoke all on table public.renewal_action_notification_payloads from authenticated");
+    expect(migration).toContain("foreign key (notification_log_id, organization_id)");
+    expect(migration).toContain("foreign key (request_id, organization_id)");
+    expect(migration).toContain("foreign key (contract_id, organization_id)");
+    expect(migration).not.toMatch(/grant\s+(select|insert|update|delete|all).*renewal_action_notification_payloads/i);
+  });
+
+  it("moves legacy full email snapshots out of operational notification logs", () => {
+    const migration = readProtectedPayloadMigration();
+
+    expect(migration).toContain("insert into public.renewal_action_notification_payloads");
+    expect(migration).toContain("'legacy_provider_request'");
+    expect(migration).toContain("providerRequest");
+    expect(migration).toContain("recipient_email = 'protected-recipient@noticecontrol.internal'");
+    expect(migration).toContain("'delivery_payload_ref', p.id");
+    expect(migration).toContain("'payload_template_version', p.template_version");
+    expect(migration).toContain("'payload_fingerprint', p.payload_fingerprint");
+    expect(migration).toContain("nl.provider_payload ? 'email_delivery_snapshot'");
+  });
+
+  it("queues new renewal-action notifications without recipient PII or email request bodies in notification_logs", () => {
+    const migration = readProtectedPayloadMigration();
+    const rpcBody = migration.slice(
+      migration.indexOf("create or replace function public.create_renewal_action_request")
+    );
+
+    expect(rpcBody).toContain("'protected-recipient@noticecontrol.internal'");
+    expect(rpcBody).toContain("'delivery_payload_state', 'pending_protected_payload'");
+    expect(rpcBody).not.toContain("'email_delivery_snapshot'");
+    expect(rpcBody).not.toMatch(/provider_payload[^\n]+owner_notification_email/i);
+    expect(rpcBody).not.toMatch(/provider_payload[^\n]+v_recipient_email/i);
+  });
+
+  it("limits protected payload cleanup to terminal or sent renewal-action notification rows", () => {
+    const repository = readProtectedPayloadRepository();
+
+    expect(repository).toContain('notification_logs!inner');
+    expect(repository).toContain('.eq("notification_logs.notification_kind", "renewal_action_request")');
+    expect(repository).toContain('.in("notification_logs.status", ["sent", "failed_terminal", "skipped"])');
+    expect(repository).toContain(".limit(Math.min(Math.max(input.limit, 1), 100))");
+    expect(repository).not.toContain(".select(\"*\")");
+  });
+
+  it("keeps beta health and customer export surfaces away from protected delivery payloads", () => {
+    const betaHealthPage = readSource("app/admin/beta-health/page.tsx");
+    const customerExportCenter = readSource("lib/exports/customer-export-center.ts");
+    const customerExportRoute = readSource("lib/exports/customer-export-route.ts");
+
+    expect(betaHealthPage).not.toContain("renewal_action_notification_payloads");
+    expect(customerExportCenter).not.toContain("renewal_action_notification_payloads");
+    expect(customerExportRoute).not.toContain("renewal_action_notification_payloads");
   });
 });

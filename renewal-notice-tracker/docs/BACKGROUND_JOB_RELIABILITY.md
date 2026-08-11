@@ -89,21 +89,25 @@ The existing reminder delivery engine still owns email idempotency, duplicate su
 
 ## Renewal Action Request Outbox
 
-Renewal-action request notifications use `notification_logs` as a narrow email outbox. Workers claim one row with a `processing_token`, freeze a minimal `email_delivery_snapshot` in `provider_payload`, and then call Resend with the stable `delivery_key` as the request-level `idempotencyKey`.
+Renewal-action request notifications use `notification_logs` as a narrow operational outbox. Workers claim one row with a `processing_token`, create or reuse a protected payload row in `renewal_action_notification_payloads`, write only a safe payload reference back to `notification_logs.provider_payload`, and then call Resend with the stable `delivery_key` as the request-level `idempotencyKey`.
+
+The protected payload table is service-role only. Customer roles cannot read or write it. It may briefly contain recipient PII and rendering inputs required to retry the exact same email request, but it is not audit truth, not exportable customer evidence, and not surfaced in beta health or support dashboards. New v2 renewal-action payloads store structured rendering inputs and deliberately exclude the optional operator free-text message. Legacy full provider request snapshots are migrated into the protected table and replaced in `notification_logs` with safe references.
 
 Guarantees:
 
 - Completion updates require the same organization, notification kind, `processing` status, and `processing_token`.
-- Retries reuse the frozen provider request payload and the same Resend idempotency key.
+- Retries reuse the protected delivery payload and the same Resend idempotency key.
 - A stale worker cannot overwrite a newer worker's database completion state.
 - If two workers reach Resend with the same frozen payload and key, Resend can suppress duplicate delivery within its documented 24-hour idempotency retention window.
+- `notification_logs.recipient_email` is minimized for new renewal-action rows with the sentinel `protected-recipient@noticecontrol.internal`; the real recipient is resolved by the privileged worker into the protected payload only.
+- Protected payloads are purged after a successful send when possible, and a bounded cleanup helper deletes expired payloads only for sent, skipped, or terminal-failed notification rows. Safe outbox evidence remains in `notification_logs`.
 
 Limitations:
 
 - This is not unlimited exactly-once delivery.
 - If Resend accepts a request and the app crashes before recording `sent`, a later retry depends on Resend's idempotency window.
 - `invalid_idempotent_request` is alert-worthy because it means the app attempted to reuse a key with a different payload.
-- Operational logs and events must never include recipient addresses, idempotency keys, email bodies, provider responses, raw contract text, OCR output, full notes, storage paths, secrets, or tokens.
+- Operational logs, events, customer exports, and support diagnostics must never include recipient addresses, idempotency keys, email bodies, provider responses, raw contract text, OCR output, full notes, storage paths, secrets, or tokens.
 
 ## Retry And Dead-Letter Policy
 
