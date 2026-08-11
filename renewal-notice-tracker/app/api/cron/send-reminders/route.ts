@@ -53,8 +53,60 @@ export const POST = createRouteHandler(
   },
   async ({ json }) => {
     const until = addMinutes(new Date(), 15).toISOString();
-    const results = await enqueueDueTrustedReminderDeliveryJobs(until);
-    const renewalActionNotifications = await processQueuedRenewalActionRequestNotifications({ limit: 25 });
-    return json({ results, renewalActionNotifications });
+    let results: Awaited<ReturnType<typeof enqueueDueTrustedReminderDeliveryJobs>> = [];
+    let renewalActionNotifications: Awaited<ReturnType<typeof processQueuedRenewalActionRequestNotifications>> = [];
+    const failures: Array<{ queue: "trusted_reminders" | "renewal_action_notifications"; code: string }> = [];
+
+    try {
+      results = await enqueueDueTrustedReminderDeliveryJobs(until);
+    } catch (error) {
+      failures.push({ queue: "trusted_reminders", code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001" });
+      logServerError({
+        event: "trusted_reminder_queue_failed",
+        route: "/api/cron/send-reminders",
+        metadata: { code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001" },
+        error
+      });
+      void emitOperationalEvent({
+        eventName: "trusted_reminder_queue_failed",
+        severity: "P1",
+        sensitivity: "customer_sensitive",
+        alert: true,
+        route: "/api/cron/send-reminders",
+        metadata: { code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001" },
+        error
+      });
+    }
+
+    try {
+      renewalActionNotifications = await processQueuedRenewalActionRequestNotifications({ limit: 25 });
+    } catch (error) {
+      failures.push({
+        queue: "renewal_action_notifications",
+        code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001"
+      });
+      logServerError({
+        event: "renewal_action_notification_queue_failed",
+        route: "/api/cron/send-reminders",
+        metadata: { code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001" },
+        error
+      });
+      void emitOperationalEvent({
+        eventName: "renewal_action_notification_queue_failed",
+        severity: "P1",
+        sensitivity: "customer_sensitive",
+        alert: true,
+        route: "/api/cron/send-reminders",
+        metadata: { code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001" },
+        error
+      });
+    }
+
+    return json({
+      results,
+      renewalActionNotifications,
+      status: failures.length ? "partial_failure" : "ok",
+      failures
+    });
   }
 );

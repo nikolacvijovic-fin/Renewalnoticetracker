@@ -179,8 +179,9 @@ describe("send reminders cron route", () => {
     ]);
   });
 
-  it("returns a generic error when reminder processing fails", async () => {
+  it("returns a partial failure when reminder processing fails but still processes renewal-action notifications", async () => {
     enqueueDueTrustedReminderDeliveryJobsMock.mockRejectedValue(new Error("db failure"));
+    processQueuedRenewalActionRequestNotificationsMock.mockResolvedValue([{ id: "n1", status: "sent" }]);
     const response = await POST(
       new Request("http://localhost/api/cron/send-reminders", {
         method: "POST",
@@ -189,31 +190,71 @@ describe("send reminders cron route", () => {
         }
       })
     );
+    const payload = await response.json();
 
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual(
+    expect(response.status).toBe(200);
+    expect(payload).toEqual(
       expect.objectContaining({
-        error: "Reminder processing failed.",
-        code: "ERR_REMINDER_PROCESSING_FAILED_001",
-        requestId: expect.any(String)
+        status: "partial_failure",
+        results: [],
+        renewalActionNotifications: [{ id: "n1", status: "sent" }],
+        failures: [
+          expect.objectContaining({
+            queue: "trusted_reminders",
+            code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001"
+          })
+        ]
       })
     );
+    expect(processQueuedRenewalActionRequestNotificationsMock).toHaveBeenCalledWith({ limit: 25 });
     expect(logServerError).toHaveBeenCalledWith(
       expect.objectContaining({
-        event: "reminder_dispatch_failed",
+        event: "trusted_reminder_queue_failed",
         metadata: expect.objectContaining({
-          code: "ERR_REMINDER_PROCESSING_FAILED_001",
-          status: 500
+          code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001"
         })
       })
     );
     expect(emitOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
-        eventName: "reminder_dispatch_failed",
+        eventName: "trusted_reminder_queue_failed",
         severity: "P1",
         metadata: expect.objectContaining({
-          code: "ERR_REMINDER_PROCESSING_FAILED_001",
-          status: 500
+          code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001"
+        })
+      })
+    );
+  });
+
+  it("returns a partial failure when renewal-action outbox processing fails without hiding reminder results", async () => {
+    enqueueDueTrustedReminderDeliveryJobsMock.mockResolvedValue([{ id: "r1", status: "queued", jobId: "job-1" }]);
+    processQueuedRenewalActionRequestNotificationsMock.mockRejectedValue(new Error("outbox provider token leaked"));
+
+    const response = await POST(
+      new Request("http://localhost/api/cron/send-reminders", {
+        method: "POST",
+        headers: {
+          "x-cron-secret": "test-secret"
+        }
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(payload.status).toBe("partial_failure");
+    expect(payload.results).toEqual([{ id: "r1", status: "queued", jobId: "job-1" }]);
+    expect(payload.failures).toEqual([
+      expect.objectContaining({
+        queue: "renewal_action_notifications",
+        code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001"
+      })
+    ]);
+    expect(JSON.stringify(payload)).not.toContain("provider token");
+    expect(logServerError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "renewal_action_notification_queue_failed",
+        metadata: expect.objectContaining({
+          code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001"
         })
       })
     );

@@ -130,11 +130,11 @@ function OrganizationHealthRow({ organization }: { organization: BetaOrganizatio
   );
 }
 
-export default async function FounderBetaHealthPage({
-  searchParams
-}: {
+type FounderBetaHealthPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
-} = {}) {
+};
+
+export default async function FounderBetaHealthPage({ searchParams }: FounderBetaHealthPageProps) {
   await requireInternalRole(["internal_admin", "internal_support"]);
   const resolvedSearchParams = await searchParams;
   const page = Number(Array.isArray(resolvedSearchParams?.page) ? resolvedSearchParams?.page[0] : resolvedSearchParams?.page);

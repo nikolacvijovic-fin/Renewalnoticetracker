@@ -23,6 +23,8 @@ export type CustomerExportOption = {
   label: string;
   description: string;
   includedFields: string[];
+  availability: "available" | "partial";
+  availabilityNote?: string;
   formats: CustomerExportFormat[];
   requiresAdminOrOperator: boolean;
   hrefs: Partial<Record<CustomerExportFormat, string>>;
@@ -47,6 +49,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
       "decision status",
       "next action"
     ],
+    availability: "available",
     formats: ["csv", "xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -60,6 +63,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     label: "Urgent deadlines",
     description: "Missed, due-soon, and needs-review deadline rows for immediate finance/procurement action.",
     includedFields: ["contract title", "vendor/counterparty", "deadline", "days left", "owner", "value", "review status"],
+    availability: "available",
     formats: ["csv", "xlsx", "ics"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -73,6 +77,8 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     label: "SaaS opt-out clock",
     description: "SaaS opt-out deadline calendar and trusted workflow status for renewal defense.",
     includedFields: ["software/vendor", "linked contract", "opt-out deadline", "urgency", "owner", "spend at risk", "workflow status"],
+    availability: "partial",
+    availabilityNote: "Calendar export is available. Spreadsheet and JSON SaaS opt-out datasets are intentionally deferred until the SaaS review queue is fully persisted.",
     formats: ["ics"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -84,6 +90,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     label: "Owner action list",
     description: "Assigned contracts, pending requests, due dates, decision status, and next action by owner.",
     includedFields: ["owner", "assigned contracts", "pending requests", "due dates", "decision status", "next action"],
+    availability: "available",
     formats: ["xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -96,6 +103,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     label: "Renewal decisions",
     description: "Safe decision status history and date fields without private notes or raw contract text.",
     includedFields: ["contract", "decision status", "decision date", "safe summary", "accepted risk flag"],
+    availability: "available",
     formats: ["csv", "xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -107,8 +115,10 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
   {
     id: "risk_findings",
     label: "Risk findings",
-    description: "Safe risk bands, confidence, review blockers, and evidence codes for leadership review.",
-    includedFields: ["finding type", "severity", "status", "contract/software", "safe evidence code"],
+    description: "Derived renewal-control risk rows from safe metadata only. Deep intelligence findings are not included in this beta export.",
+    includedFields: ["finding type", "severity", "status", "contract", "safe evidence code"],
+    availability: "partial",
+    availabilityNote: "Risk rows are derived from the renewal register, such as missing deadlines, needs-review metadata, and high spend. Raw clauses and intelligence evidence are excluded.",
     formats: ["xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -121,6 +131,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     label: "Audit-safe activity history",
     description: "Safe event/action history metadata only. Raw payloads, private notes, and provider data stay excluded.",
     includedFields: ["timestamp", "actor", "entity type/id", "event/action", "safe status metadata"],
+    availability: "available",
     formats: ["json"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -130,8 +141,10 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
   {
     id: "full_mvp_export_bundle",
     label: "Full MVP export bundle",
-    description: "One controlled export bundle for finance/procurement review. ZIP packaging is deferred; use workbook, JSON, PDF, and ICS downloads.",
-    includedFields: ["summary", "renewal deadlines", "urgent deadlines", "decisions", "owners", "risk findings", "audit history", "calendar"],
+    description: "One controlled export bundle for finance/procurement review. ZIP packaging is deferred; workbook, JSON, PDF, and ICS are separate downloads.",
+    includedFields: ["summary", "renewal deadlines", "urgent deadlines", "decisions", "owners", "derived risk findings", "audit history", "calendar links"],
+    availability: "partial",
+    availabilityNote: "The bundle is complete for renewal-control datasets. SaaS opt-out spreadsheet/JSON packaging remains deferred; use the dedicated calendar export for opt-out dates.",
     formats: ["xlsx", "pdf", "json", "ics"],
     requiresAdminOrOperator: true,
     hrefs: {
@@ -213,6 +226,82 @@ export function buildUrgentDeadlineRows(rows: ExportRow[], now = new Date().toIS
   });
 }
 
+export function buildOwnerActionRows(rows: ExportRow[]) {
+  return buildRenewalDeadlineRegisterRows(rows).map((row) => ({
+    owner_name: row.owner_name || "Unassigned",
+    contract_title: row.contract_title,
+    counterparty_name: row.counterparty_name,
+    notice_deadline_date: row.notice_deadline_date,
+    renewal_date: row.renewal_date,
+    decision_status: row.renewal_decision_status,
+    next_action: row.next_reminder_date ? "Review upcoming reminder" : isYes(row.needs_review) ? "Review metadata" : "Monitor",
+    latest_reminder_status: row.latest_reminder_status
+  }));
+}
+
+export function buildRenewalDecisionRows(rows: ExportRow[]) {
+  return buildRenewalDeadlineRegisterRows(rows).map((row) => ({
+    contract_title: row.contract_title,
+    counterparty_name: row.counterparty_name,
+    decision_status: row.renewal_decision_status || "not_recorded",
+    notice_deadline_date: row.notice_deadline_date,
+    renewal_date: row.renewal_date,
+    expiration_date: row.expiration_date,
+    needs_review: row.needs_review
+  }));
+}
+
+export function buildRiskFindingRows(rows: ExportRow[], now = new Date().toISOString()) {
+  const nowMs = new Date(`${now.slice(0, 10)}T00:00:00.000Z`).getTime();
+  const findings: ExportRow[] = [];
+  for (const row of buildRenewalDeadlineRegisterRows(rows)) {
+    const base = {
+      contract_title: row.contract_title,
+      counterparty_name: row.counterparty_name,
+      owner_name: row.owner_name
+    };
+    if (!row.notice_deadline_date) {
+      findings.push({
+        ...base,
+        finding_type: "missing_notice_deadline",
+        severity: "high",
+        status: "needs_review",
+        safe_evidence_code: "missing_notice_deadline"
+      });
+    }
+    if (isYes(row.needs_review)) {
+      findings.push({
+        ...base,
+        finding_type: "metadata_needs_review",
+        severity: "medium",
+        status: "needs_review",
+        safe_evidence_code: "metadata_review_required"
+      });
+    }
+    const deadline = parseDate(row.notice_deadline_date);
+    if (deadline !== null && deadline < nowMs) {
+      findings.push({
+        ...base,
+        finding_type: "missed_notice_deadline",
+        severity: "critical",
+        status: "open",
+        safe_evidence_code: "deadline_elapsed"
+      });
+    }
+    const amount = Number(row.contract_value_amount ?? 0);
+    if (Number.isFinite(amount) && amount >= 50000) {
+      findings.push({
+        ...base,
+        finding_type: "high_spend_at_risk",
+        severity: "medium",
+        status: "open",
+        safe_evidence_code: "structured_contract_value"
+      });
+    }
+  }
+  return findings;
+}
+
 export function sanitizeAuditSafeMetadata(metadata: Record<string, unknown> | null | undefined) {
   const output: Record<string, string | number | boolean | null> = {};
   for (const [key, value] of Object.entries(metadata ?? {})) {
@@ -268,6 +357,9 @@ export function buildCustomerExportJson(input: CustomerExportBundleInput) {
     datasets: {
       renewalDeadlineRegister: buildRenewalDeadlineRegisterRows(input.renewalRows),
       urgentDeadlines: buildUrgentDeadlineRows(input.renewalRows, input.generatedAt),
+      ownerActionList: buildOwnerActionRows(input.renewalRows),
+      renewalDecisions: buildRenewalDecisionRows(input.renewalRows),
+      riskFindings: buildRiskFindingRows(input.renewalRows, input.generatedAt),
       auditSafeHistory: buildAuditSafeHistoryRows(input.auditHistory)
     }
   };
@@ -287,10 +379,20 @@ export function buildCustomerExportWorkbookBuffer(input: CustomerExportBundleInp
   XLSX.utils.book_append_sheet(workbook, makeSheet([summary as unknown as ExportRow]), "Summary");
   XLSX.utils.book_append_sheet(workbook, makeSheet(buildRenewalDeadlineRegisterRows(input.renewalRows)), "Renewal Deadlines");
   XLSX.utils.book_append_sheet(workbook, makeSheet(buildUrgentDeadlineRows(input.renewalRows, input.generatedAt)), "Urgent Deadlines");
-  XLSX.utils.book_append_sheet(workbook, makeSheet(input.renewalRows), "Decisions");
-  XLSX.utils.book_append_sheet(workbook, makeSheet(input.renewalRows), "Owners");
-  XLSX.utils.book_append_sheet(workbook, makeSheet(input.renewalRows), "Risk Findings");
-  XLSX.utils.book_append_sheet(workbook, makeSheet([]), "SaaS Opt-Out");
+  XLSX.utils.book_append_sheet(workbook, makeSheet(buildRenewalDecisionRows(input.renewalRows)), "Decisions");
+  XLSX.utils.book_append_sheet(workbook, makeSheet(buildOwnerActionRows(input.renewalRows)), "Owners");
+  XLSX.utils.book_append_sheet(workbook, makeSheet(buildRiskFindingRows(input.renewalRows, input.generatedAt)), "Risk Findings");
+  XLSX.utils.book_append_sheet(
+    workbook,
+    makeSheet([
+      {
+        dataset: "SaaS Opt-Out",
+        status: "partial",
+        note: "Use the dedicated opt-out ICS export. Spreadsheet and JSON SaaS opt-out datasets are deferred for beta."
+      }
+    ]),
+    "Dataset Notes"
+  );
   XLSX.utils.book_append_sheet(workbook, makeSheet(buildAuditSafeHistoryRows(input.auditHistory)), "Audit History");
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }

@@ -746,7 +746,7 @@ export async function getRenewalCommandCenterContracts(
   if (membersResult.error) throw membersResult.error;
 
   const ownerLabels = new Map(
-    ((membersResult.data ?? []) as Array<{
+    ((membersResult.data ?? []) as unknown as Array<{
       user_id: string;
       users?: { full_name?: string | null; notification_email?: string | null } | null;
     }>).map((member) => [
@@ -755,7 +755,7 @@ export async function getRenewalCommandCenterContracts(
     ])
   );
 
-  return ((contractsResult.data ?? []) as RenewalCommandCenterContractRow[]).map((row) => {
+  return ((contractsResult.data ?? []) as unknown as RenewalCommandCenterContractRow[]).map((row) => {
     const metadata = first(row.contract_metadata);
     return {
       id: row.id,

@@ -50,16 +50,6 @@ type UntypedSupabaseClient = {
   };
 };
 
-type FeedbackRow = {
-  id: string;
-  organization_id: string;
-  feedback_type: string;
-  severity: string;
-  status: string;
-  entity_type: string | null;
-  entity_id: string | null;
-};
-
 function stringValue(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";

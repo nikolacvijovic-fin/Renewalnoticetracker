@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveSafeAuthRedirect } from "@/app/auth/callback/route";
+import { resolveSafeAuthRedirect } from "@/lib/auth/safe-auth-redirect";
 
 describe("auth callback redirect safety", () => {
   it("allows safe local redirects", () => {

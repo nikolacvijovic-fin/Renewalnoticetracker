@@ -1,5 +1,3 @@
-"use server";
-
 export * from "@/lib/actions/contracts/upload";
 export * from "@/lib/actions/contracts/review";
 export * from "@/lib/actions/contracts/reminders";

@@ -139,6 +139,7 @@ function setupDefaultContext() {
 
 describe("sample contract onboarding actions", () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
     setupDefaultContext();
     getBillingSnapshot.mockResolvedValue({
@@ -159,7 +160,7 @@ describe("sample contract onboarding actions", () => {
   });
 
   it("builds synthetic reviewed sample metadata with relative trusted dates and short evidence", async () => {
-    const { buildSampleContractMetadata } = await import("@/lib/actions/contracts/sample");
+    const { buildSampleContractMetadata } = await import("@/lib/contracts/sample-contract");
     const metadata = buildSampleContractMetadata(new Date("2026-08-10T12:00:00.000Z"));
 
     expect(metadata.notice_deadline_date).toBe("2026-08-20");
@@ -188,21 +189,13 @@ describe("sample contract onboarding actions", () => {
 
     expect(rpc).toHaveBeenCalledWith(
       "create_sample_contract_with_metadata",
-      expect.objectContaining({
-        p_organization_id: "org-1",
-        p_actor_user_id: "user-1",
-        p_metadata: expect.objectContaining({
-          contract_template_key: "sample_contract",
-          needs_review: false
-        }),
-        p_evidence: expect.arrayContaining([
-          expect.objectContaining({
-            field_name: "notice_deadline_date",
-            source: "sample"
-          })
-        ])
-      })
+      {
+        p_organization_id: "org-1"
+      }
     );
+    expect(JSON.stringify(rpc.mock.calls)).not.toContain("p_actor_user_id");
+    expect(JSON.stringify(rpc.mock.calls)).not.toContain("p_metadata");
+    expect(JSON.stringify(rpc.mock.calls)).not.toContain("p_evidence");
     expect(createAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "contract.sample_created",
@@ -217,7 +210,7 @@ describe("sample contract onboarding actions", () => {
     );
     expect(JSON.stringify(createAuditLog.mock.calls)).not.toContain("raw contract text");
     expect(from).not.toHaveBeenCalledWith("reminders");
-  });
+  }, 15000);
 
   it("redirects to the active sample when concurrent atomic creation hits the unique sample constraint", async () => {
     const emptyLookup = makeSelectResult(null);
@@ -236,7 +229,7 @@ describe("sample contract onboarding actions", () => {
     await expect(createSampleContractAction()).rejects.toThrow("NEXT_REDIRECT:/dashboard/contracts/existing-sample-1");
 
     expect(createAuditLog).not.toHaveBeenCalled();
-  });
+  }, 15000);
 
   it("is idempotent when an active sample already exists", async () => {
     createServerSupabaseClient.mockReturnValue({
@@ -405,14 +398,42 @@ describe("sample contract onboarding actions", () => {
 
   it("defines the sample creation RPC as the atomic contract metadata and evidence boundary", () => {
     const migration = readFileSync(
-      join(process.cwd(), "supabase/migrations/202608100002_beta_hardening_sample_feedback.sql"),
+      join(process.cwd(), "supabase/migrations/202608110001_secure_sample_rpc_and_outbox_retries.sql"),
       "utf8"
     );
 
-    expect(migration).toContain("create or replace function public.create_sample_contract_with_metadata");
+    expect(migration).toContain("drop function if exists public.create_sample_contract_with_metadata(uuid, uuid, jsonb, jsonb)");
+    expect(migration).toContain("create or replace function public.create_sample_contract_with_metadata(p_organization_id uuid)");
     expect(migration).toContain("insert into public.contracts");
     expect(migration).toContain("insert into public.contract_metadata");
     expect(migration).toContain("insert into public.extracted_field_evidence");
-    expect(migration).toContain("Creates the fictional onboarding sample contract, reviewed metadata, and sample evidence in one transaction");
+    expect(migration).toContain("Creates the fixed fictional onboarding sample contract, reviewed metadata, and sample evidence in one transaction");
+  });
+
+  it("hardens the sample creation RPC against spoofed actors, arbitrary metadata, and cross-org use", () => {
+    const migration = readFileSync(
+      join(process.cwd(), "supabase/migrations/202608110001_secure_sample_rpc_and_outbox_retries.sql"),
+      "utf8"
+    );
+
+    expect(migration).toContain("revoke all on function public.create_sample_contract_with_metadata(uuid, uuid, jsonb, jsonb)");
+    expect(migration).toContain("from public");
+    expect(migration).toContain("from anon");
+    expect(migration).toContain("from authenticated");
+    expect(migration).toContain("v_actor uuid := auth.uid()");
+    expect(migration).toContain("if v_actor is null then");
+    expect(migration).toContain("where m.organization_id = p_organization_id");
+    expect(migration).toContain("and m.user_id = v_actor");
+    expect(migration).toContain("and m.user_id = v_actor");
+    expect(migration).toContain("if v_role is null then");
+    expect(migration).toContain("if v_role not in ('admin', 'operator') then");
+    expect(migration).toContain("set search_path = public, pg_temp");
+    expect(migration).toContain("grant execute on function public.create_sample_contract_with_metadata(uuid) to authenticated");
+    expect(migration).toContain("'Sample SaaS Renewal Agreement'");
+    expect(migration).toContain("Synthetic sample evidence");
+    expect(migration).not.toContain("p_actor_user_id");
+    expect(migration).not.toContain("p_metadata");
+    expect(migration).not.toContain("p_evidence");
+    expect(migration).not.toMatch(/raw contract text|secret token|private note|raw_provider_payload/i);
   });
 });

@@ -21,7 +21,7 @@ describe("founder beta health page", () => {
     requireInternalRole.mockRejectedValue(new Error("REDIRECT:/dashboard"));
     const Page = (await import("@/app/admin/beta-health/page")).default;
 
-    await expect(Page()).rejects.toThrow("REDIRECT:/dashboard");
+    await expect(Page({})).rejects.toThrow("REDIRECT:/dashboard");
     expect(getFounderBetaReliabilityDashboard).not.toHaveBeenCalled();
   }, 15000);
 
@@ -105,7 +105,7 @@ describe("founder beta health page", () => {
     });
 
     const Page = (await import("@/app/admin/beta-health/page")).default;
-    const { container } = render(await Page());
+    const { container } = render(await Page({}));
 
     expect(requireInternalRole).toHaveBeenCalledWith(["internal_admin", "internal_support"]);
     expect(getFounderBetaReliabilityDashboard).toHaveBeenCalled();

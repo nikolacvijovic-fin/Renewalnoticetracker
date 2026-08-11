@@ -212,7 +212,9 @@ export async function loadRevenueIntelligenceSourceData(input: {
 
   return {
     organizationId: input.organizationId,
-    contracts: ((contracts.data ?? []) as Array<RevenueSourceContract & { contract_metadata?: unknown; reminders?: unknown }>).map((contract) => ({
+    contracts: ((contracts.data ?? []) as unknown as Array<
+      RevenueSourceContract & { contract_metadata?: unknown; reminders?: unknown }
+    >).map((contract) => ({
       ...contract,
       metadata: first(contract.contract_metadata as RevenueSourceContract["metadata"] | RevenueSourceContract["metadata"][]),
       reminders: Array.isArray(contract.reminders) ? contract.reminders as RevenueSourceContract["reminders"] : []

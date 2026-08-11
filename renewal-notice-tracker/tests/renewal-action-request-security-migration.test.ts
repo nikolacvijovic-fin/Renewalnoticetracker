@@ -26,6 +26,18 @@ function readOutboxMigration() {
   );
 }
 
+function readRetryHardeningMigration() {
+  return fs.readFileSync(
+    path.join(
+      process.cwd(),
+      "supabase",
+      "migrations",
+      "202608110001_secure_sample_rpc_and_outbox_retries.sql"
+    ),
+    "utf8"
+  );
+}
+
 describe("renewal action request security migration", () => {
   it("adds tenant and relational integrity constraints", () => {
     const migration = readMigration();
@@ -112,5 +124,19 @@ describe("renewal action request security migration", () => {
     expect(migration).toContain("'late_activation_action_required'");
     expect(migration).toContain("reminders_reminder_type_check");
     expect(migration).not.toMatch(/slack|teams|crm|vendor|counterparty/i);
+  });
+
+  it("adds bounded retry and stale-claim state to the renewal-action notification outbox", () => {
+    const migration = readRetryHardeningMigration();
+
+    expect(migration).toContain("add column if not exists attempt_count integer not null default 0");
+    expect(migration).toContain("add column if not exists max_attempts integer not null default 4");
+    expect(migration).toContain("add column if not exists next_retry_at timestamptz");
+    expect(migration).toContain("add column if not exists processing_started_at timestamptz");
+    expect(migration).toContain("add column if not exists processing_token text");
+    expect(migration).toContain("add column if not exists last_attempt_at timestamptz");
+    expect(migration).toContain("idx_notification_logs_renewal_action_outbox_due");
+    expect(migration).toContain("where notification_kind = 'renewal_action_request'");
+    expect(migration).not.toMatch(/recipient_email\s*=|message_body|provider_payload.*raw_contract|secret token/i);
   });
 });

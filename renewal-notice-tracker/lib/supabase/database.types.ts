@@ -184,8 +184,8 @@ export type Database = {
         Relationships: [];
       };
       notification_logs: {
-        Row: { id: string; reminder_id: string | null; organization_id: string; recipient_email: string; channel: string; status: string; provider_message_id: string | null; error_message: string | null; sent_at: string; notification_kind: string; destination: string | null; delivery_key: string | null; provider_payload: Json };
-        Insert: { id?: string; reminder_id?: string | null; organization_id: string; recipient_email: string; channel?: string; status: string; provider_message_id?: string | null; error_message?: string | null; sent_at?: string; notification_kind?: string; destination?: string | null; delivery_key?: string | null; provider_payload?: Json };
+        Row: { id: string; reminder_id: string | null; organization_id: string; recipient_email: string; channel: string; status: string; provider_message_id: string | null; error_message: string | null; sent_at: string; notification_kind: string; destination: string | null; delivery_key: string | null; provider_payload: Json; attempt_count: number; max_attempts: number; next_retry_at: string | null; processing_started_at: string | null; processing_token: string | null; last_attempt_at: string | null };
+        Insert: { id?: string; reminder_id?: string | null; organization_id: string; recipient_email: string; channel?: string; status: string; provider_message_id?: string | null; error_message?: string | null; sent_at?: string; notification_kind?: string; destination?: string | null; delivery_key?: string | null; provider_payload?: Json; attempt_count?: number; max_attempts?: number; next_retry_at?: string | null; processing_started_at?: string | null; processing_token?: string | null; last_attempt_at?: string | null };
         Update: Partial<Database["public"]["Tables"]["notification_logs"]["Insert"]>;
         Relationships: [];
       };
@@ -295,6 +295,10 @@ export type Database = {
       create_renewal_action_request: {
         Args: { p_contract_id: string; p_due_date: string; p_message?: string | null };
         Returns: Array<{ id: string; contract_id: string; organization_id: string; requested_to_user_id: string; request_status: string; requested_action: string; due_date: string | null; due_at: string | null; created: boolean }>;
+      };
+      create_sample_contract_with_metadata: {
+        Args: { p_organization_id: string };
+        Returns: string;
       };
       expire_renewal_action_request: {
         Args: { p_request_id: string };

@@ -1752,7 +1752,7 @@ export async function createReminderAction(contractId: string, formData: FormDat
 
   if (reminderContractError) throw reminderContractError;
 
-  const typedReminderContract = reminderContract as {
+  const typedReminderContract = reminderContract as unknown as {
     owner_user_id: string | null;
     contract_metadata:
       | {
@@ -2123,7 +2123,7 @@ export async function importContractsAction(formData: FormData) {
   if (existingContractsError) throw existingContractsError;
 
   const existingDuplicateKeys = new Set(
-    ((existingContracts ?? []) as Array<{
+    ((existingContracts ?? []) as unknown as Array<{
       contract_metadata:
         | {
             contract_title: string | null;

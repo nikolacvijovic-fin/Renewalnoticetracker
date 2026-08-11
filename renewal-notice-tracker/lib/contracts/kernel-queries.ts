@@ -370,7 +370,7 @@ export async function getContracts(
   const { data, error } = await query;
   if (error) throw error;
 
-  const rows = (data ?? []) as DashboardContractRow[];
+  const rows = (data ?? []) as unknown as DashboardContractRow[];
   const members = await getOrganizationMembers(organizationId);
   const ownerMap = new Map(
     members.map((member) => [
@@ -442,7 +442,7 @@ export async function getMyRenewalActionItems(
     due_date: string | null;
     due_at: string | null;
   }>;
-  const assignedContracts = (assignedContractsResult.data ?? []) as Array<{
+  const assignedContracts = (assignedContractsResult.data ?? []) as unknown as Array<{
     id: string;
     owner_user_id: string | null;
     contract_metadata:
@@ -645,7 +645,7 @@ export async function getContractById(contractId: string, organizationId: string
     .single();
 
   if (error) throw error;
-  const typedData = data as ContractDetailRecord;
+  const typedData = data as unknown as ContractDetailRecord;
   const metadataId = Array.isArray(typedData.contract_metadata)
     ? typedData.contract_metadata[0]?.id
     : typedData.contract_metadata?.id;
@@ -750,7 +750,7 @@ export async function getOrganizationMembers(
 
   if (error) throw error;
 
-  return ((data ?? []) as Array<{
+  return ((data ?? []) as unknown as Array<{
     user_id: string;
     role: string;
     user?: OrganizationMember["user"] | OrganizationMember["user"][];

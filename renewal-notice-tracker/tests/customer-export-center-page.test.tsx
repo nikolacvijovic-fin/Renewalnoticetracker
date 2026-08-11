@@ -16,6 +16,10 @@ vi.mock("@/lib/billing/entitlements", async (importOriginal) => {
   };
 });
 
+vi.mock("@/components/customer-feedback/customer-feedback-panel", () => ({
+  CustomerFeedbackPanel: () => <div data-testid="customer-feedback-panel" />
+}));
+
 describe("CustomerExportCenterPage", () => {
   beforeEach(() => {
     cleanup();
@@ -45,6 +49,8 @@ describe("CustomerExportCenterPage", () => {
     expect(screen.getByRole("heading", { name: "Export Center" })).toBeInTheDocument();
     expect(screen.getByText("Renewal deadline register")).toBeInTheDocument();
     expect(screen.getByText("Full MVP export bundle")).toBeInTheDocument();
+    expect(screen.getAllByText("Partial beta dataset").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Spreadsheet and JSON SaaS opt-out datasets are intentionally deferred/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /JSON/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /PDF/i }).length).toBeGreaterThan(0);
     expect(container.innerHTML).toContain("Raw contract text");

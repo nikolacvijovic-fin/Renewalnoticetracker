@@ -7,7 +7,10 @@ import {
   buildCustomerExportSummary,
   buildCustomerExportWorkbookBuffer,
   buildLeadershipSummaryPdfBuffer,
+  buildOwnerActionRows,
   buildRenewalDeadlineRegisterRows,
+  buildRenewalDecisionRows,
+  buildRiskFindingRows,
   buildUrgentDeadlineRows
 } from "@/lib/exports/customer-export-center";
 
@@ -69,6 +72,20 @@ describe("customer export center", () => {
     expect(JSON.stringify(CUSTOMER_EXPORT_CENTER_OPTIONS)).not.toMatch(/slack|teams|google drive|public api|crm sync/i);
   });
 
+  it("labels partial export datasets instead of advertising unavailable JSON or spreadsheet contents", () => {
+    const saasOption = CUSTOMER_EXPORT_CENTER_OPTIONS.find((option) => option.id === "saas_opt_out_clock");
+    const riskOption = CUSTOMER_EXPORT_CENTER_OPTIONS.find((option) => option.id === "risk_findings");
+    const bundleOption = CUSTOMER_EXPORT_CENTER_OPTIONS.find((option) => option.id === "full_mvp_export_bundle");
+
+    expect(saasOption).toMatchObject({
+      availability: "partial",
+      formats: ["ics"]
+    });
+    expect(saasOption?.availabilityNote).toMatch(/Spreadsheet and JSON SaaS opt-out datasets are intentionally deferred/i);
+    expect(riskOption?.availability).toBe("partial");
+    expect(bundleOption?.availability).toBe("partial");
+  });
+
   it("builds renewal deadline register rows with safe expected fields only", () => {
     const rows = buildRenewalDeadlineRegisterRows(renewalRows);
 
@@ -116,10 +133,38 @@ describe("customer export center", () => {
     const serialized = JSON.stringify(json);
     expect(json.schemaVersion).toBe("noticecontrol.customer_export.v1");
     expect(json.datasets.renewalDeadlineRegister).toHaveLength(2);
+    expect(json.datasets.ownerActionList).toEqual(buildOwnerActionRows(renewalRows));
+    expect(json.datasets.renewalDecisions).toEqual(buildRenewalDecisionRows(renewalRows));
+    expect(json.datasets.riskFindings).toEqual(buildRiskFindingRows(renewalRows, generatedAt));
     expect(json.datasets.auditSafeHistory[0]?.safe_metadata).toContain("fromStatus");
     expect(serialized).not.toContain("raw contract text");
     expect(serialized).not.toContain("provider payload");
     expect(serialized).not.toContain("private note");
+  });
+
+  it("keeps advertised JSON export links aligned with populated JSON datasets", () => {
+    const json = buildCustomerExportJson({
+      organizationId: "org-1",
+      generatedAt,
+      renewalRows,
+      auditHistory: []
+    });
+    const datasetByExportId: Record<string, keyof typeof json.datasets> = {
+      renewal_deadline_register: "renewalDeadlineRegister",
+      urgent_deadlines: "urgentDeadlines",
+      owner_action_list: "ownerActionList",
+      renewal_decisions: "renewalDecisions",
+      risk_findings: "riskFindings",
+      audit_safe_activity_history: "auditSafeHistory"
+    };
+
+    for (const option of CUSTOMER_EXPORT_CENTER_OPTIONS) {
+      if (!option.formats.includes("json") || option.id === "full_mvp_export_bundle") continue;
+      const datasetKey = datasetByExportId[option.id];
+      expect(datasetKey, `${option.id} must map to a generated JSON dataset`).toBeDefined();
+      if (!datasetKey) throw new Error(`${option.id} must map to a generated JSON dataset`);
+      expect(json.datasets[datasetKey]).toBeDefined();
+    }
   });
 
   it("creates an XLSX workbook with expected leadership and reporting sheets", () => {
@@ -140,7 +185,7 @@ describe("customer export center", () => {
       "Decisions",
       "Owners",
       "Risk Findings",
-      "SaaS Opt-Out",
+      "Dataset Notes",
       "Audit History"
     ]);
   });

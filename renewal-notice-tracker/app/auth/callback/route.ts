@@ -3,11 +3,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import type { NextRequest } from "next/server";
 import { sanitizeInternalError } from "@/lib/errors";
 import { getAppConfig } from "@/lib/config";
-import { resolveSafeAppRedirectPath } from "@/lib/auth-guards";
-
-export function resolveSafeAuthRedirect(next: string | null | undefined) {
-  return resolveSafeAppRedirectPath(next, "/dashboard");
-}
+import { resolveSafeAuthRedirect } from "@/lib/auth/safe-auth-redirect";
 
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);

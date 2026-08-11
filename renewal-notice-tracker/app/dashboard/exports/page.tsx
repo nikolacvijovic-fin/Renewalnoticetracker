@@ -69,6 +69,12 @@ export default async function CustomerExportCenterPage() {
               <div>
                 <h2 className="text-xl font-semibold text-slate-950">{option.label}</h2>
                 <p className="mt-2 max-w-3xl text-sm text-slate-500">{option.description}</p>
+                <p className="mt-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  {option.availability === "available" ? "Available dataset" : "Partial beta dataset"}
+                </p>
+                {option.availabilityNote ? (
+                  <p className="mt-1 max-w-3xl text-xs text-slate-500">{option.availabilityNote}</p>
+                ) : null}
                 <div className="mt-3 flex flex-wrap gap-2">
                   {option.includedFields.map((field) => (
                     <span key={field} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">

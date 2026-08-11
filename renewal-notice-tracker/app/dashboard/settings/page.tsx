@@ -33,7 +33,7 @@ export default async function SettingsPage() {
       notification_email: string | null;
       default_organization_id?: string | null;
     } | null;
-  const typedMemberships = (memberships ?? []) as Array<{
+  const typedMemberships = (memberships ?? []) as unknown as Array<{
     organization_id: string;
     organizations?: { name: string } | null;
   }>;

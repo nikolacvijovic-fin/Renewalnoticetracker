@@ -4,10 +4,12 @@ const mocks = vi.hoisted(() => ({
   sendRenewalActionRequestEmail: vi.fn(),
   listAdminQueuedRenewalActionNotifications: vi.fn(),
   claimAdminRenewalActionNotification: vi.fn(),
+  rescueAdminStaleRenewalActionNotifications: vi.fn(),
   getAdminRenewalActionRequestById: vi.fn(),
   getAdminRenewalActionContractContext: vi.fn(),
   getAdminNotificationUserLabel: vi.fn(),
-  updateAdminRenewalActionNotification: vi.fn()
+  updateAdminRenewalActionNotification: vi.fn(),
+  emitOperationalEvent: vi.fn()
 }));
 
 vi.mock("@/lib/email/send-reminder", () => ({
@@ -17,10 +19,15 @@ vi.mock("@/lib/email/send-reminder", () => ({
 vi.mock("@/lib/notifications/repositories/admin-renewal-action-notifications-repository", () => ({
   listAdminQueuedRenewalActionNotifications: mocks.listAdminQueuedRenewalActionNotifications,
   claimAdminRenewalActionNotification: mocks.claimAdminRenewalActionNotification,
+  rescueAdminStaleRenewalActionNotifications: mocks.rescueAdminStaleRenewalActionNotifications,
   getAdminRenewalActionRequestById: mocks.getAdminRenewalActionRequestById,
   getAdminRenewalActionContractContext: mocks.getAdminRenewalActionContractContext,
   getAdminNotificationUserLabel: mocks.getAdminNotificationUserLabel,
   updateAdminRenewalActionNotification: mocks.updateAdminRenewalActionNotification
+}));
+
+vi.mock("@/lib/observability/monitoring", () => ({
+  emitOperationalEvent: mocks.emitOperationalEvent
 }));
 
 import {
@@ -40,7 +47,13 @@ const notification = {
     contract_id: "contract-1",
     outbox_scope: "internal_owner_action_request"
   },
-  status: "queued"
+  status: "queued",
+  attempt_count: 0,
+  max_attempts: 4,
+  next_retry_at: null,
+  processing_started_at: null,
+  processing_token: null,
+  provider_message_id: null
 };
 
 function mockRequest(overrides?: Record<string, unknown>) {
@@ -90,10 +103,12 @@ describe("renewal action request notification outbox", () => {
       data: { id: "notification-1", status: "sent" },
       error: null
     });
+    mocks.rescueAdminStaleRenewalActionNotifications.mockResolvedValue({ data: [], error: null });
     mocks.getAdminNotificationUserLabel.mockResolvedValue({
       data: { id: "operator-1", full_name: "Operator", notification_email: "operator@example.com" },
       error: null
     });
+    mocks.emitOperationalEvent.mockResolvedValue({});
     mockRequest();
     mockContract();
   });
@@ -125,6 +140,9 @@ describe("renewal action request notification outbox", () => {
         update: expect.objectContaining({
           status: "sent",
           provider_message_id: "email-1",
+          attempt_count: 1,
+          processing_started_at: null,
+          processing_token: null,
           provider_payload: expect.objectContaining({
             request_id: "request-1",
             contract_id: "contract-1",
@@ -140,60 +158,153 @@ describe("renewal action request notification outbox", () => {
 
     const result = await processRenewalActionRequestNotification(notification);
 
-    expect(result).toEqual({ id: "notification-1", status: "failed" });
+    expect(result).toEqual({ id: "notification-1", status: "skipped" });
     expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
     expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
       expect.objectContaining({
         update: expect.objectContaining({
-          status: "failed",
-          error_message: "Renewal action request is no longer pending."
-        })
-      })
-    );
-  });
-
-  it("sanitizes provider failures and keeps the same retryable outbox record", async () => {
-    mocks.sendRenewalActionRequestEmail.mockRejectedValueOnce(
-      new Error("provider payload leaked raw contract text and secret token")
-    );
-
-    const result = await processRenewalActionRequestNotification(notification);
-
-    expect(result.status).toBe("failed");
-    expect(JSON.stringify(result)).not.toMatch(/raw contract text|secret token/i);
-    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
-      expect.objectContaining({
-        notificationId: "notification-1",
-        update: expect.objectContaining({
-          status: "failed",
-          error_message: expect.not.stringMatching(/raw contract text|secret token/i),
+          status: "skipped",
+          error_message: "Renewal action request is no longer pending.",
           provider_payload: expect.objectContaining({
-            request_id: "request-1",
-            failure_code: "ERR_RENEWAL_ACTION_NOTIFICATION_DELIVERY_FAILED_001"
+            failure_code: "ERR_RENEWAL_ACTION_NOTIFICATION_NOT_PENDING_001"
           })
         })
       })
     );
   });
 
-  it("claims queued rows before processing so retries reuse the notification row", async () => {
+  it("schedules bounded retry metadata for transient provider failures", async () => {
+    mocks.sendRenewalActionRequestEmail.mockRejectedValueOnce(
+      new Error("provider payload leaked raw contract text and secret token")
+    );
+
+    const result = await processRenewalActionRequestNotification(notification);
+
+    expect(result.status).toBe("retry_pending");
+    expect(result).toEqual(expect.objectContaining({ nextRetryAt: expect.any(String) }));
+    expect(JSON.stringify(result)).not.toMatch(/raw contract text|secret token/i);
+    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificationId: "notification-1",
+        update: expect.objectContaining({
+          status: "retry_pending",
+          attempt_count: 1,
+          next_retry_at: expect.any(String),
+          error_message: expect.not.stringMatching(/raw contract text|secret token/i),
+          provider_payload: expect.objectContaining({
+            request_id: "request-1",
+            failure_code: "ERR_RENEWAL_ACTION_NOTIFICATION_DELIVERY_FAILED_001",
+            failure_category: "transient_provider_failure",
+            attempt_count: 1,
+            max_attempts: 4
+          })
+        })
+      })
+    );
+    expect(JSON.stringify(mocks.emitOperationalEvent.mock.calls)).not.toMatch(/owner@example\.com|raw contract text|secret token/i);
+  });
+
+  it("marks permanent provider failures terminal without retrying", async () => {
+    const error = new Error("invalid recipient");
+    Object.assign(error, { permanent: true });
+    mocks.sendRenewalActionRequestEmail.mockRejectedValueOnce(error);
+
+    const result = await processRenewalActionRequestNotification(notification);
+
+    expect(result.status).toBe("failed_terminal");
+    expect(result).toEqual(expect.objectContaining({ nextRetryAt: null }));
+    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          status: "failed_terminal",
+          next_retry_at: null,
+          provider_payload: expect.objectContaining({
+            failure_category: "retry_exhausted_or_permanent_failure"
+          })
+        })
+      })
+    );
+  });
+
+  it("marks retry exhaustion terminal at max attempts", async () => {
+    mocks.sendRenewalActionRequestEmail.mockRejectedValueOnce(new Error("temporary timeout"));
+
+    const result = await processRenewalActionRequestNotification({
+      ...notification,
+      attempt_count: 3,
+      max_attempts: 4
+    });
+
+    expect(result.status).toBe("failed_terminal");
+    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          status: "failed_terminal",
+          attempt_count: 4,
+          next_retry_at: null
+        })
+      })
+    );
+  });
+
+  it("suppresses duplicate sends when the row already has provider evidence", async () => {
+    const result = await processRenewalActionRequestNotification({
+      ...notification,
+      status: "sent",
+      provider_message_id: "email-1"
+    });
+
+    expect(result).toEqual({ id: "notification-1", status: "duplicate_suppressed" });
+    expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
+  });
+
+  it("claims due rows before processing so overlapping workers cannot send the same row", async () => {
+    const now = new Date("2030-01-01T12:00:00.000Z");
     mocks.listAdminQueuedRenewalActionNotifications.mockResolvedValue({
       data: [notification],
       error: null
     });
     mocks.claimAdminRenewalActionNotification.mockResolvedValue({
-      data: notification,
+      data: null,
       error: null
     });
 
-    const results = await processQueuedRenewalActionRequestNotifications({ limit: 5 });
+    const results = await processQueuedRenewalActionRequestNotifications({ limit: 5, now });
 
-    expect(results).toEqual([{ id: "notification-1", status: "sent" }]);
-    expect(mocks.claimAdminRenewalActionNotification).toHaveBeenCalledWith({
-      notificationId: "notification-1",
-      organizationId: "org-1"
+    expect(results).toEqual([]);
+    expect(mocks.claimAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificationId: "notification-1",
+        organizationId: "org-1",
+        nowIso: "2030-01-01T12:00:00.000Z",
+        processingToken: expect.any(String)
+      })
+    );
+    expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
+  });
+
+  it("rescues stale processing claims before listing due rows", async () => {
+    const now = new Date("2030-01-01T12:00:00.000Z");
+    mocks.rescueAdminStaleRenewalActionNotifications.mockResolvedValue({
+      data: [{ ...notification, status: "retry_pending", processing_started_at: "2030-01-01T11:00:00.000Z" }],
+      error: null
     });
-    expect(mocks.sendRenewalActionRequestEmail).toHaveBeenCalledTimes(1);
+    mocks.listAdminQueuedRenewalActionNotifications.mockResolvedValue({ data: [], error: null });
+
+    const results = await processQueuedRenewalActionRequestNotifications({ limit: 5, now });
+
+    expect(results).toEqual([]);
+    expect(mocks.rescueAdminStaleRenewalActionNotifications).toHaveBeenCalledWith(
+      expect.objectContaining({
+        staleBeforeIso: "2030-01-01T11:50:00.000Z",
+        nextRetryAt: expect.any(String),
+        limit: 25
+      })
+    );
+    expect(mocks.listAdminQueuedRenewalActionNotifications).toHaveBeenCalledWith({
+      limit: 5,
+      nowIso: "2030-01-01T12:00:00.000Z"
+    });
   });
 
   it("redacts sensitive marker strings from delivery errors", () => {
