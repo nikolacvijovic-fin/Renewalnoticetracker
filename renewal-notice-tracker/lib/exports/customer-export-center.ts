@@ -64,11 +64,10 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     description: "Missed, due-soon, and needs-review deadline rows for immediate finance/procurement action.",
     includedFields: ["contract title", "vendor/counterparty", "deadline", "days left", "owner", "value", "review status"],
     availability: "available",
-    formats: ["csv", "xlsx", "ics"],
+    formats: ["xlsx", "ics"],
     requiresAdminOrOperator: true,
     hrefs: {
-      csv: "/dashboard/contracts/export/csv?preset=workflow_export",
-      xlsx: "/dashboard/contracts/export/xlsx?preset=workflow_export",
+      xlsx: "/dashboard/exports/customer-data.xlsx",
       ics: "/dashboard/contracts/urgent-deadlines/ics"
     }
   },
@@ -94,7 +93,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     formats: ["xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
-      xlsx: "/dashboard/contracts/export/xlsx?preset=workflow_export",
+      xlsx: "/dashboard/exports/customer-data.xlsx",
       json: "/dashboard/exports/customer-data.json"
     }
   },
@@ -104,11 +103,10 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     description: "Safe decision status history and date fields without private notes or raw contract text.",
     includedFields: ["contract", "decision status", "decision date", "safe summary", "accepted risk flag"],
     availability: "available",
-    formats: ["csv", "xlsx", "json"],
+    formats: ["xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
-      csv: "/dashboard/contracts/export/csv?preset=workflow_export",
-      xlsx: "/dashboard/contracts/export/xlsx?preset=workflow_export",
+      xlsx: "/dashboard/exports/customer-data.xlsx",
       json: "/dashboard/exports/customer-data.json"
     }
   },
@@ -122,7 +120,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     formats: ["xlsx", "json"],
     requiresAdminOrOperator: true,
     hrefs: {
-      xlsx: "/dashboard/contracts/export/xlsx?preset=intelligence_export",
+      xlsx: "/dashboard/exports/customer-data.xlsx",
       json: "/dashboard/exports/customer-data.json"
     }
   },
@@ -148,7 +146,7 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     formats: ["xlsx", "pdf", "json", "ics"],
     requiresAdminOrOperator: true,
     hrefs: {
-      xlsx: "/dashboard/contracts/export/xlsx?preset=intelligence_export",
+      xlsx: "/dashboard/exports/customer-data.xlsx",
       pdf: "/dashboard/exports/leadership-summary.pdf",
       json: "/dashboard/exports/customer-data.json",
       ics: "/dashboard/contracts/trusted-upcoming/ics"

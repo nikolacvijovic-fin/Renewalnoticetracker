@@ -102,11 +102,15 @@ export const POST = createRouteHandler(
       });
     }
 
-    return json({
-      results,
-      renewalActionNotifications,
-      status: failures.length ? "partial_failure" : "ok",
-      failures
-    });
+    const bothQueuesFailed = failures.length === 2;
+    return json(
+      {
+        results,
+        renewalActionNotifications,
+        status: bothQueuesFailed ? "failed" : failures.length ? "partial_failure" : "ok",
+        failures
+      },
+      { status: bothQueuesFailed ? 503 : 200 }
+    );
   }
 );

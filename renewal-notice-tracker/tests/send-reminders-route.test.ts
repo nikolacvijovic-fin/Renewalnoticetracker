@@ -106,6 +106,8 @@ describe("send reminders cron route", () => {
     expect(processQueuedRenewalActionRequestNotificationsMock).toHaveBeenCalledWith({ limit: 25 });
     expect(payload.results).toEqual([]);
     expect(payload.renewalActionNotifications).toEqual([]);
+    expect(payload.status).toBe("ok");
+    expect(payload.failures).toEqual([]);
   });
 
   it("delegates to the reminder enqueue layer for authorized successful requests", async () => {
@@ -256,6 +258,53 @@ describe("send reminders cron route", () => {
         metadata: expect.objectContaining({
           code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001"
         })
+      })
+    );
+  });
+
+  it("returns 503 failed when both queues fail with only safe failure codes", async () => {
+    enqueueDueTrustedReminderDeliveryJobsMock.mockRejectedValue(new Error("raw contract text should stay hidden"));
+    processQueuedRenewalActionRequestNotificationsMock.mockRejectedValue(
+      new Error("provider token should stay hidden")
+    );
+
+    const response = await POST(
+      new Request("http://localhost/api/cron/send-reminders", {
+        method: "POST",
+        headers: {
+          "x-cron-secret": "test-secret"
+        }
+      })
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(payload).toEqual({
+      results: [],
+      renewalActionNotifications: [],
+      status: "failed",
+      failures: [
+        {
+          queue: "trusted_reminders",
+          code: "ERR_TRUSTED_REMINDER_QUEUE_FAILED_001"
+        },
+        {
+          queue: "renewal_action_notifications",
+          code: "ERR_RENEWAL_ACTION_NOTIFICATION_QUEUE_FAILED_001"
+        }
+      ]
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/raw contract text|provider token/i);
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "trusted_reminder_queue_failed",
+        severity: "P1"
+      })
+    );
+    expect(emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "renewal_action_notification_queue_failed",
+        severity: "P1"
       })
     );
   });

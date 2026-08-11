@@ -55,6 +55,7 @@ export function claimAdminRenewalActionNotification(input: {
 export function updateAdminRenewalActionNotification(input: {
   notificationId: string;
   organizationId: string;
+  processingToken: string;
   update: NotificationUpdate;
 }) {
   return adminClient()
@@ -63,8 +64,10 @@ export function updateAdminRenewalActionNotification(input: {
     .eq("id", input.notificationId)
     .eq("organization_id", input.organizationId)
     .eq("notification_kind", "renewal_action_request")
+    .eq("status", "processing")
+    .eq("processing_token", input.processingToken)
     .select("id, organization_id, status, delivery_key, provider_message_id, error_message, attempt_count, max_attempts, next_retry_at, processing_started_at, processing_token")
-    .single();
+    .maybeSingle();
 }
 
 export function rescueAdminStaleRenewalActionNotifications(input: {

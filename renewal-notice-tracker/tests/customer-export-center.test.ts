@@ -86,6 +86,21 @@ describe("customer export center", () => {
     expect(bundleOption?.availability).toBe("partial");
   });
 
+  it("routes multi-dataset workbook links to the customer export workbook route", () => {
+    const workbookBackedIds = new Set([
+      "urgent_deadlines",
+      "owner_action_list",
+      "renewal_decisions",
+      "risk_findings",
+      "full_mvp_export_bundle"
+    ]);
+
+    for (const option of CUSTOMER_EXPORT_CENTER_OPTIONS) {
+      if (!workbookBackedIds.has(option.id) || !option.formats.includes("xlsx")) continue;
+      expect(option.hrefs.xlsx).toBe("/dashboard/exports/customer-data.xlsx");
+    }
+  });
+
   it("builds renewal deadline register rows with safe expected fields only", () => {
     const rows = buildRenewalDeadlineRegisterRows(renewalRows);
 

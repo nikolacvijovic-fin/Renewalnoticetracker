@@ -64,6 +64,7 @@ export async function sendReminderEmail(params: {
 export async function sendRenewalActionRequestEmail(params: {
   organizationId: string;
   recipientEmail: string;
+  deliveryKey?: string | null;
   contractId: string;
   contractTitle: string;
   counterpartyName: string | null;
@@ -91,6 +92,7 @@ export async function sendRenewalActionRequestEmail(params: {
     to: params.recipientEmail,
     replyTo: payload.replyTo,
     subject: payload.subject,
-    html: payload.html
-  });
+    html: payload.html,
+    headers: params.deliveryKey ? { "Idempotency-Key": params.deliveryKey } : undefined
+  } as Parameters<typeof resend.emails.send>[0]);
 }

@@ -31,6 +31,8 @@ type RenewalActionNotificationRow = {
   processing_token?: string | null;
 };
 
+type NotificationTerminalStatus = "sent" | "retry_pending" | "failed_terminal" | "skipped";
+
 type RenewalActionRequestRow = {
   id: string;
   contract_id: string;
@@ -103,7 +105,7 @@ function safeUserLabel(user: { full_name?: string | null; notification_email?: s
 async function markNotification(
   row: RenewalActionNotificationRow,
   update: {
-    status: "sent" | "retry_pending" | "failed_terminal" | "skipped";
+    status: NotificationTerminalStatus;
     providerMessageId?: string | null;
     errorMessage?: string | null;
     providerPayload?: Record<string, Json | undefined>;
@@ -111,10 +113,24 @@ async function markNotification(
     attemptCount?: number;
   }
 ) {
-  return checkedPrivilegedWrite(
+  if (!row.processing_token) {
+    emitRenewalActionOutboxEvent({
+      eventName: "renewal_action_notification_claim_lost",
+      row,
+      severity: "P2",
+      metadata: {
+        transition_status: update.status,
+        claim_lost_reason: "missing_processing_token"
+      }
+    });
+    return { claimLost: true as const, data: null };
+  }
+
+  const result = await checkedPrivilegedWrite(
     updateAdminRenewalActionNotification({
       notificationId: row.id,
       organizationId: row.organization_id,
+      processingToken: row.processing_token,
       update: {
         status: update.status,
         provider_message_id: update.providerMessageId ?? null,
@@ -133,6 +149,21 @@ async function markNotification(
       context: `renewal_action_request_notification:${row.id}:${update.status}`
     }
   );
+
+  if (!result.data) {
+    emitRenewalActionOutboxEvent({
+      eventName: "renewal_action_notification_claim_lost",
+      row,
+      severity: "P2",
+      metadata: {
+        transition_status: update.status,
+        claim_lost_reason: "processing_token_mismatch_or_status_changed"
+      }
+    });
+    return { claimLost: true as const, data: null };
+  }
+
+  return { claimLost: false as const, data: result.data };
 }
 
 function nextRetryAt(attemptCount: number, now = new Date()) {
@@ -189,7 +220,7 @@ async function markRetryOrTerminalFailure(input: {
   const safeMessage = sanitizeRenewalActionNotificationError(input.error);
   const retryAt = terminal ? null : nextRetryAt(attemptCount);
 
-  await markNotification(input.row, {
+  const markResult = await markNotification(input.row, {
     status: terminal ? "failed_terminal" : "retry_pending",
     errorMessage: safeMessage,
     attemptCount,
@@ -202,6 +233,14 @@ async function markRetryOrTerminalFailure(input: {
       max_attempts: maxAttempts
     }
   });
+
+  if (markResult.claimLost) {
+    return {
+      id: input.row.id,
+      status: "claim_lost" as const,
+      error: "Renewal action notification processing claim was lost before completion."
+    };
+  }
 
   emitRenewalActionOutboxEvent({
     eventName: terminal ? "renewal_action_notification_terminal_failed" : "renewal_action_notification_retry_scheduled",
@@ -235,13 +274,26 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
     return { id: row.id, status: "duplicate_suppressed" as const };
   }
 
+  if (row.status !== "processing" || !row.processing_token) {
+    emitRenewalActionOutboxEvent({
+      eventName: "renewal_action_notification_claim_lost",
+      row,
+      severity: "P2",
+      metadata: {
+        claim_lost_reason: row.processing_token ? "status_not_processing" : "missing_processing_token"
+      }
+    });
+    return { id: row.id, status: "claim_lost" as const };
+  }
+
   const requestId = getRenewalActionRequestIdFromPayload(row.provider_payload);
   if (!requestId) {
-    await markNotification(row, {
+    const markResult = await markNotification(row, {
       status: "failed_terminal",
       errorMessage: "Renewal action notification is missing its request id.",
       providerPayload: { failure_code: "ERR_RENEWAL_ACTION_NOTIFICATION_REQUEST_MISSING_001" }
     });
+    if (markResult.claimLost) return { id: row.id, status: "claim_lost" as const };
     emitRenewalActionOutboxEvent({
       eventName: "renewal_action_notification_terminal_failed",
       row,
@@ -260,7 +312,7 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
     if (requestError) throw requestError;
     const request = requestData as RenewalActionRequestRow | null;
     if (!request || request.request_status !== "pending") {
-      await markNotification(row, {
+      const markResult = await markNotification(row, {
         status: "skipped",
         errorMessage: "Renewal action request is no longer pending.",
         providerPayload: {
@@ -268,6 +320,7 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
           failure_code: "ERR_RENEWAL_ACTION_NOTIFICATION_NOT_PENDING_001"
         }
       });
+      if (markResult.claimLost) return { id: row.id, status: "claim_lost" as const };
       emitRenewalActionOutboxEvent({
         eventName: "renewal_action_notification_skipped_not_pending",
         row,
@@ -305,10 +358,11 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
       contractValueAmount: metadata?.contract_value_amount ?? null,
       contractValueCurrency: metadata?.contract_value_currency ?? null,
       requesterLabel: safeUserLabel(requesterData as { full_name?: string | null; notification_email?: string | null } | null),
-      message: request.message
+      message: request.message,
+      deliveryKey: row.delivery_key ?? buildRenewalActionRequestNotificationDeliveryKey(request.id)
     });
 
-    await markNotification(row, {
+    const markResult = await markNotification(row, {
       status: "sent",
       providerMessageId: email.data?.id ?? null,
       attemptCount: (row.attempt_count ?? 0) + 1,
@@ -319,6 +373,7 @@ export async function processRenewalActionRequestNotification(row: RenewalAction
         outbox_scope: "internal_owner_action_request"
       }
     });
+    if (markResult.claimLost) return { id: row.id, status: "claim_lost" as const };
     emitRenewalActionOutboxEvent({
       eventName: "renewal_action_notification_sent",
       row,

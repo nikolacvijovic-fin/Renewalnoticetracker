@@ -47,12 +47,12 @@ const notification = {
     contract_id: "contract-1",
     outbox_scope: "internal_owner_action_request"
   },
-  status: "queued",
+  status: "processing",
   attempt_count: 0,
   max_attempts: 4,
   next_retry_at: null,
   processing_started_at: null,
-  processing_token: null,
+  processing_token: "token-1",
   provider_message_id: null
 };
 
@@ -127,6 +127,7 @@ describe("renewal action request notification outbox", () => {
       expect.objectContaining({
         organizationId: "org-1",
         recipientEmail: "owner@example.com",
+        deliveryKey: "renewal_action_request:request-1:email",
         contractId: "contract-1",
         contractTitle: "Acme MSA",
         counterpartyName: "Acme",
@@ -137,6 +138,7 @@ describe("renewal action request notification outbox", () => {
       expect.objectContaining({
         notificationId: "notification-1",
         organizationId: "org-1",
+        processingToken: "token-1",
         update: expect.objectContaining({
           status: "sent",
           provider_message_id: "email-1",
@@ -162,6 +164,7 @@ describe("renewal action request notification outbox", () => {
     expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
     expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
       expect.objectContaining({
+        processingToken: "token-1",
         update: expect.objectContaining({
           status: "skipped",
           error_message: "Renewal action request is no longer pending.",
@@ -215,6 +218,7 @@ describe("renewal action request notification outbox", () => {
     expect(result).toEqual(expect.objectContaining({ nextRetryAt: null }));
     expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
       expect.objectContaining({
+        processingToken: "token-1",
         update: expect.objectContaining({
           status: "failed_terminal",
           next_retry_at: null,
@@ -238,6 +242,7 @@ describe("renewal action request notification outbox", () => {
     expect(result.status).toBe("failed_terminal");
     expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
       expect.objectContaining({
+        processingToken: "token-1",
         update: expect.objectContaining({
           status: "failed_terminal",
           attempt_count: 4,
@@ -258,10 +263,77 @@ describe("renewal action request notification outbox", () => {
     expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
   });
 
+  it("does not call the provider when a processing token is missing", async () => {
+    const result = await processRenewalActionRequestNotification({
+      ...notification,
+      status: "processing",
+      processing_token: null
+    });
+
+    expect(result).toEqual({ id: "notification-1", status: "claim_lost" });
+    expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
+    expect(mocks.updateAdminRenewalActionNotification).not.toHaveBeenCalled();
+  });
+
+  it("prevents a stale worker from overwriting a newer worker completion", async () => {
+    mocks.updateAdminRenewalActionNotification.mockResolvedValueOnce({
+      data: null,
+      error: null
+    });
+
+    const result = await processRenewalActionRequestNotification({
+      ...notification,
+      processing_token: "stale-token"
+    });
+
+    expect(result).toEqual({ id: "notification-1", status: "claim_lost" });
+    expect(mocks.sendRenewalActionRequestEmail).toHaveBeenCalledTimes(1);
+    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificationId: "notification-1",
+        organizationId: "org-1",
+        processingToken: "stale-token",
+        update: expect.objectContaining({ status: "sent" })
+      })
+    );
+    expect(mocks.emitOperationalEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "renewal_action_notification_claim_lost",
+        metadata: expect.objectContaining({
+          claim_lost_reason: "processing_token_mismatch_or_status_changed"
+        })
+      })
+    );
+  });
+
+  it("reuses the stable delivery key across retry attempts", async () => {
+    mocks.sendRenewalActionRequestEmail.mockRejectedValueOnce(new Error("temporary timeout"));
+    await processRenewalActionRequestNotification({
+      ...notification,
+      attempt_count: 1,
+      processing_token: "retry-token"
+    });
+
+    expect(mocks.sendRenewalActionRequestEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        deliveryKey: "renewal_action_request:request-1:email"
+      })
+    );
+    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        processingToken: "retry-token",
+        update: expect.objectContaining({
+          status: "retry_pending",
+          attempt_count: 2
+        })
+      })
+    );
+  });
+
   it("claims due rows before processing so overlapping workers cannot send the same row", async () => {
     const now = new Date("2030-01-01T12:00:00.000Z");
     mocks.listAdminQueuedRenewalActionNotifications.mockResolvedValue({
-      data: [notification],
+      data: [{ ...notification, status: "queued", processing_token: null }],
       error: null
     });
     mocks.claimAdminRenewalActionNotification.mockResolvedValue({
@@ -281,6 +353,39 @@ describe("renewal action request notification outbox", () => {
       })
     );
     expect(mocks.sendRenewalActionRequestEmail).not.toHaveBeenCalled();
+  });
+
+  it("carries the generated claim token through a valid sent transition", async () => {
+    const now = new Date("2030-01-01T12:00:00.000Z");
+    mocks.listAdminQueuedRenewalActionNotifications.mockResolvedValue({
+      data: [{ ...notification, status: "queued", processing_token: null }],
+      error: null
+    });
+    mocks.claimAdminRenewalActionNotification.mockImplementation(async (input: { processingToken: string }) => ({
+      data: {
+        ...notification,
+        status: "processing",
+        processing_token: input.processingToken
+      },
+      error: null
+    }));
+
+    const results = await processQueuedRenewalActionRequestNotifications({ limit: 5, now });
+    const claimInput = mocks.claimAdminRenewalActionNotification.mock.calls[0]?.[0] as
+      | { processingToken: string }
+      | undefined;
+    expect(claimInput).toBeDefined();
+    const processingToken = claimInput?.processingToken;
+
+    expect(results).toEqual([{ id: "notification-1", status: "sent" }]);
+    expect(mocks.updateAdminRenewalActionNotification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        notificationId: "notification-1",
+        organizationId: "org-1",
+        processingToken,
+        update: expect.objectContaining({ status: "sent" })
+      })
+    );
   });
 
   it("rescues stale processing claims before listing due rows", async () => {
