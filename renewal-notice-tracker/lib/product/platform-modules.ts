@@ -7,6 +7,7 @@ export type PlatformModuleId =
   | "contract_intelligence_risk_explanation"
   | "financial_exposure_intelligence"
   | "procurement_vendor_analytics"
+  | "subscription_usage_optimization"
   | "export_reporting_intelligence"
   | "ocr_import_intelligence"
   | "reminder_workflow_automation"
@@ -150,6 +151,48 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     ],
     promotionCriteria: ["Every metric stays action-oriented and drills down to organization-scoped contracts."],
     notAllowed: ["Supplier performance scoring", "vendor enrichment", "ERP/procurement-suite positioning"]
+  },
+  subscription_usage_optimization: {
+    id: "subscription_usage_optimization",
+    label: "Subscription Usage Optimization",
+    status: "experimental",
+    allowedInCurrentShippedKernel: false,
+    gate: {
+      source: "future_policy",
+      minimumPlan: "growth",
+      commercialFeatures: ["subscription_usage_optimization"],
+      policy:
+        "Growth-gated CSV-first add-on. Customer activation remains blocked when Python reconciliation is unhealthy or unconfigured; Java connectors are optional/future-only."
+    },
+    ownerSurfaces: {
+      routes: ["/dashboard/subscription-optimization"],
+      components: ["SubscriptionOptimizationWorkbench"],
+      modules: [
+        "lib/subscription-usage",
+        "lib/add-ons/python-intelligence-client.ts",
+        "services/python-intelligence/app/routes/reconcile_usage.py",
+        "services/java-enterprise-connectors/src/main/java/com/noticecontrol/enterprise/connectors/UsageInventoryConnector.java"
+      ],
+      docs: ["docs/add-on-architecture.md"]
+    },
+    requiredTestsOrReleaseGates: [
+      "tests/subscription-usage-import.test.ts",
+      "tests/subscription-usage-workflow.test.ts",
+      "services/python-intelligence/tests/test_endpoints.py",
+      "services/java-enterprise-connectors/src/test/java/com/noticecontrol/enterprise/UsageInventoryConnectorTest.java",
+      "test:intelligence-release-gate"
+    ],
+    promotionCriteria: [
+      "Usage imports are tenant-scoped, idempotent, and reviewable.",
+      "Python returns deterministic findings with source row IDs, confidence, warnings, and no invented per-seat prices.",
+      "Human-reviewed actions are required before any savings claim becomes accepted."
+    ],
+    notAllowed: [
+      "Automatic cancellation",
+      "Vendor messages",
+      "Unsupported savings guarantees",
+      "Production Java usage connectors before provider-specific auth and support gates"
+    ]
   },
   export_reporting_intelligence: {
     id: "export_reporting_intelligence",

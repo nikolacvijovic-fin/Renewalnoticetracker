@@ -95,6 +95,34 @@ export type ReconcileUsageRequest = {
   organization_id: string;
   usage_import_batch_id: string;
   matching_mode: "strict" | "balanced" | "exploratory";
+  normalized_rows?: Array<{
+    usage_row_id: string;
+    vendor: string;
+    product: string;
+    normalized_product: string;
+    category?: string | null;
+    annual_reviewed_cost?: number | null;
+    currency?: string | null;
+    purchased_seats?: number | null;
+    assigned_seats?: number | null;
+    active_users_30d?: number | null;
+    active_users_90d?: number | null;
+    last_activity_at?: string | null;
+    collected_at?: string | null;
+    trust_state?: string | null;
+    confidence?: number | null;
+    is_sample?: boolean | null;
+  }>;
+  contract_candidates?: Array<{
+    contract_id: string;
+    vendor?: string | null;
+    title?: string | null;
+    renewal_date?: string | null;
+    notice_deadline_date?: string | null;
+    annual_cost?: number | null;
+    currency?: string | null;
+    is_sample?: boolean | null;
+  }>;
 };
 
 export type ReconcileUsageResponse = {
@@ -103,6 +131,35 @@ export type ReconcileUsageResponse = {
   duplicate_candidates: string[];
   waste_opportunities: string[];
   estimated_savings: number;
+  findings?: Array<{
+    finding_type:
+      | "unused_subscription"
+      | "low_utilization"
+      | "unused_seats"
+      | "seat_reduction_candidate"
+      | "duplicate_product_contract"
+      | "possible_functional_overlap"
+      | "high_cost_low_usage"
+      | "stale_usage_data"
+      | "renewal_decision_required";
+    reason_code: string;
+    calculation_version: string;
+    source_row_ids: string[];
+    matched_contract_ids: string[];
+    utilization: number | null;
+    unused_seats: number | null;
+    confidence: number;
+    warnings: string[];
+    estimated_savings: number | null;
+    currency: string | null;
+    recommended_action:
+      | "retain"
+      | "reduce_seats"
+      | "consolidate"
+      | "terminate"
+      | "renegotiate"
+      | "insufficient_evidence";
+  }>;
 };
 
 export type ScoreRiskRequest = {

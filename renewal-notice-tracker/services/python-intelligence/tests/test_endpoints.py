@@ -163,6 +163,98 @@ def test_score_risk_uses_readiness_context_only(monkeypatch):
     assert response.json()["risk_factors"] == ["missing_notice_deadline"]
 
 
+def test_reconcile_usage_returns_deterministic_savings_findings(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":[{'
+        '"usage_row_id":"row-1","vendor":"Acme","product":"Acme Suite","normalized_product":"acme suite",'
+        '"annual_reviewed_cost":12000,"currency":"USD","purchased_seats":100,'
+        '"active_users_30d":20,"active_users_90d":35,"last_activity_at":"2026-08-01T00:00:00Z",'
+        '"collected_at":"2026-08-12T00:00:00Z","confidence":0.9'
+        '}],"contract_candidates":[]}'
+    )
+    response = client.post(
+        "/reconcile-usage",
+        content=body,
+        headers=signed_headers("POST", "/reconcile-usage", body),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["estimated_savings"] == 9600
+    finding_types = {finding["finding_type"] for finding in payload["findings"]}
+    assert "low_utilization" in finding_types
+    assert "unused_seats" in finding_types
+    assert payload["findings"][0]["calculation_version"] == "subscription_usage_v1"
+
+
+def test_reconcile_usage_never_invents_missing_price_per_seat(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":[{'
+        '"usage_row_id":"row-1","vendor":"Acme","product":"Acme Suite","normalized_product":"acme suite",'
+        '"currency":"USD","purchased_seats":100,"active_users_30d":0,"confidence":0.9'
+        '}],"contract_candidates":[]}'
+    )
+    response = client.post(
+        "/reconcile-usage",
+        content=body,
+        headers=signed_headers("POST", "/reconcile-usage", body),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["estimated_savings"] == 0
+    assert payload["findings"][0]["estimated_savings"] is None
+    assert "missing_price_per_seat_basis" in payload["findings"][0]["warnings"]
+
+
+def test_reconcile_usage_handles_zero_seats_and_stale_data(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":[{'
+        '"usage_row_id":"row-1","vendor":"Acme","product":"Acme Suite","normalized_product":"acme suite",'
+        '"annual_reviewed_cost":12000,"currency":"USD","purchased_seats":0,'
+        '"active_users_30d":0,"last_activity_at":"2026-01-01T00:00:00Z",'
+        '"collected_at":"2026-08-12T00:00:00Z","confidence":0.9'
+        '}],"contract_candidates":[]}'
+    )
+    response = client.post(
+        "/reconcile-usage",
+        content=body,
+        headers=signed_headers("POST", "/reconcile-usage", body),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["findings"][0]["reason_code"] == "missing_usage_denominator"
+
+
+def test_reconcile_usage_detects_duplicate_products_and_excludes_samples(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":['
+        '{"usage_row_id":"row-1","vendor":"Acme","product":"Suite","normalized_product":"suite","annual_reviewed_cost":1000,"currency":"USD","purchased_seats":10,"active_users_30d":5},'
+        '{"usage_row_id":"row-2","vendor":"Other","product":"Suite","normalized_product":"suite","annual_reviewed_cost":500,"currency":"USD","purchased_seats":10,"active_users_30d":5},'
+        '{"usage_row_id":"row-sample","vendor":"Demo","product":"Suite","normalized_product":"suite","annual_reviewed_cost":9999,"currency":"USD","purchased_seats":10,"active_users_30d":0,"is_sample":true}'
+        '],"contract_candidates":[]}'
+    )
+    response = client.post(
+        "/reconcile-usage",
+        content=body,
+        headers=signed_headers("POST", "/reconcile-usage", body),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    duplicate = [finding for finding in payload["findings"] if finding["finding_type"] == "duplicate_product_contract"][0]
+    assert duplicate["source_row_ids"] == ["row-1", "row-2"]
+    assert "row-sample" not in str(payload)
+
+
 def test_invalid_signature_rejected(monkeypatch):
     monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
     body = '{"organization_id":"org-1","contract_id":"contract-1","readiness_context":{}}'

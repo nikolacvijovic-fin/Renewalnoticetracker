@@ -4,6 +4,7 @@ export type AddOnCategory =
   | "intelligence"
   | "reliability"
   | "enterprise_integration"
+  | "optimization"
   | "reporting"
   | "data_backbone";
 
@@ -54,6 +55,20 @@ export const ADD_ON_MANIFESTS = [
     healthCheckPath: "/health",
     documentationHref: "/docs/add-on-architecture#python-intelligence",
     commercialValue: "Extraction, quote comparison, usage reconciliation, and deterministic risk scoring scaffolds.",
+    riskLevel: "high"
+  },
+  {
+    id: "subscription_usage_optimization",
+    name: "Subscription Usage Optimization",
+    category: "optimization",
+    runtime: "python",
+    status: "scaffolded",
+    requiredEntitlement: "subscription_usage_optimization",
+    inputContract: "SubscriptionUsageReconcileRequest",
+    outputContract: "SubscriptionUsageReconcileResponse",
+    healthCheckPath: "/health",
+    documentationHref: "/docs/add-on-architecture#subscription-usage-optimization",
+    commercialValue: "CSV-first reviewable savings findings for unused seats, low utilization, stale usage, and duplicate/overlap candidates before renewal.",
     riskLevel: "high"
   },
   {

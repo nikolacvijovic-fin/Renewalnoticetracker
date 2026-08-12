@@ -20,6 +20,7 @@ export type CommercialFeature =
   | "risk_scores"
   | "financial_intelligence"
   | "procurement_analytics"
+  | "subscription_usage_optimization"
   | "intelligence_settings";
 
 export type ContractTrackingLimitResult = {
@@ -80,6 +81,7 @@ const FEATURE_MINIMUM_PLAN: Record<CommercialFeature, BillingSnapshot["planTier"
   risk_scores: "growth",
   financial_intelligence: "growth",
   procurement_analytics: "growth",
+  subscription_usage_optimization: "growth",
   intelligence_settings: "growth"
 };
 
@@ -91,6 +93,7 @@ export const COMMERCIAL_FEATURE_LABELS: Record<CommercialFeature, string> = {
   risk_scores: "Risk scores",
   financial_intelligence: "Financial Intelligence",
   procurement_analytics: "Procurement Analytics",
+  subscription_usage_optimization: "Subscription Usage Optimization",
   intelligence_settings: "Intelligence settings"
 };
 
@@ -432,6 +435,10 @@ export function getCommercialRedirectCode(feature: CommercialFeature, reason?: C
       return reason && reason !== "upgrade_required"
         ? `billing.procurement_analytics.${reason}`
         : "billing.procurement_analytics_upgrade_required";
+    case "subscription_usage_optimization":
+      return reason && reason !== "upgrade_required"
+        ? `billing.subscription_usage_optimization.${reason}`
+        : "billing.subscription_usage_optimization_upgrade_required";
     case "intelligence_settings":
       return reason && reason !== "upgrade_required"
         ? `billing.intelligence_settings.${reason}`
@@ -478,6 +485,11 @@ export function getCommercialNoticeFromCode(code: string | null | undefined) {
     "billing.procurement_analytics.subscription_cancelled": "Procurement Analytics is currently blocked because the subscription is cancelled.",
     "billing.procurement_analytics.inactive_subscription": "Procurement Analytics requires an active Growth subscription.",
     "billing.procurement_analytics.provider_not_configured": "Procurement Analytics is temporarily unavailable because billing is not configured correctly.",
+    "billing.subscription_usage_optimization_upgrade_required": "Subscription Usage Optimization requires the Growth plan.",
+    "billing.subscription_usage_optimization.subscription_past_due": "Subscription Usage Optimization is currently blocked because the subscription is past due.",
+    "billing.subscription_usage_optimization.subscription_cancelled": "Subscription Usage Optimization is currently blocked because the subscription is cancelled.",
+    "billing.subscription_usage_optimization.inactive_subscription": "Subscription Usage Optimization requires an active Growth subscription.",
+    "billing.subscription_usage_optimization.provider_not_configured": "Subscription Usage Optimization is temporarily unavailable because billing is not configured correctly.",
     "billing.intelligence_settings_upgrade_required": "Intelligence settings require the Growth plan.",
     "billing.intelligence_settings.subscription_past_due": "Intelligence settings are currently blocked because the subscription is past due.",
     "billing.intelligence_settings.subscription_cancelled": "Intelligence settings are currently blocked because the subscription is cancelled.",

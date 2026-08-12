@@ -123,6 +123,70 @@ class ReconcileUsageRequest(BaseModel):
     organization_id: str = Field(min_length=1)
     usage_import_batch_id: str = Field(min_length=1)
     matching_mode: Literal["strict", "balanced", "exploratory"]
+    normalized_rows: list["UsageInventoryRow"] = Field(default_factory=list, max_length=1000)
+    contract_candidates: list["UsageContractCandidate"] = Field(default_factory=list, max_length=1000)
+
+
+class UsageInventoryRow(BaseModel):
+    usage_row_id: str = Field(min_length=1)
+    vendor: str = ""
+    product: str = ""
+    normalized_product: str = ""
+    category: str | None = None
+    annual_reviewed_cost: float | None = Field(default=None, ge=0)
+    currency: str | None = None
+    purchased_seats: float | None = Field(default=None, ge=0)
+    assigned_seats: float | None = Field(default=None, ge=0)
+    active_users_30d: float | None = Field(default=None, ge=0)
+    active_users_90d: float | None = Field(default=None, ge=0)
+    last_activity_at: str | None = None
+    collected_at: str | None = None
+    trust_state: str | None = None
+    confidence: float | None = Field(default=None, ge=0, le=1)
+    is_sample: bool | None = False
+
+
+class UsageContractCandidate(BaseModel):
+    contract_id: str = Field(min_length=1)
+    vendor: str | None = None
+    title: str | None = None
+    renewal_date: str | None = None
+    notice_deadline_date: str | None = None
+    annual_cost: float | None = Field(default=None, ge=0)
+    currency: str | None = None
+    is_sample: bool | None = False
+
+
+class ReconcileUsageFinding(BaseModel):
+    finding_type: Literal[
+        "unused_subscription",
+        "low_utilization",
+        "unused_seats",
+        "seat_reduction_candidate",
+        "duplicate_product_contract",
+        "possible_functional_overlap",
+        "high_cost_low_usage",
+        "stale_usage_data",
+        "renewal_decision_required",
+    ]
+    reason_code: str
+    calculation_version: str
+    source_row_ids: list[str]
+    matched_contract_ids: list[str]
+    utilization: float | None = None
+    unused_seats: float | None = None
+    confidence: float = Field(ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+    estimated_savings: float | None = None
+    currency: str | None = None
+    recommended_action: Literal[
+        "retain",
+        "reduce_seats",
+        "consolidate",
+        "terminate",
+        "renegotiate",
+        "insufficient_evidence",
+    ]
 
 
 class ReconcileUsageResponse(BaseModel):
@@ -131,6 +195,7 @@ class ReconcileUsageResponse(BaseModel):
     duplicate_candidates: list[str]
     waste_opportunities: list[str]
     estimated_savings: float
+    findings: list[ReconcileUsageFinding] = Field(default_factory=list)
 
 
 class ScoreRiskRequest(BaseModel):

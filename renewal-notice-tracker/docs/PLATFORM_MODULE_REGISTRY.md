@@ -20,6 +20,7 @@ Customer onboarding and support/success operations are governed by [CUSTOMER_ONB
 | `contract_intelligence_risk_explanation` | shipped | yes | `risk_badges`, `risk_scores`, shared intelligence access | `test:intelligence-release-gate`, risk-score and surface consistency tests |
 | `financial_exposure_intelligence` | shipped | yes | `financial_intelligence`, Growth plan, admin-only access | `test:intelligence-release-gate`, financial exposure/page tests |
 | `procurement_vendor_analytics` | shipped | yes | `procurement_analytics`, Growth plan, admin/operator access | `test:intelligence-release-gate`, procurement query/page tests |
+| `subscription_usage_optimization` | experimental | no | future policy plus Growth-gated starter add-on, Python reconciliation health, and human-review requirements | `tests/subscription-usage-import.test.ts`, `tests/subscription-usage-workflow.test.ts`, Python reconciliation tests, future promotion gate |
 | `export_reporting_intelligence` | shipped | yes | export preset policy with `exports` and risk/intelligence gates where needed | `test:release-critical:exports`, `test:background-exports`, export privacy/scale tests |
 | `ocr_import_intelligence` | shipped | yes | active org, review gates, OCR/internal job controls, Starter paid gates where applicable | intake/review and OCR trust tests |
 | `reminder_workflow_automation` | shipped | yes | fixed trusted reminder kernel; `multi_recipient_reminders` for broader recipient behavior | workflow/reminder control-plane tests |

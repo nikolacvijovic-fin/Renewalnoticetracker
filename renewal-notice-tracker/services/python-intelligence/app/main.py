@@ -1,4 +1,5 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 
 from app.routes import compare_quote, extract_contract, health, reconcile_usage, score_risk
 from app.security import verify_noticecontrol_signature
@@ -9,7 +10,13 @@ app.middleware("http")(lambda request, call_next: _signature_middleware(request,
 
 
 async def _signature_middleware(request, call_next):
-    await verify_noticecontrol_signature(request)
+    try:
+        await verify_noticecontrol_signature(request)
+    except HTTPException as exception:
+        return JSONResponse(
+            status_code=exception.status_code,
+            content={"detail": exception.detail},
+        )
     return await call_next(request)
 
 

@@ -36,10 +36,14 @@ describe("add-on architecture registry", () => {
 
   it("lists, filters by entitlement, and blocks unavailable add-ons", () => {
     expect(listAddOns().map((addOn) => addOn.id)).toContain("python_contract_intelligence");
+    expect(listAddOns().map((addOn) => addOn.id)).toContain("subscription_usage_optimization");
     expect(getAddOnManifest("go_reliability_worker")?.runtime).toBe("go");
 
     expect(listAddOnsForEntitlements(["intelligence.contract_extraction"]).map((addOn) => addOn.id)).toEqual([
       "python_contract_intelligence"
+    ]);
+    expect(listAddOnsForEntitlements(["subscription_usage_optimization"]).map((addOn) => addOn.id)).toEqual([
+      "subscription_usage_optimization"
     ]);
 
     expect(
@@ -101,6 +105,18 @@ describe("add-on architecture registry", () => {
     expect(migration).toContain("memberships.organization_id");
     expect(migration).not.toMatch(/members can manage/i);
     expect(migration).not.toMatch(/for all using/i);
+  });
+
+  it("adds starter subscription usage optimization schema without raw-file authority", () => {
+    const migration = readRepoFile("supabase", "migrations", "202608120001_subscription_usage_optimization_foundation.sql");
+
+    expect(migration).toContain("normalized_product");
+    expect(migration).toContain("annual_reviewed_cost");
+    expect(migration).toContain("active_users_30d");
+    expect(migration).toContain("review_status");
+    expect(migration).toContain("usage_import_batches_org_idempotency_idx");
+    expect(migration).toContain("No automatic cancellation");
+    expect(migration).not.toMatch(/raw file contents in logs/i);
   });
 
   it("keeps trust exception approvals immutable except formal revocation", () => {

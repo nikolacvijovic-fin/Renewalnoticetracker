@@ -55,6 +55,7 @@ export type PlatformCapabilityId =
   | "contract_intelligence"
   | "financial_intelligence"
   | "procurement_analytics"
+  | "subscription_usage_optimization"
   | "revenue_intelligence_command_center"
   | "revenue_intelligence"
   | "billing"
@@ -388,6 +389,29 @@ export const PLATFORM_CAPABILITIES: Record<PlatformCapabilityId, PlatformCapabil
     requiredDeploymentGates: ["test:intelligence-release-gate", "tests/procurement-query-helpers.test.ts"],
     docs: ["docs/intelligence/PROCUREMENT_ANALYTICS_SCOPE.md", "docs/intelligence/INTELLIGENCE_RELEASE_GATE.md"],
     notes: "Surfaces action-oriented vendor renewal portfolio metrics with drilldown IDs and no vendor enrichment."
+  },
+  subscription_usage_optimization: {
+    id: "subscription_usage_optimization",
+    label: "Subscription Usage Optimization",
+    lifecycle: "experimental",
+    health: "warning",
+    owningModule: "subscription_usage_optimization",
+    dependencies: ["contracts", "billing", "audit", "monitoring", "permissions"],
+    requiredProviders: ["supabase"],
+    requiredPermissions: ["subscription_usage_import", "subscription_usage_findings_review"],
+    requiredPlans: ["growth"],
+    requiredMarketPolicies: ["global/default runtime market", "Python reconciliation add-on healthy"],
+    requiredIdentityPolicies: ["admin/operator/reviewer active organization membership"],
+    requiredAuditEvents: [],
+    requiredMonitoring: ["subscription usage import failures", "usage reconciliation failures"],
+    requiredDeploymentGates: [
+      "tests/subscription-usage-import.test.ts",
+      "tests/subscription-usage-workflow.test.ts",
+      "services/python-intelligence/tests/test_endpoints.py"
+    ],
+    docs: ["docs/add-on-architecture.md", "docs/PLATFORM_MODULE_REGISTRY.md"],
+    notes:
+      "Experimental CSV-first add-on. Produces reviewable findings only; no automatic cancellation, vendor messages, or production Java usage connector claims."
   },
   revenue_intelligence_command_center: {
     id: "revenue_intelligence_command_center",

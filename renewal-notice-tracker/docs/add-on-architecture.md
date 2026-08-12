@@ -26,6 +26,7 @@ Registered add-ons:
 | Add-on ID | Runtime | Status | Entitlement | Commercial value |
 | --- | --- | --- | --- | --- |
 | `python_contract_intelligence` | Python/FastAPI | scaffolded | `intelligence.contract_extraction` | Extraction, quote comparison, usage reconciliation, and deterministic risk scoring scaffolds |
+| `subscription_usage_optimization` | Python/FastAPI | scaffolded | `subscription_usage_optimization` | CSV-first reviewable savings findings for unused seats, low utilization, stale usage, and duplicate/overlap candidates |
 | `go_reliability_worker` | Go | scaffolded | `reliability.reminder_worker` | Idempotent background processing for reminders, imports, webhooks, and audit events |
 | `java_enterprise_connectors` | Java/Spring | scaffolded | `enterprise.connectors` | Optional large-customer connector boundary |
 | `postgres_reporting_backbone` | SQL/Postgres | active | `core.reporting_backbone` | Tenant-scoped audit, import, reconciliation, readiness, and reporting structures |
@@ -75,6 +76,26 @@ Current implementation is deterministic scaffold logic. It does not call AI prov
 
 `POST /extract-contract` now returns structured evidence fields with confidence, citations, warning codes, and bounded snippets. The TypeScript app stores those outputs as review evidence in `contract_extraction_runs` and `contract_extracted_fields`; they do not become trusted contract truth until explicitly reviewed and then confirmed through the existing P0 workflow.
 
+### Subscription Usage Optimization
+
+Add-on ID: `subscription_usage_optimization`
+
+This is a Growth-gated, CSV-first starter add-on. TypeScript owns customer workflow state, entitlement checks, persistence, audit, and human review. Python receives only bounded, organization-scoped normalized usage rows and optional eligible contract candidates through the signed add-on client.
+
+The starter reconciliation returns reviewable findings only:
+
+- `unused_subscription`
+- `low_utilization`
+- `unused_seats`
+- `seat_reduction_candidate`
+- `duplicate_product_contract`
+- `possible_functional_overlap`
+- `high_cost_low_usage`
+- `stale_usage_data`
+- `renewal_decision_required`
+
+Savings calculations use only provided reviewed annual cost and purchased-seat counts. The add-on must never invent a price-per-seat value, cancel a subscription, send vendor messages, or treat possible functional overlap as proof of equivalence.
+
 ## Go Worker
 
 Path: `services/go-worker`
@@ -109,6 +130,11 @@ Planned adapters remain future-only:
 - Workday
 - NetSuite
 - SCIM/SAML identity provisioning
+- Microsoft 365 usage inventory
+- Google Workspace usage inventory
+- Okta usage inventory
+
+The `subscription_usage` connector type is a future enterprise connector boundary. The Java service defines a `UsageInventoryConnector` interface with credential references, paginated snapshots, idempotency, health/capability semantics, and fixture-only tests. It is not a production usage integration yet.
 
 ## TypeScript Clients
 
