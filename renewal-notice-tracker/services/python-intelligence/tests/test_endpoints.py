@@ -430,6 +430,34 @@ def test_reconcile_usage_stale_or_partial_evidence_cannot_be_high_confidence(mon
     assert all("partial_activity_data" in item["warnings"] for item in overlaps)
 
 
+def test_reconcile_usage_does_not_treat_google_assigned_seats_as_purchased(monkeypatch):
+    payload = cross_provider_payload(google_active=0)
+    google = payload["normalized_rows"][1]
+    google["purchased_seats"] = None
+    google["assigned_seats"] = 100
+    google["annual_reviewed_cost"] = None
+    payload["provider_warning_codes"].append("purchased_seats_unavailable")
+    response = post_reconciliation(monkeypatch, payload)
+    assert response.status_code == 200
+    google_findings = [
+        item for item in response.json()["findings"]
+        if google["usage_row_id"] in item["source_row_ids"]
+    ]
+    assert google_findings
+    assert all(item["recommended_action"] not in {"terminate", "reduce_seats"} for item in google_findings)
+    assert all(item["estimated_savings"] is None for item in google_findings)
+
+
+def test_reconcile_usage_blocks_actionable_recommendations_when_activity_mapping_is_incomplete(monkeypatch):
+    payload = cross_provider_payload(google_active=0)
+    payload["provider_warning_codes"].extend(["unmapped_microsoft_sku", "missing_activity_report_30d"])
+    response = post_reconciliation(monkeypatch, payload)
+    assert response.status_code == 200
+    assert response.json()["findings"]
+    assert all(item["recommended_action"] not in {"terminate", "reduce_seats"} for item in response.json()["findings"])
+    assert all(item["confidence"] < 0.5 for item in response.json()["findings"])
+
+
 def test_invalid_signature_rejected(monkeypatch):
     monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
     body = '{"organization_id":"org-1","contract_id":"contract-1","readiness_context":{}}'

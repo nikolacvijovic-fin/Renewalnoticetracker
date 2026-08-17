@@ -1,6 +1,5 @@
 package com.noticecontrol.enterprise.controllers;
 
-import com.noticecontrol.enterprise.connectors.EnvironmentMicrosoftGraphAccessTokenProvider;
 import com.noticecontrol.enterprise.connectors.Microsoft365UsageInventoryConnector;
 import com.noticecontrol.enterprise.connectors.GoogleWorkspaceUsageInventoryConnector;
 import com.noticecontrol.enterprise.connectors.UsageInventoryConnector;
@@ -19,10 +18,7 @@ public class UsageInventoryController {
 
   public UsageInventoryController() {
     HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NORMAL).build();
-    this.microsoftConnector = new Microsoft365UsageInventoryConnector(
-        client,
-        new EnvironmentMicrosoftGraphAccessTokenProvider()
-    );
+    this.microsoftConnector = new Microsoft365UsageInventoryConnector(client);
     this.googleConnector = new GoogleWorkspaceUsageInventoryConnector(client);
   }
 

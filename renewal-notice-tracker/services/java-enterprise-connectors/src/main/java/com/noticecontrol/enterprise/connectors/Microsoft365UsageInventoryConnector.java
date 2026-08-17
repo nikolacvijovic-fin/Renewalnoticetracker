@@ -6,6 +6,7 @@ import com.noticecontrol.enterprise.models.UsageInventoryRecord;
 import com.noticecontrol.enterprise.models.UsageInventorySnapshotRequest;
 import com.noticecontrol.enterprise.models.UsageInventorySnapshotResult;
 import java.io.IOException;
+import java.io.StringReader;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -14,33 +15,44 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 
 public final class Microsoft365UsageInventoryConnector implements UsageInventoryConnector {
   private static final int MAX_PAGE_SIZE = 500;
   private static final int MAX_RESPONSE_BYTES = 2_000_000;
+  private static final int MAX_REPORT_ROWS = 50_000;
   private static final int MAX_ATTEMPTS = 4;
+  private static final int STALE_REPORT_DAYS = 14;
   private final URI graphBaseUrl;
   private final HttpClient httpClient;
-  private final MicrosoftGraphAccessTokenProvider tokenProvider;
+  private final MicrosoftGraphAccessTokenProvider developmentTokenProvider;
   private final ObjectMapper objectMapper = new ObjectMapper();
+  private final MicrosoftSkuCatalog skuCatalog = MicrosoftSkuCatalog.loadDefault();
 
+  public Microsoft365UsageInventoryConnector(HttpClient httpClient) {
+    this(URI.create("https://graph.microsoft.com/v1.0"), httpClient, null);
+  }
+
+  /** Development/test compatibility only. Production supplies a short-lived request token. */
   public Microsoft365UsageInventoryConnector(HttpClient httpClient, MicrosoftGraphAccessTokenProvider tokenProvider) {
     this(URI.create("https://graph.microsoft.com/v1.0"), httpClient, tokenProvider);
   }
 
-  public Microsoft365UsageInventoryConnector(
-      URI graphBaseUrl,
-      HttpClient httpClient,
-      MicrosoftGraphAccessTokenProvider tokenProvider
-  ) {
+  public Microsoft365UsageInventoryConnector(URI graphBaseUrl, HttpClient httpClient, MicrosoftGraphAccessTokenProvider tokenProvider) {
     this.graphBaseUrl = graphBaseUrl;
     this.httpClient = httpClient;
-    this.tokenProvider = tokenProvider;
+    this.developmentTokenProvider = tokenProvider;
   }
 
   @Override
@@ -48,102 +60,134 @@ public final class Microsoft365UsageInventoryConnector implements UsageInventory
     if (!"subscription_usage".equals(request.connectorType()) || !"microsoft_365".equals(request.provider())) {
       return rejected(request.connectorType(), "unsupported_connector");
     }
-    if (request.organizationId() == null || request.organizationId().isBlank() || request.tenantId() == null || request.tenantId().isBlank()) {
-      return rejected(request.connectorType(), "missing_scope");
-    }
+    if (isBlank(request.organizationId()) || isBlank(request.tenantId())) return rejected(request.connectorType(), "missing_scope");
 
-    String token;
+    String token = request.providerAccessToken();
     try {
-      token = tokenProvider.getAccessToken(request.tenantId(), request.credentialReference());
+      if (isBlank(token) && developmentTokenProvider != null) {
+        token = developmentTokenProvider.getAccessToken(request.tenantId(), request.credentialReference());
+      }
+      if (isBlank(token)) throw new IllegalStateException("credential_unavailable");
     } catch (RuntimeException exception) {
-      return rejected(request.connectorType(), exception.getMessage() == null ? "credential_unavailable" : exception.getMessage());
+      return rejected(request.connectorType(), safeCode(exception, "credential_unavailable"));
     }
 
     try {
-      List<UsageInventoryRecord> records = fetchSubscribedSkuRecords(token, Math.min(Math.max(request.pageSize(), 1), MAX_PAGE_SIZE));
-      Map<String, ActivityCounts> activity30 = fetchActivityCounts(token, "D30");
-      Map<String, ActivityCounts> activity90 = fetchActivityCounts(token, "D90");
+      Set<String> snapshotWarnings = new LinkedHashSet<>();
+      List<Entitlement> entitlements = fetchSubscribedSkus(token, Math.min(Math.max(request.pageSize(), 1), MAX_PAGE_SIZE), snapshotWarnings);
+      ActivityReport activity30 = safeActivityReport(token, "D30", "30d", snapshotWarnings);
+      ActivityReport activity90 = safeActivityReport(token, "D90", "90d", snapshotWarnings);
       String collectedAt = Instant.now().toString();
-      List<UsageInventoryRecord> merged = records.stream()
-          .map(record -> mergeActivity(record, activity30, activity90, collectedAt))
+      List<UsageInventoryRecord> records = entitlements.stream()
+          .map(entitlement -> buildRecord(entitlement, activity30, activity90, collectedAt, snapshotWarnings))
           .toList();
-      return new UsageInventorySnapshotResult(true, request.connectorType(), merged, null, List.of(), 0, false);
+      boolean partial = snapshotWarnings.stream().anyMatch(Microsoft365UsageInventoryConnector::isEvidenceWarning);
+      return new UsageInventorySnapshotResult(true, request.connectorType(), records, null, List.copyOf(snapshotWarnings), 0, partial);
     } catch (GraphConnectorException exception) {
       return rejected(request.connectorType(), exception.safeCode());
     }
   }
 
-  private List<UsageInventoryRecord> fetchSubscribedSkuRecords(String token, int pageSize) {
-    String path = "/subscribedSkus?$select=skuId,skuPartNumber,consumedUnits,prepaidUnits";
-    List<UsageInventoryRecord> records = new ArrayList<>();
-    String next = path;
+  private List<Entitlement> fetchSubscribedSkus(String token, int pageSize, Set<String> warnings) {
+    String next = "/subscribedSkus?$select=skuId,skuPartNumber,consumedUnits,prepaidUnits";
+    List<Entitlement> records = new ArrayList<>();
     while (next != null && records.size() < pageSize) {
       JsonNode payload = getJson(token, next);
       JsonNode values = payload.path("value");
-      if (!values.isArray()) {
-        throw new GraphConnectorException("malformed_subscribed_skus_response");
-      }
+      if (!values.isArray()) throw new GraphConnectorException("malformed_subscribed_skus_response");
       for (JsonNode item : values) {
         if (records.size() >= pageSize) break;
         String skuId = item.path("skuId").asText("");
-        String sku = item.path("skuPartNumber").asText("");
-        int purchased = Math.max(0, item.path("prepaidUnits").path("enabled").asInt(0));
-        int assigned = Math.max(0, item.path("consumedUnits").asInt(0));
-        if (!skuId.isBlank() && !sku.isBlank()) {
-          records.add(new UsageInventoryRecord(skuId, "Microsoft", sku, "productivity", purchased, assigned, 0, 0, null, Instant.now().toString(), "Microsoft Graph subscribedSkus", List.of()));
+        String skuPartNumber = item.path("skuPartNumber").asText("");
+        if (skuId.isBlank() || skuPartNumber.isBlank()) continue;
+        MicrosoftSkuCatalog.Product mapped = skuCatalog.bySkuPartNumber(skuPartNumber).orElse(null);
+        List<String> recordWarnings = new ArrayList<>();
+        if (mapped == null) {
+          warnings.add("unmapped_microsoft_sku");
+          recordWarnings.add("unmapped_microsoft_sku");
         }
+        records.add(new Entitlement(
+            mapped == null ? "unmapped:" + skuId : mapped.canonicalId(),
+            mapped == null ? skuPartNumber : mapped.displayName(),
+            mapped == null ? "unknown" : mapped.category(),
+            Math.max(0, item.path("prepaidUnits").path("enabled").asInt(0)),
+            Math.max(0, item.path("consumedUnits").asInt(0)),
+            recordWarnings
+        ));
       }
       next = payload.path("@odata.nextLink").isTextual() ? payload.path("@odata.nextLink").asText() : null;
     }
     return records;
   }
 
-  private Map<String, ActivityCounts> fetchActivityCounts(String token, String period) {
-    String encodedPeriod = URLEncoder.encode("'" + period + "'", StandardCharsets.UTF_8).replace("%27", "'");
-    String csv = getText(token, "/reports/getOffice365ActiveUserDetail(period=" + encodedPeriod + ")");
-    Map<String, ActivityCounts> counts = new HashMap<>();
-    String[] lines = csv.split("\\r?\\n");
-    if (lines.length < 2) return counts;
-    String[] headers = splitCsv(lines[0]);
-    int productsIndex = indexOf(headers, "Assigned Products");
-    int reportDateIndex = indexOf(headers, "Report Refresh Date");
-    if (productsIndex < 0) return counts;
-    for (int index = 1; index < lines.length; index += 1) {
-      String[] cells = splitCsv(lines[index]);
-      if (cells.length <= productsIndex) continue;
-      String lastActivity = reportDateIndex >= 0 && cells.length > reportDateIndex ? cells[reportDateIndex] : null;
-      for (String product : cells[productsIndex].split("\\+")) {
-        String key = normalize(product);
-        if (!key.isBlank()) {
-          counts.computeIfAbsent(key, ignored -> new ActivityCounts()).increment(lastActivity);
-        }
-      }
+  private ActivityReport safeActivityReport(String token, String period, String label, Set<String> warnings) {
+    try {
+      return fetchActivityReport(token, period, warnings);
+    } catch (GraphConnectorException exception) {
+      if ("unauthorized".equals(exception.safeCode())) throw exception;
+      warnings.add("missing_activity_report_" + label);
+      return ActivityReport.missing();
     }
-    return counts;
   }
 
-  private UsageInventoryRecord mergeActivity(
-      UsageInventoryRecord record,
-      Map<String, ActivityCounts> activity30,
-      Map<String, ActivityCounts> activity90,
-      String collectedAt
-  ) {
-    String key = normalize(record.product());
-    ActivityCounts d30 = activity30.getOrDefault(key, new ActivityCounts());
-    ActivityCounts d90 = activity90.getOrDefault(key, new ActivityCounts());
+  private ActivityReport fetchActivityReport(String token, String period, Set<String> warnings) {
+    String encodedPeriod = URLEncoder.encode("'" + period + "'", StandardCharsets.UTF_8).replace("%27", "'");
+    String csv = getText(token, "/reports/getOffice365ActiveUserDetail(period=" + encodedPeriod + ")");
+    if (csv.isBlank()) throw new GraphConnectorException("missing_activity_report");
+    if (csv.charAt(0) == '\ufeff') csv = csv.substring(1);
+    Map<String, ActivityCounts> counts = new HashMap<>();
+    try (CSVParser parser = CSVFormat.DEFAULT.builder()
+        .setHeader()
+        .setSkipHeaderRecord(true)
+        .setIgnoreEmptyLines(true)
+        .get()
+        .parse(new StringReader(csv))) {
+      String productsHeader = findHeader(parser, "Assigned Products");
+      String reportDateHeader = findHeader(parser, "Report Refresh Date");
+      if (productsHeader == null) throw new GraphConnectorException("malformed_activity_report");
+      int rows = 0;
+      for (CSVRecord record : parser) {
+        rows += 1;
+        if (rows > MAX_REPORT_ROWS) throw new GraphConnectorException("provider_row_limit_exceeded");
+        String reportDate = reportDateHeader == null ? null : record.get(reportDateHeader);
+        if (isStaleReport(reportDate)) warnings.add("stale_activity_report");
+        for (String reportProduct : record.get(productsHeader).split("\\+")) {
+          MicrosoftSkuCatalog.Product mapped = skuCatalog.byReportName(reportProduct).orElse(null);
+          if (mapped == null) {
+            if (!reportProduct.isBlank()) warnings.add("unmapped_activity_product");
+            continue;
+          }
+          counts.computeIfAbsent(mapped.canonicalId(), ignored -> new ActivityCounts()).increment(reportDate);
+        }
+      }
+      return new ActivityReport(counts, true);
+    } catch (GraphConnectorException exception) {
+      throw exception;
+    } catch (IOException | IllegalArgumentException exception) {
+      throw new GraphConnectorException("malformed_activity_report");
+    }
+  }
+
+  private UsageInventoryRecord buildRecord(Entitlement entitlement, ActivityReport activity30, ActivityReport activity90, String collectedAt, Set<String> snapshotWarnings) {
+    ActivityCounts d30 = activity30.counts().get(entitlement.canonicalId());
+    ActivityCounts d90 = activity90.counts().get(entitlement.canonicalId());
+    Integer active30 = activity30.available() ? d30 == null ? 0 : d30.count : null;
+    Integer active90 = activity90.available() ? d90 == null ? 0 : d90.count : null;
+    List<String> warnings = new ArrayList<>(entitlement.warnings());
+    if (!activity30.available()) warnings.add("missing_activity_report_30d");
+    if (!activity90.available()) warnings.add("missing_activity_report_90d");
+    if (active30 != null && (active30 > entitlement.assigned() || active30 > entitlement.purchased())) {
+      warnings.add("active_users_exceed_entitlement");
+      snapshotWarnings.add("active_users_exceed_entitlement");
+    }
+    if (snapshotWarnings.contains("stale_activity_report")) warnings.add("stale_activity_report");
+    if (snapshotWarnings.contains("unmapped_activity_product")) warnings.add("unmapped_activity_product");
     return new UsageInventoryRecord(
-        record.externalProductId(),
-        record.vendor(),
-        record.product(),
-        record.category(),
-        record.purchasedSeats(),
-        record.assignedSeats(),
-        d30.count,
-        d90.count,
-        d30.lastActivityAt,
-        collectedAt,
-        "Microsoft Graph subscribedSkus and usage reports",
-        List.of()
+        entitlement.canonicalId(), "Microsoft", entitlement.displayName(), entitlement.category(),
+        entitlement.purchased(), entitlement.assigned(), active30, active90,
+        d30 == null ? null : d30.lastActivityAt, collectedAt,
+        "Microsoft Graph subscribedSkus and usage reports; " + skuCatalog.version(),
+        List.copyOf(new LinkedHashSet<>(warnings))
     );
   }
 
@@ -156,17 +200,16 @@ public final class Microsoft365UsageInventoryConnector implements UsageInventory
   }
 
   private String getText(String token, String pathOrUrl) {
-    URI uri = pathOrUrl.startsWith("https://") ? URI.create(pathOrUrl) : graphBaseUrl.resolve(pathOrUrl);
+    URI uri = pathOrUrl.startsWith("https://") || pathOrUrl.startsWith("http://")
+        ? URI.create(pathOrUrl)
+        : graphBaseUrl.resolve(pathOrUrl);
+    if (!sameOrigin(uri, graphBaseUrl)) throw new GraphConnectorException("provider_endpoint_forbidden");
     int attempt = 0;
     while (attempt < MAX_ATTEMPTS) {
       attempt += 1;
       try {
-        HttpRequest request = HttpRequest.newBuilder(uri)
-            .timeout(Duration.ofSeconds(8))
-            .header("Authorization", "Bearer " + token)
-            .header("Accept", "application/json,text/csv")
-            .GET()
-            .build();
+        HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(8))
+            .header("Authorization", "Bearer " + token).header("Accept", "application/json,text/csv").GET().build();
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.body() != null && response.body().getBytes(StandardCharsets.UTF_8).length > MAX_RESPONSE_BYTES) {
           throw new GraphConnectorException("provider_payload_too_large");
@@ -195,6 +238,39 @@ public final class Microsoft365UsageInventoryConnector implements UsageInventory
     throw new GraphConnectorException("provider_retry_exhausted");
   }
 
+  private static String findHeader(CSVParser parser, String expected) {
+    return parser.getHeaderMap().keySet().stream()
+        .filter(header -> expected.equalsIgnoreCase(header.replace("\ufeff", "").trim()))
+        .findFirst().orElse(null);
+  }
+
+  private static boolean sameOrigin(URI candidate, URI base) {
+    int candidatePort = candidate.getPort() == -1 ? defaultPort(candidate.getScheme()) : candidate.getPort();
+    int basePort = base.getPort() == -1 ? defaultPort(base.getScheme()) : base.getPort();
+    return base.getScheme().equalsIgnoreCase(candidate.getScheme())
+        && base.getHost().equalsIgnoreCase(candidate.getHost())
+        && candidatePort == basePort;
+  }
+
+  private static int defaultPort(String scheme) {
+    return "https".equalsIgnoreCase(scheme) ? 443 : "http".equalsIgnoreCase(scheme) ? 80 : -1;
+  }
+
+  private static boolean isStaleReport(String value) {
+    try {
+      Instant reportDate = LocalDate.parse(value).atStartOfDay().toInstant(ZoneOffset.UTC);
+      return ChronoUnit.DAYS.between(reportDate, Instant.now()) > STALE_REPORT_DAYS;
+    } catch (Exception ignored) {
+      return false;
+    }
+  }
+
+  private static boolean isEvidenceWarning(String warning) {
+    return warning.startsWith("missing_activity") || warning.startsWith("unmapped_")
+        || warning.startsWith("stale_") || warning.startsWith("partial_")
+        || "active_users_exceed_entitlement".equals(warning);
+  }
+
   private static void sleepBackoff(HttpResponse<?> response, int attempt) {
     String retryAfter = response.headers().firstValue("Retry-After").orElse("");
     long retryMillis = 100L * attempt;
@@ -219,41 +295,33 @@ public final class Microsoft365UsageInventoryConnector implements UsageInventory
     return new UsageInventorySnapshotResult(false, connectorType, List.of(), null, List.of(warning), 0, false);
   }
 
-  private static String[] splitCsv(String line) {
-    return line.split(",", -1);
+  private static String safeCode(RuntimeException exception, String fallback) {
+    String value = exception.getMessage();
+    return value != null && value.matches("[a-z0-9_]{3,80}") ? value : fallback;
   }
 
-  private static int indexOf(String[] values, String expected) {
-    for (int index = 0; index < values.length; index += 1) {
-      if (expected.equalsIgnoreCase(values[index].trim())) return index;
-    }
-    return -1;
+  private static boolean isBlank(String value) {
+    return value == null || value.isBlank();
   }
 
-  private static String normalize(String value) {
-    return value == null ? "" : value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
+  private record Entitlement(String canonicalId, String displayName, String category, int purchased, int assigned, List<String> warnings) {}
+
+  private record ActivityReport(Map<String, ActivityCounts> counts, boolean available) {
+    private static ActivityReport missing() { return new ActivityReport(Map.of(), false); }
   }
 
   private static final class ActivityCounts {
     private int count = 0;
     private String lastActivityAt = null;
-
-    private void increment(String lastActivity) {
+    private void increment(String reportDate) {
       count += 1;
-      if (lastActivity != null && !lastActivity.isBlank()) lastActivityAt = lastActivity;
+      if (reportDate != null && !reportDate.isBlank()) lastActivityAt = reportDate;
     }
   }
 
   private static final class GraphConnectorException extends RuntimeException {
     private final String safeCode;
-
-    private GraphConnectorException(String safeCode) {
-      super(safeCode);
-      this.safeCode = safeCode;
-    }
-
-    private String safeCode() {
-      return safeCode;
-    }
+    private GraphConnectorException(String safeCode) { super(safeCode); this.safeCode = safeCode; }
+    private String safeCode() { return safeCode; }
   }
 }

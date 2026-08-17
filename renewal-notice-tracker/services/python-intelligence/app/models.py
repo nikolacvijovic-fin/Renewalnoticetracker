@@ -123,7 +123,7 @@ class ReconcileUsageRequest(BaseModel):
     organization_id: str = Field(min_length=1)
     usage_import_batch_id: str = Field(min_length=1)
     matching_mode: Literal["strict", "balanced", "exploratory"]
-    normalized_rows: list["UsageInventoryRow"] = Field(default_factory=list, max_length=1000)
+    normalized_rows: list["UsageInventoryRow"] = Field(default_factory=list, max_length=10000)
     contract_candidates: list["UsageContractCandidate"] = Field(default_factory=list, max_length=1000)
     provider_warning_codes: list[str] = Field(default_factory=list, max_length=50)
 

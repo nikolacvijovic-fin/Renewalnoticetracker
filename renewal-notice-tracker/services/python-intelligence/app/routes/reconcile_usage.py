@@ -10,6 +10,16 @@ CALCULATION_VERSION = "subscription_usage_v1"
 OVERLAP_CALCULATION_VERSION = "cross_provider_overlap_v1"
 LOW_UTILIZATION_THRESHOLD = 0.35
 STALE_DAYS = 90
+BLOCKING_ACTIVITY_WARNINGS = {
+    "missing_activity_report",
+    "missing_activity_report_30d",
+    "missing_activity_report_90d",
+    "partial_activity_data",
+    "stale_activity_report",
+    "unmapped_microsoft_sku",
+    "unmapped_activity_product",
+    "active_users_exceed_entitlement",
+}
 
 
 @router.post("/reconcile-usage", response_model=ReconcileUsageResponse)
@@ -20,7 +30,7 @@ def reconcile_usage(request: ReconcileUsageRequest):
     findings: list[ReconcileUsageFinding] = []
 
     for row in rows:
-        findings.extend(analyze_usage_row(row, matches.get(row.usage_row_id, [])))
+        findings.extend(analyze_usage_row(row, matches.get(row.usage_row_id, []), request.provider_warning_codes))
 
     findings.extend(find_duplicate_products(rows, matches))
     findings.extend(find_cross_provider_overlaps(rows, matches, contracts, request.provider_warning_codes))
@@ -54,11 +64,32 @@ def sum_unique_row_savings(findings: list[ReconcileUsageFinding]) -> float:
     return round(sum(by_row.values()), 2)
 
 
-def analyze_usage_row(row: UsageInventoryRow, matched_contract_ids: list[str]) -> list[ReconcileUsageFinding]:
+def analyze_usage_row(
+    row: UsageInventoryRow,
+    matched_contract_ids: list[str],
+    provider_warning_codes: list[str] | None = None,
+) -> list[ReconcileUsageFinding]:
     findings: list[ReconcileUsageFinding] = []
     purchased = row.purchased_seats
     active_30d = row.active_users_30d
-    warnings: list[str] = []
+    warnings: list[str] = sorted(set(provider_warning_codes or []).intersection(BLOCKING_ACTIVITY_WARNINGS))
+
+    if warnings:
+        findings.append(
+            finding(
+                row,
+                "renewal_decision_required",
+                "activity_evidence_requires_review",
+                None,
+                None,
+                None,
+                "insufficient_evidence",
+                warnings,
+                confidence=0.35,
+                matched_contract_ids=matched_contract_ids,
+            )
+        )
+        return findings
 
     if purchased is None or purchased <= 0:
         warnings.append("missing_or_zero_purchased_seats")
@@ -282,6 +313,10 @@ def build_overlap_finding(
         warnings.add("ambiguous_contract_match")
     if is_stale(microsoft.last_activity_at, microsoft.collected_at) or is_stale(google.last_activity_at, google.collected_at):
         warnings.add("stale_usage_data")
+    if microsoft.purchased_seats is None:
+        warnings.add("purchased_seats_unavailable")
+    if google.purchased_seats is None:
+        warnings.add("purchased_seats_unavailable")
 
     savings_max, savings_currency = recoverable_cost(
         lower_usage,
@@ -359,9 +394,10 @@ def latest_provider_products(rows: list[UsageInventoryRow]) -> list[UsageInvento
 
 
 def utilization(row: UsageInventoryRow) -> float | None:
-    if row.purchased_seats is None or row.purchased_seats <= 0 or row.active_users_30d is None:
+    denominator = row.purchased_seats if row.purchased_seats is not None and row.purchased_seats > 0 else row.assigned_seats
+    if denominator is None or denominator <= 0 or row.active_users_30d is None:
         return None
-    return max(0, min(1, row.active_users_30d / row.purchased_seats))
+    return max(0, min(1, row.active_users_30d / denominator))
 
 
 def recoverable_cost(
@@ -369,6 +405,10 @@ def recoverable_cost(
     matched_contract_ids: list[str],
     contracts_by_id: dict[str, UsageContractCandidate],
 ) -> tuple[float | None, str | None]:
+    # Contract cost alone is not a seat denominator. Google purchased quantity stays unknown
+    # until a reviewed quantity/billing source is modeled explicitly.
+    if row.purchased_seats is None or row.purchased_seats <= 0:
+        return None, None
     row_utilization = utilization(row)
     if row_utilization is None:
         return None, None
@@ -394,7 +434,11 @@ def overlap_confidence(warnings: set[str], *row_confidences: float | None) -> fl
         "missing_reviewed_cost": 0.08,
         "partial_activity_data": 0.18,
         "separate_departments_possible": 0.17,
-        "purchased_seats_unavailable_using_assigned_count": 0.08,
+        "purchased_seats_unavailable": 0.2,
+        "stale_activity_report": 0.2,
+        "unmapped_microsoft_sku": 0.22,
+        "unmapped_activity_product": 0.22,
+        "active_users_exceed_entitlement": 0.25,
     }
     for warning, penalty in penalties.items():
         if warning in warnings:

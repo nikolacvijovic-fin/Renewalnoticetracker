@@ -8,12 +8,26 @@ export const MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS = [
   "LicenseAssignment.Read.All",
   "Reports.Read.All"
 ] as const;
+const MICROSOFT_STATE_MAX_AGE_MS = 15 * 60 * 1000;
+const MICROSOFT_TOKEN_REFRESH_SKEW_MS = 2 * 60 * 1000;
+
+type CachedMicrosoftToken = {
+  accessToken: string;
+  expiresAtMs: number;
+  permissions: string[];
+};
+
+const microsoftTokenCache = new Map<string, CachedMicrosoftToken>();
 
 export type Microsoft365ConnectionStatus =
   | "pending_admin_consent"
   | "connected"
   | "permission_error"
   | "expired_credential"
+  | "tenant_mismatch"
+  | "verification_failed"
+  | "provider_unavailable"
+  | "revoked_access"
   | "disconnected";
 
 export type Microsoft365SyncStatus = "queued" | "processing" | "completed" | "partial" | "failed" | "cancelled";
@@ -27,8 +41,14 @@ export type Microsoft365AdminConsentState = {
 
 export type Microsoft365AdminConsentConfig = {
   clientId: string | null;
+  clientSecret?: string | null;
   redirectUri: string | null;
   signingSecret: string | null;
+};
+
+export type Microsoft365ApplicationCredentialConfig = {
+  clientId: string | null;
+  clientSecret: string | null;
 };
 
 export type Microsoft365ConnectionInput = {
@@ -77,7 +97,7 @@ export function signMicrosoft365AdminConsentState(state: Microsoft365AdminConsen
   return `${body}.${signature}`;
 }
 
-export function verifyMicrosoft365AdminConsentState(value: string, secret: string) {
+export function verifyMicrosoft365AdminConsentState(value: string, secret: string, now = new Date()) {
   const [body, signature] = value.split(".");
   if (!body || !signature) return null;
   const expected = crypto.createHmac("sha256", secret).update(body).digest("base64url");
@@ -87,11 +107,105 @@ export function verifyMicrosoft365AdminConsentState(value: string, secret: strin
   if (!crypto.timingSafeEqual(signatureBuffer, expectedBuffer)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as Microsoft365AdminConsentState;
-    if (!parsed.organizationId || !parsed.actorUserId || !parsed.nonce || !parsed.issuedAt) return null;
+    if (
+      typeof parsed.organizationId !== "string" || !parsed.organizationId || parsed.organizationId.length > 128
+      || typeof parsed.actorUserId !== "string" || !parsed.actorUserId || parsed.actorUserId.length > 128
+      || typeof parsed.nonce !== "string" || !/^[a-zA-Z0-9-]{16,128}$/.test(parsed.nonce)
+      || typeof parsed.issuedAt !== "string"
+    ) return null;
+    const issuedAtMs = Date.parse(parsed.issuedAt);
+    if (!Number.isFinite(issuedAtMs) || issuedAtMs > now.getTime() + 60_000) return null;
+    if (now.getTime() - issuedAtMs > MICROSOFT_STATE_MAX_AGE_MS) return null;
     return parsed;
   } catch {
     return null;
   }
+}
+
+export function hashMicrosoft365ConsentNonce(nonce: string) {
+  return crypto.createHash("sha256").update(`microsoft365-consent:${nonce}`).digest("hex");
+}
+
+export async function acquireMicrosoft365ApplicationToken(input: {
+  tenantId: string;
+  config: Microsoft365ApplicationCredentialConfig;
+  fetchImpl?: typeof fetch;
+  now?: Date;
+}) {
+  const tenantId = normalizeTenantId(input.tenantId);
+  if (!input.config.clientId || !input.config.clientSecret) {
+    throw new Error("expired_credential");
+  }
+  const nowMs = (input.now ?? new Date()).getTime();
+  const credentialFingerprint = crypto.createHash("sha256").update(input.config.clientSecret).digest("hex").slice(0, 16);
+  const cacheKey = `${tenantId}:${input.config.clientId}:${credentialFingerprint}`;
+  const cached = microsoftTokenCache.get(cacheKey);
+  if (cached && cached.expiresAtMs - MICROSOFT_TOKEN_REFRESH_SKEW_MS > nowMs) {
+    return { ...cached, fromCache: true as const };
+  }
+
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetchImpl(`https://login.microsoftonline.com/${encodeURIComponent(tenantId)}/oauth2/v2.0/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: input.config.clientId,
+        client_secret: input.config.clientSecret,
+        scope: "https://graph.microsoft.com/.default",
+        grant_type: "client_credentials"
+      }),
+      signal: AbortSignal.timeout(5_000)
+    });
+  } catch {
+    throw new Error("provider_unavailable");
+  }
+  const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || typeof payload.access_token !== "string" || !payload.access_token) {
+    throw new Error(response.status === 400 || response.status === 401 ? "expired_credential" : "provider_unavailable");
+  }
+  const claims = decodeMicrosoftJwtClaims(payload.access_token);
+  if (claims.tenantId !== tenantId) throw new Error("tenant_mismatch");
+  if (claims.audience !== "https://graph.microsoft.com") throw new Error("verification_failed");
+  const missing = MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS.filter((permission) => !claims.permissions.includes(permission));
+  if (missing.length > 0) throw new Error("permission_error");
+  const expiresInSeconds = typeof payload.expires_in === "number" ? payload.expires_in : Number(payload.expires_in ?? 3600);
+  const token: CachedMicrosoftToken = {
+    accessToken: payload.access_token,
+    expiresAtMs: nowMs + Math.max(1, Number.isFinite(expiresInSeconds) ? expiresInSeconds : 3600) * 1000,
+    permissions: claims.permissions
+  };
+  microsoftTokenCache.set(cacheKey, token);
+  return { ...token, fromCache: false as const };
+}
+
+export async function verifyMicrosoft365Connection(input: {
+  tenantId: string;
+  accessToken: string;
+  permissions: string[];
+  fetchImpl?: typeof fetch;
+}) {
+  const tenantId = normalizeTenantId(input.tenantId);
+  const missing = MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS.filter((permission) => !input.permissions.includes(permission));
+  if (missing.length > 0) throw new Error("permission_error");
+  let response: Response;
+  try {
+    response = await (input.fetchImpl ?? fetch)("https://graph.microsoft.com/v1.0/subscribedSkus?$select=skuId&$top=1", {
+      headers: { authorization: `Bearer ${input.accessToken}`, accept: "application/json" },
+      signal: AbortSignal.timeout(5_000)
+    });
+  } catch {
+    throw new Error("provider_unavailable");
+  }
+  if (response.status === 401) throw new Error("expired_credential");
+  if (response.status === 403) throw new Error("permission_error");
+  if (!response.ok) throw new Error("verification_failed");
+  return { tenantId, verifiedPermissions: [...input.permissions] };
+}
+
+export function clearMicrosoft365TokenCacheForTests() {
+  microsoftTokenCache.clear();
 }
 
 export function buildMicrosoft365ConnectionRecord(input: Microsoft365ConnectionInput): Microsoft365ConnectionRecord {
@@ -186,6 +300,22 @@ function normalizeTenantId(value: string) {
     throw new Error("Microsoft tenant identifier is invalid.");
   }
   return trimmed;
+}
+
+function decodeMicrosoftJwtClaims(token: string) {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) throw new Error("invalid");
+    const encodedPayload = parts[1];
+    if (!encodedPayload) throw new Error("invalid");
+    const payload = JSON.parse(Buffer.from(encodedPayload, "base64url").toString("utf8")) as Record<string, unknown>;
+    const permissions = Array.isArray(payload.roles)
+      ? payload.roles.filter((role): role is string => typeof role === "string")
+      : [];
+    return { tenantId: String(payload.tid ?? ""), audience: String(payload.aud ?? ""), permissions };
+  } catch {
+    throw new Error("verification_failed");
+  }
 }
 
 function normalizeSafeLabel(value: string | null | undefined) {

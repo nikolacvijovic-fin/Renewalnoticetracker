@@ -80,7 +80,7 @@ public final class GoogleWorkspaceUsageInventoryConnector implements UsageInvent
         activity = new ActivityEvidence(Set.of(), Set.of(), null);
       }
 
-      warnings.add("purchased_seats_unavailable_using_assigned_count");
+      warnings.add("purchased_seats_unavailable");
       warnings.add("activity_uses_account_login_proxy");
       String collectedAt = Instant.now().toString();
       List<UsageInventoryRecord> records = assignments.entrySet().stream()
@@ -170,7 +170,7 @@ public final class GoogleWorkspaceUsageInventoryConnector implements UsageInvent
         "Google",
         parts.length > 1 ? parts[1] : "Google Workspace",
         "productivity_suite",
-        assignedUsers.size(),
+        null,
         assignedUsers.size(),
         active30,
         active90,
@@ -186,12 +186,7 @@ public final class GoogleWorkspaceUsageInventoryConnector implements UsageInvent
     while (attempt < MAX_ATTEMPTS) {
       attempt += 1;
       try {
-        HttpRequest request = HttpRequest.newBuilder(uri)
-            .timeout(requestTimeout)
-            .header("Authorization", "Bearer " + token)
-            .header("Accept", "application/json")
-            .GET()
-            .build();
+        HttpRequest request = buildProviderRequest(uri, token, "GET");
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.body() != null && response.body().getBytes(StandardCharsets.UTF_8).length > MAX_RESPONSE_BYTES) {
           throw new GoogleConnectorException("provider_payload_too_large");
@@ -220,6 +215,34 @@ public final class GoogleWorkspaceUsageInventoryConnector implements UsageInvent
       }
     }
     throw new GoogleConnectorException("provider_retry_exhausted");
+  }
+
+  HttpRequest buildProviderRequest(URI uri, String token, String method) {
+    if (!"GET".equals(method)) throw new GoogleConnectorException("mutation_method_forbidden");
+    boolean allowedEndpoint = isAllowedEndpoint(uri, licensingBaseUri)
+        || isAllowedEndpoint(uri, adminReportsBaseUri);
+    if (!allowedEndpoint) throw new GoogleConnectorException("provider_endpoint_forbidden");
+    return HttpRequest.newBuilder(uri)
+        .timeout(requestTimeout)
+        .header("Authorization", "Bearer " + token)
+        .header("Accept", "application/json")
+        .GET()
+        .build();
+  }
+
+  private static boolean isAllowedEndpoint(URI candidate, URI base) {
+    int candidatePort = candidate.getPort() == -1 ? defaultPort(candidate.getScheme()) : candidate.getPort();
+    int basePort = base.getPort() == -1 ? defaultPort(base.getScheme()) : base.getPort();
+    String basePath = base.getPath() == null || base.getPath().isBlank() ? "/" : base.getPath();
+    String candidatePath = candidate.getPath() == null || candidate.getPath().isBlank() ? "/" : candidate.getPath();
+    return base.getScheme().equalsIgnoreCase(candidate.getScheme())
+        && base.getHost().equalsIgnoreCase(candidate.getHost())
+        && basePort == candidatePort
+        && ("/".equals(basePath) || candidatePath.equals(basePath) || candidatePath.startsWith(basePath + "/"));
+  }
+
+  private static int defaultPort(String scheme) {
+    return "https".equalsIgnoreCase(scheme) ? 443 : "http".equalsIgnoreCase(scheme) ? 80 : -1;
   }
 
   private static Instant readLastLogin(JsonNode parameters) {

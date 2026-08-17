@@ -52,6 +52,8 @@ export function assessSubscriptionUsageRows(
     sourceLabel: string;
     collectedAt?: string;
     existingRowHashes?: Set<string>;
+    allowMissingPurchasedSeats?: boolean;
+    allowMissingCostCurrency?: boolean;
   }
 ): SubscriptionUsageImportAssessment {
   const collectedAt = normalizeTimestamp(options.collectedAt) ?? new Date().toISOString();
@@ -71,9 +73,15 @@ export function assessSubscriptionUsageRows(
     if (raw.annual_cost !== undefined && raw.annual_cost !== null && String(raw.annual_cost).trim() && row.annualCost === null) {
       issues.push(issue("invalid_annual_cost", "annual_cost", "error", "Annual cost must be a finite non-negative number."));
     }
-    if (!row.currency) issues.push(issue("invalid_currency", "currency", "error", "Currency must be exactly 3 uppercase letters."));
+    if (!row.currency) {
+      issues.push(issue("invalid_currency", "currency", options.allowMissingCostCurrency ? "warning" : "error", options.allowMissingCostCurrency
+        ? "Reviewed cost currency is unavailable; savings cannot be calculated."
+        : "Currency must be exactly 3 uppercase letters."));
+    }
     if (raw.purchased_seats === undefined || raw.purchased_seats === null || String(raw.purchased_seats).trim() === "") {
-      issues.push(issue("missing_purchased_seats", "purchased_seats", "error", "Purchased seats are required for utilization calculations."));
+      issues.push(issue("missing_purchased_seats", "purchased_seats", options.allowMissingPurchasedSeats ? "warning" : "error", options.allowMissingPurchasedSeats
+        ? "Purchased seats are unavailable; assigned-user evidence may be reviewed but seat waste cannot be calculated."
+        : "Purchased seats are required for utilization calculations."));
     } else if (row.purchasedSeats === null) {
       issues.push(issue("invalid_purchased_seats", "purchased_seats", "error", "Purchased seats must be a finite non-negative number."));
     }

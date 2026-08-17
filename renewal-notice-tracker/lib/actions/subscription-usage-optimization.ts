@@ -13,13 +13,17 @@ import { getAppConfig } from "@/lib/config";
 import { emitOperationalEvent } from "@/lib/observability/monitoring";
 import { evaluateSubscriptionUsageOptimizationAccess } from "@/lib/subscription-usage/access";
 import {
+  acquireMicrosoft365ApplicationToken,
   buildMicrosoft365AdminConsentUrl,
   buildMicrosoft365ConnectionRecord,
   buildMicrosoft365SyncIdempotencyKey,
   canManageSubscriptionUsageConnection,
   mapMicrosoft365SnapshotToImportRows,
   MICROSOFT_365_USAGE_PROVIDER,
+  MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS,
+  hashMicrosoft365ConsentNonce,
   sanitizeMicrosoft365OperationalMetadata,
+  verifyMicrosoft365Connection,
   verifyMicrosoft365AdminConsentState,
   type Microsoft365ConnectionStatus
 } from "@/lib/subscription-usage/microsoft365";
@@ -52,6 +56,8 @@ import type { SubscriptionUsageImportAssessment } from "@/lib/subscription-usage
 import type { ReconcileUsageResponse } from "@/lib/add-ons/python-intelligence-client";
 
 const MAX_USAGE_IMPORT_ROWS = 1000;
+const MAX_ANALYSIS_USAGE_ROWS = 10_000;
+const ANALYSIS_USAGE_PAGE_SIZE = 500;
 
 type SubscriptionUsageRowRecord = {
   id: string;
@@ -83,6 +89,8 @@ type SubscriptionUsageQueryResult<T> = {
 type SubscriptionUsageRowsSelectQuery = {
   eq(column: string, value: string): SubscriptionUsageRowsSelectQuery;
   in(column: string, values: string[]): SubscriptionUsageRowsSelectQuery;
+  order(column: string, options: { ascending: boolean }): SubscriptionUsageRowsSelectQuery;
+  range(from: number, to: number): Promise<SubscriptionUsageQueryResult<SubscriptionUsageRowRecord[] | null>>;
   limit(count: number): Promise<SubscriptionUsageQueryResult<SubscriptionUsageRowRecord[] | null>>;
 };
 
@@ -105,7 +113,16 @@ type SubscriptionUsageSupabaseClient = {
   from(table: "subscription_usage_sync_runs"): SubscriptionUsageSyncRunTable;
   from(table: "contracts"): SubscriptionUsageContractTable;
   from(table: "license_waste_opportunities"): SubscriptionUsageFindingTable;
-  rpc(name: "create_subscription_usage_batch_with_rows" | "disconnect_google_workspace_subscription_usage_connection", args: Record<string, unknown>): Promise<SubscriptionUsageQueryResult<string | boolean | null>>;
+  rpc(name: "create_subscription_usage_batch_with_rows" | "disconnect_google_workspace_subscription_usage_connection" | "create_subscription_usage_consent_attempt" | "consume_subscription_usage_consent_attempt" | "create_subscription_usage_analysis_scope" | "persist_subscription_usage_analysis_findings", args: Record<string, unknown>): Promise<SubscriptionUsageQueryResult<unknown>>;
+};
+
+type SubscriptionUsageAnalysisScope = {
+  analysisScopeId: string;
+  scopeKey: string;
+  scopeFamilyKey: string;
+  batchIds: string[];
+  providers: string[];
+  warningCodes: string[];
 };
 
 type UsageBatchRecord = {
@@ -216,7 +233,9 @@ type SubscriptionUsageContractTable = {
   select(columns: string): {
     eq(column: string, value: string): {
       eq(column: string, value: boolean): {
-        limit(count: number): Promise<SubscriptionUsageQueryResult<SubscriptionUsageContractRecord[] | null>>;
+        order(column: string, options: { ascending: boolean }): {
+          range(from: number, to: number): Promise<SubscriptionUsageQueryResult<SubscriptionUsageContractRecord[] | null>>;
+        };
       };
     };
   };
@@ -344,6 +363,9 @@ export async function completeGoogleWorkspaceAuthorization(input: { state: strin
         credential_reference: connection.credentialReference,
         credential_fingerprint: connection.credentialFingerprint,
         required_permissions: connection.requiredPermissions,
+        requested_permissions: connection.requiredPermissions,
+        verified_permissions: token.grantedScopes,
+        last_verified_at: new Date().toISOString(),
         connection_owner_user_id: connection.actorUserId,
         disconnected_at: null,
         last_error_code: null,
@@ -397,6 +419,7 @@ function getMicrosoft365AdminConsentConfig() {
   const config = getAppConfig();
   return {
     clientId: config.microsoft365.clientId,
+    clientSecret: config.microsoft365.clientSecret,
     redirectUri: config.microsoft365.adminConsentRedirectUri,
     signingSecret: config.addOns.internalSigningSecret
   };
@@ -413,15 +436,25 @@ export async function getMicrosoft365AdminConsentUrlAction() {
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
 
-  return buildMicrosoft365AdminConsentUrl({
-    config: getMicrosoft365AdminConsentConfig(),
-    state: {
-      organizationId: context.organizationId,
-      actorUserId: context.user.id,
-      nonce: crypto.randomUUID(),
-      issuedAt: new Date().toISOString()
-    }
+  const config = getMicrosoft365AdminConsentConfig();
+  const issuedAt = new Date();
+  const state = {
+    organizationId: context.organizationId,
+    actorUserId: context.user.id,
+    nonce: crypto.randomUUID(),
+    issuedAt: issuedAt.toISOString()
+  };
+  const result = buildMicrosoft365AdminConsentUrl({ config, state });
+  if (!result.ok) return result;
+  const { error } = await createSubscriptionUsageSupabaseClient().rpc("create_subscription_usage_consent_attempt", {
+    p_organization_id: context.organizationId,
+    p_provider: MICROSOFT_365_USAGE_PROVIDER,
+    p_nonce_hash: hashMicrosoft365ConsentNonce(state.nonce),
+    p_requested_permissions: [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS],
+    p_expires_at: new Date(issuedAt.getTime() + 15 * 60 * 1000).toISOString()
   });
+  if (error) throw error;
+  return result;
 }
 
 export async function completeMicrosoft365AdminConsent(input: {
@@ -432,7 +465,8 @@ export async function completeMicrosoft365AdminConsent(input: {
 }) {
   const context = await requireOrganization();
   assertCanManageSubscriptionUsageConnection(context.role);
-  const signingSecret = getAppConfig().addOns.internalSigningSecret;
+  const appConfig = getAppConfig();
+  const signingSecret = appConfig.addOns.internalSigningSecret;
   if (!signingSecret) throw new Error("Add-on signing secret is required to verify Microsoft 365 connection state.");
   if (!input.adminConsent) throw new Error("Microsoft 365 admin consent was not granted.");
 
@@ -440,6 +474,12 @@ export async function completeMicrosoft365AdminConsent(input: {
   if (!state || state.organizationId !== context.organizationId || state.actorUserId !== context.user.id) {
     throw new Error("Microsoft 365 connection state is invalid for this organization.");
   }
+  const { error: consumeError } = await createSubscriptionUsageSupabaseClient().rpc("consume_subscription_usage_consent_attempt", {
+    p_organization_id: context.organizationId,
+    p_provider: MICROSOFT_365_USAGE_PROVIDER,
+    p_nonce_hash: hashMicrosoft365ConsentNonce(state.nonce)
+  });
+  if (consumeError) throw new Error("Microsoft 365 connection state was expired or already used.");
 
   await enforceFeatureAccess({
     organizationId: context.organizationId,
@@ -448,6 +488,19 @@ export async function completeMicrosoft365AdminConsent(input: {
     context: { source: "subscription_usage_microsoft365_callback" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+
+  const token = await acquireMicrosoft365ApplicationToken({
+    tenantId: input.tenantId,
+    config: {
+      clientId: appConfig.microsoft365.clientId,
+      clientSecret: appConfig.microsoft365.clientSecret
+    }
+  });
+  const verification = await verifyMicrosoft365Connection({
+    tenantId: input.tenantId,
+    accessToken: token.accessToken,
+    permissions: token.permissions
+  });
 
   const connection = buildMicrosoft365ConnectionRecord({
     organizationId: context.organizationId,
@@ -468,11 +521,14 @@ export async function completeMicrosoft365AdminConsent(input: {
         credential_reference: connection.credentialReference,
         credential_fingerprint: connection.credentialFingerprint,
         required_permissions: connection.requiredPermissions,
+        requested_permissions: connection.requiredPermissions,
+        verified_permissions: verification.verifiedPermissions,
+        last_verified_at: new Date().toISOString(),
         connection_owner_user_id: connection.actorUserId,
         disconnected_at: null,
         last_error_code: null,
         next_scheduled_sync_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        metadata: { connectionMode: "admin_consent_application_permissions" },
+        metadata: { connectionMode: "admin_consent_application_permissions", tokenStorage: "memory_only" },
         updated_at: new Date().toISOString()
       },
       { onConflict: "organization_id,provider,provider_tenant_id" }
@@ -513,6 +569,16 @@ export async function disconnectMicrosoft365UsageConnectionAction(formData: Form
   if (!connectionId) throw new Error("Microsoft 365 connection is required.");
 
   const supabase = createSubscriptionUsageSupabaseClient();
+  const { data: connection, error: connectionError } = await supabase
+    .from("subscription_usage_provider_connections")
+    .select("id, organization_id, provider, provider_tenant_id, provider_tenant_name, status, credential_reference, credential_fingerprint, last_successful_sync_at, last_error_code, next_scheduled_sync_at, connection_owner_user_id, updated_at")
+    .eq("organization_id", context.organizationId)
+    .eq("id", connectionId)
+    .maybeSingle();
+  if (connectionError) throw connectionError;
+  if (!connection || connection.provider !== MICROSOFT_365_USAGE_PROVIDER) {
+    throw new Error("Microsoft 365 connection was not found for this organization.");
+  }
   const { error } = await supabase
     .from("subscription_usage_provider_connections")
     .update({
@@ -683,7 +749,9 @@ export async function syncGoogleWorkspaceUsageNowAction(formData: FormData) {
     const collectedAt = snapshot.output.records[0]?.collected_at ?? new Date().toISOString();
     const assessment = assessSubscriptionUsageRows(rows, {
       sourceLabel: `Google Workspace ${connection.provider_tenant_name ?? connection.provider_tenant_id}`,
-      collectedAt
+      collectedAt,
+      allowMissingPurchasedSeats: true,
+      allowMissingCostCurrency: true
     });
     const batchId = await createUsageBatchWithRows({
       organizationId: context.organizationId,
@@ -880,12 +948,35 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
   if (!syncRun?.id) throw new Error("Unable to start Microsoft 365 usage sync.");
 
   const syncRunId = String(syncRun.id);
+  const microsoftConfig = getAppConfig().microsoft365;
+  let token: Awaited<ReturnType<typeof acquireMicrosoft365ApplicationToken>>;
+  try {
+    token = await acquireMicrosoft365ApplicationToken({
+      tenantId: connection.provider_tenant_id,
+      config: {
+        clientId: microsoftConfig.clientId,
+        clientSecret: microsoftConfig.clientSecret
+      }
+    });
+  } catch (error) {
+    const errorCode = normalizeMicrosoft365FailureCode(error);
+    await markMicrosoft365SyncFailed({
+      organizationId: context.organizationId,
+      connectionId,
+      syncRunId,
+      startedAt,
+      errorCode,
+      retryCount: 0
+    });
+    throw new Error("Microsoft 365 synchronization could not authenticate safely.");
+  }
   const snapshot = await fetchUsageInventorySnapshot({
     organization_id: context.organizationId,
     connector_type: "subscription_usage",
     provider: MICROSOFT_365_USAGE_PROVIDER,
     tenant_id: connection.provider_tenant_id,
     credential_reference: connection.credential_reference,
+    provider_access_token: token.accessToken,
     page_size: 500,
     idempotency_key: idempotencyKey
   });
@@ -906,7 +997,9 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
   const rows = mapMicrosoft365SnapshotToImportRows(snapshot.output);
   const assessment = assessSubscriptionUsageRows(rows, {
     sourceLabel: `Microsoft 365 tenant ${connection.provider_tenant_id}`,
-    collectedAt: new Date().toISOString()
+    collectedAt: new Date().toISOString(),
+    allowMissingPurchasedSeats: true,
+    allowMissingCostCurrency: true
   });
   const batchId = await createUsageBatchWithRows({
     organizationId: context.organizationId,
@@ -1009,7 +1102,15 @@ async function markMicrosoft365SyncFailed(input: {
 }) {
   const supabase = createSubscriptionUsageSupabaseClient();
   const durationMs = Date.now() - input.startedAt;
-  const status = input.errorCode === "unauthorized" ? "permission_error" : "connected";
+  const status = input.errorCode === "unauthorized" || input.errorCode === "permission_error"
+    ? "permission_error"
+    : input.errorCode === "expired_credential"
+      ? "expired_credential"
+      : input.errorCode === "tenant_mismatch"
+        ? "tenant_mismatch"
+        : input.errorCode === "verification_failed"
+          ? "verification_failed"
+          : "connected";
   await Promise.all([
     supabase
       .from("subscription_usage_sync_runs")
@@ -1029,6 +1130,7 @@ async function markMicrosoft365SyncFailed(input: {
       .update({
         status,
         last_error_code: input.errorCode,
+        next_scheduled_sync_at: status === "connected" ? new Date(Date.now() + 60 * 60 * 1000).toISOString() : null,
         updated_at: new Date().toISOString()
       })
       .eq("organization_id", input.organizationId)
@@ -1052,6 +1154,19 @@ async function markMicrosoft365SyncFailed(input: {
       durationMs
     })
   });
+}
+
+function normalizeMicrosoft365FailureCode(error: unknown) {
+  const code = error instanceof Error ? error.message : "verification_failed";
+  return [
+    "permission_error",
+    "expired_credential",
+    "tenant_mismatch",
+    "verification_failed",
+    "provider_unavailable",
+    "provider_timeout",
+    "provider_request_failed"
+  ].includes(code) ? code : "verification_failed";
 }
 
 function deriveImportBatchStatus(summary: SubscriptionUsageImportAssessment["summary"]) {
@@ -1264,25 +1379,26 @@ async function reconcileAndPersistUsageBatch(input: {
   providerConnectionId?: string | null;
   syncRunId?: string | null;
   providerWarningCodes?: string[];
+  includeManualImports?: boolean;
 }) {
   const supabase = createSubscriptionUsageSupabaseClient();
-  const [{ data: rows, error }, contractCandidates] = await Promise.all([
-    supabase
-      .from("usage_import_rows")
-      .select("id, vendor_name, product_name, normalized_product, product_category, annual_reviewed_cost, currency, purchased_seats, assigned_seats, active_users_30d, active_users_90d, last_activity_at, collected_at, trust_state, confidence, is_sample, provider, external_product_id, department")
-      .eq("organization_id", input.organizationId)
-      .in("validation_status", ["ready", "needs_review"])
-      .limit(MAX_USAGE_IMPORT_ROWS),
+  const { data: scopeData, error: scopeError } = await supabase.rpc("create_subscription_usage_analysis_scope", {
+    p_organization_id: input.organizationId,
+    p_current_batch_id: input.batchId,
+    p_include_manual_imports: input.includeManualImports ?? input.provider === "manual_csv"
+  });
+  if (scopeError) throw scopeError;
+  const scope = parseSubscriptionUsageAnalysisScope(scopeData);
+  const [rows, contractCandidates] = await Promise.all([
+    loadAnalysisUsageRows(supabase, input.organizationId, scope.batchIds),
     loadContractCandidates(input.organizationId)
   ]);
-
-  if (error) throw error;
 
   const result = await reconcileUsage({
     organization_id: input.organizationId,
     usage_import_batch_id: input.batchId,
     matching_mode: "balanced",
-    normalized_rows: (rows ?? []).map((row) => ({
+    normalized_rows: rows.map((row: SubscriptionUsageRowRecord) => ({
       usage_row_id: row.id,
       vendor: row.vendor_name ?? "",
       product: row.product_name ?? "",
@@ -1304,7 +1420,7 @@ async function reconcileAndPersistUsageBatch(input: {
       department: row.department ?? null
     })),
     contract_candidates: contractCandidates,
-    provider_warning_codes: input.providerWarningCodes ?? []
+    provider_warning_codes: [...new Set([...(input.providerWarningCodes ?? []), ...scope.warningCodes])]
   });
 
   if (!result.ok) return result;
@@ -1315,6 +1431,7 @@ async function reconcileAndPersistUsageBatch(input: {
     provider: input.provider,
     providerConnectionId: input.providerConnectionId ?? null,
     syncRunId: input.syncRunId ?? null,
+    analysisScope: scope,
     output: result.output
   });
 
@@ -1329,6 +1446,7 @@ async function reconcileAndPersistUsageBatch(input: {
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
         batchId: input.batchId,
+        analysisScopeId: scope.analysisScopeId,
         estimatedSavings: result.output.estimated_savings
       })
     },
@@ -1336,6 +1454,57 @@ async function reconcileAndPersistUsageBatch(input: {
   );
 
   return result;
+}
+
+function parseSubscriptionUsageAnalysisScope(value: unknown): SubscriptionUsageAnalysisScope {
+  if (!value || typeof value !== "object") throw new Error("subscription_usage_analysis_scope_invalid");
+  const candidate = value as Partial<SubscriptionUsageAnalysisScope>;
+  if (
+    typeof candidate.analysisScopeId !== "string" ||
+    typeof candidate.scopeKey !== "string" ||
+    typeof candidate.scopeFamilyKey !== "string" ||
+    !Array.isArray(candidate.batchIds) || candidate.batchIds.length === 0 ||
+    candidate.batchIds.some((id) => typeof id !== "string") ||
+    !Array.isArray(candidate.providers)
+  ) {
+    throw new Error("subscription_usage_analysis_scope_invalid");
+  }
+  return {
+    analysisScopeId: candidate.analysisScopeId,
+    scopeKey: candidate.scopeKey,
+    scopeFamilyKey: candidate.scopeFamilyKey,
+    batchIds: candidate.batchIds as string[],
+    providers: candidate.providers.filter((provider): provider is string => typeof provider === "string"),
+    warningCodes: Array.isArray(candidate.warningCodes)
+      ? candidate.warningCodes.filter((code): code is string => typeof code === "string")
+      : []
+  };
+}
+
+async function loadAnalysisUsageRows(
+  supabase: SubscriptionUsageSupabaseClient,
+  organizationId: string,
+  batchIds: string[]
+) {
+  const rows: SubscriptionUsageRowRecord[] = [];
+  for (let offset = 0; offset <= MAX_ANALYSIS_USAGE_ROWS; offset += ANALYSIS_USAGE_PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("usage_import_rows")
+      .select("id, vendor_name, product_name, normalized_product, product_category, annual_reviewed_cost, currency, purchased_seats, assigned_seats, active_users_30d, active_users_90d, last_activity_at, collected_at, trust_state, confidence, is_sample, provider, external_product_id, department")
+      .eq("organization_id", organizationId)
+      .in("batch_id", batchIds)
+      .in("validation_status", ["ready", "needs_review"])
+      .order("id", { ascending: true })
+      .range(offset, offset + ANALYSIS_USAGE_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < ANALYSIS_USAGE_PAGE_SIZE) return rows;
+    if (rows.length >= MAX_ANALYSIS_USAGE_ROWS) {
+      throw new Error("subscription_usage_analysis_scope_too_large");
+    }
+  }
+  throw new Error("subscription_usage_analysis_scope_too_large");
 }
 
 async function loadContractCandidates(organizationId: string) {
@@ -1356,11 +1525,15 @@ async function loadContractCandidates(organizationId: string) {
     `)
     .eq("organization_id", organizationId)
     .eq("is_sample", false)
-    .limit(1000);
+    .order("id", { ascending: true })
+    .range(0, 1000);
 
   if (error) throw error;
+  if ((data ?? []).length > 1000) {
+    throw new Error("subscription_usage_contract_candidate_scope_too_large");
+  }
 
-  return (data ?? []).map((contract) => {
+  return (data ?? []).map((contract: SubscriptionUsageContractRecord) => {
     const metadata = Array.isArray(contract.contract_metadata)
       ? contract.contract_metadata[0] ?? null
       : contract.contract_metadata;
@@ -1383,41 +1556,36 @@ async function persistUsageFindings(input: {
   provider: "manual_csv" | "microsoft_365" | "google_workspace";
   providerConnectionId: string | null;
   syncRunId: string | null;
+  analysisScope: SubscriptionUsageAnalysisScope;
   output: ReconcileUsageResponse;
 }) {
   const findings = input.output.findings ?? [];
-  if (findings.length === 0) return { persisted: 0 };
-
   const supabase = createSubscriptionUsageSupabaseClient();
-  const fingerprints = findings.map((finding) =>
-    buildFindingFingerprint(input.organizationId, finding.finding_type, finding.reason_code, finding.source_row_ids, finding.matched_contract_ids, finding.fingerprint_key)
-  );
-  const { data: existing, error: existingError } = await supabase
-    .from("license_waste_opportunities")
-    .select("id, finding_fingerprint, review_status")
-    .eq("organization_id", input.organizationId)
-    .in("finding_fingerprint", fingerprints);
-
-  if (existingError) throw existingError;
-
-  const existingByFingerprint = new Map((existing ?? []).map((row) => [row.finding_fingerprint, row]));
-  for (const finding of findings) {
-    const fingerprint = buildFindingFingerprint(
-      input.organizationId,
-      finding.finding_type,
-      finding.reason_code,
-      finding.source_row_ids,
-      finding.matched_contract_ids,
-      finding.fingerprint_key
-    );
-    const payload = {
-      organization_id: input.organizationId,
+  const payload = findings.map((finding) => {
+    const logicalOpportunityKey = buildLogicalOpportunityKey(input.organizationId, input.analysisScope.scopeFamilyKey, finding);
+    const evidence = {
+      reasonCode: finding.reason_code,
+      warnings: finding.warnings,
+      matchedContractCount: finding.matched_contract_ids.length,
+      usageEvidence: finding.evidence ?? {},
+      explanation: finding.explanation ?? null,
+      recommendedHumanAction: finding.recommended_human_action ?? null,
+      analysisScopeId: input.analysisScope.analysisScopeId,
+      snapshotBatchIds: input.analysisScope.batchIds,
+      providerSet: input.analysisScope.providers
+    };
+    return {
       contract_id: finding.matched_contract_ids[0] ?? null,
-      usage_batch_id: input.batchId,
-      provider: input.provider,
-      provider_connection_id: input.providerConnectionId,
-      sync_run_id: input.syncRunId,
-      finding_fingerprint: fingerprint,
+      finding_fingerprint: buildFindingFingerprint(input.organizationId, finding.finding_type, finding.reason_code, finding.source_row_ids, finding.matched_contract_ids, finding.fingerprint_key),
+      logical_opportunity_key: logicalOpportunityKey,
+      evidence_hash: crypto.createHash("sha256").update(JSON.stringify({
+        sourceRowIds: [...finding.source_row_ids].sort(),
+        matchedContractIds: [...finding.matched_contract_ids].sort(),
+        warnings: [...finding.warnings].sort(),
+        confidence: finding.confidence,
+        estimatedSavings: finding.estimated_savings,
+        evidence
+      })).digest("hex"),
       finding_type: finding.finding_type,
       reason_code: finding.reason_code,
       calculation_version: finding.calculation_version,
@@ -1436,46 +1604,37 @@ async function persistUsageFindings(input: {
       involved_products: finding.involved_products ?? [],
       estimated_savings_min: finding.estimated_savings_min ?? null,
       estimated_savings_max: finding.estimated_savings_max ?? null,
-      evidence: {
-        reasonCode: finding.reason_code,
-        warnings: finding.warnings,
-        matchedContractCount: finding.matched_contract_ids.length,
-        usageEvidence: finding.evidence ?? {},
-        explanation: finding.explanation ?? null,
-        recommendedHumanAction: finding.recommended_human_action ?? null
-      },
-      superseded_at: null,
-      superseded_by_sync_run_id: null
+      evidence
     };
+  });
+  const { data, error } = await supabase.rpc("persist_subscription_usage_analysis_findings", {
+    p_organization_id: input.organizationId,
+    p_analysis_scope_id: input.analysisScope.analysisScopeId,
+    p_batch_id: input.batchId,
+    p_provider: input.provider,
+    p_provider_connection_id: input.providerConnectionId,
+    p_sync_run_id: input.syncRunId,
+    p_findings: payload
+  });
+  if (error) throw error;
+  return { persisted: Number(data ?? 0) };
+}
 
-    const existingFinding = existingByFingerprint.get(fingerprint);
-    if (existingFinding?.id) {
-      const { error } = await supabase
-        .from("license_waste_opportunities")
-        .update(payload)
-        .eq("organization_id", input.organizationId)
-        .eq("id", existingFinding.id);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from("license_waste_opportunities").insert({
-        ...payload,
-        review_status: "open"
-      });
-      if (error) throw error;
-    }
-  }
-
-  const { error: supersedeError } = await supabase
-    .from("license_waste_opportunities")
-    .update({
-      superseded_at: new Date().toISOString(),
-      superseded_by_sync_run_id: input.syncRunId
-    })
-    .eq("organization_id", input.organizationId)
-    .not("finding_fingerprint", "in", `(${fingerprints.map((value) => `"${value}"`).join(",")})`);
-
-  if (supersedeError) throw supersedeError;
-  return { persisted: findings.length };
+function buildLogicalOpportunityKey(
+  organizationId: string,
+  scopeFamilyKey: string,
+  finding: NonNullable<ReconcileUsageResponse["findings"]>[number]
+) {
+  return crypto.createHash("sha256").update(JSON.stringify({
+    organizationId,
+    scopeFamilyKey,
+    findingType: finding.finding_type,
+    reasonCode: finding.reason_code,
+    stableFindingKey: finding.fingerprint_key ?? null,
+    involvedProviders: [...(finding.involved_providers ?? [])].sort(),
+    involvedProducts: [...(finding.involved_products ?? [])].sort(),
+    matchedContractIds: [...finding.matched_contract_ids].sort()
+  })).digest("hex");
 }
 
 function buildFindingFingerprint(

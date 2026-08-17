@@ -43,7 +43,7 @@ describe("intelligence release gate", () => {
     expect(gateScript).toBeTruthy();
     expect(getMissingGateTestFiles(gateScript)).toEqual([]);
 
-    const workflow = readRepoFile(".github/workflows/release-readiness.yml");
+    const workflow = fs.readFileSync(path.join(repoRoot, "..", ".github", "workflows", "node-ci.yml"), "utf8");
     expect(workflow).toContain("Run intelligence release gate");
     expect(workflow).toContain("npm run test:intelligence-release-gate");
   });

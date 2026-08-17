@@ -1,0 +1,33 @@
+{
+  "version": "microsoft_sku_mapping_v1",
+  "products": [
+    {
+      "canonicalId": "microsoft_365_business_standard",
+      "displayName": "Microsoft 365 Business Standard",
+      "category": "productivity_suite",
+      "skuPartNumbers": ["O365_BUSINESS_PREMIUM"],
+      "reportProductNames": ["Microsoft 365 Business Standard"]
+    },
+    {
+      "canonicalId": "microsoft_365_e3",
+      "displayName": "Microsoft 365 E3",
+      "category": "productivity_suite",
+      "skuPartNumbers": ["SPE_E3"],
+      "reportProductNames": ["Microsoft 365 E3"]
+    },
+    {
+      "canonicalId": "office_365_e3",
+      "displayName": "Office 365 E3",
+      "category": "productivity_suite",
+      "skuPartNumbers": ["ENTERPRISEPACK"],
+      "reportProductNames": ["Office 365 E3"]
+    },
+    {
+      "canonicalId": "microsoft_365_e5",
+      "displayName": "Microsoft 365 E5",
+      "category": "productivity_suite",
+      "skuPartNumbers": ["SPE_E5"],
+      "reportProductNames": ["Microsoft 365 E5"]
+    }
+  ]
+}

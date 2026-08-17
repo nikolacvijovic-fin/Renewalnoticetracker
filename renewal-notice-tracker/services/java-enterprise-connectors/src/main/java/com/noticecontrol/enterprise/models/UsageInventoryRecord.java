@@ -13,13 +13,13 @@ public record UsageInventoryRecord(
     @JsonProperty("category")
     String category,
     @JsonProperty("purchased_seats")
-    int purchasedSeats,
+    Integer purchasedSeats,
     @JsonProperty("assigned_seats")
     int assignedSeats,
     @JsonProperty("active_users_30d")
-    int activeUsers30d,
+    Integer activeUsers30d,
     @JsonProperty("active_users_90d")
-    int activeUsers90d,
+    Integer activeUsers90d,
     @JsonProperty("last_activity_at")
     String lastActivityAt,
     @JsonProperty("collected_at")

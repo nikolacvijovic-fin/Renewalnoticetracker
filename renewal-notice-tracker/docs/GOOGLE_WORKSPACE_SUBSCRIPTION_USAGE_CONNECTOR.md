@@ -11,6 +11,7 @@ The Google Workspace connector is part of the Growth-gated Subscription Usage Op
 3. Enable the Enterprise License Manager API and Admin SDK Reports API in the Google Cloud project.
 4. Configure the environment variables below and deploy the Next.js and Java add-on services.
 5. An organization owner, admin, or operator enters the Google customer ID and primary domain, then completes Google administrator consent.
+6. Complete Google's OAuth app verification and domain or brand verification requirements before enabling external customer tenants. Test-mode user limits are not production readiness.
 
 Required environment variables:
 
@@ -28,6 +29,8 @@ Required environment variables:
 - `https://www.googleapis.com/auth/admin.reports.usage.readonly`: reads last-login usage evidence used to calculate aggregate 30-day and 90-day active counts.
 
 Directory scope is not requested. The current connector does not need names, profiles, groups, aliases, or other directory records. Google administrator authorization and API access remain subject to the customer's Google Workspace configuration.
+
+The licensing scope is read/write by Google's definition. NoticeControl's connector builds only allowlisted `GET` requests to the configured Licensing and Reports API origins and rejects `POST`, `PUT`, `PATCH`, and `DELETE` methods. This application-side restriction does not reduce the permission shown by Google during consent.
 
 Official references:
 
@@ -47,7 +50,9 @@ Disconnect immediately deletes the encrypted credential and clears the next sche
 
 Manual synchronization is idempotent per organization, connection, and UTC day. A successful run creates an atomic import batch, normalized rows, contract matches, and reviewable findings. A failed run records only a safe error code and leaves the last successful snapshot intact.
 
-Google's Licensing API returns assigned users but not purchased-seat entitlement totals. The connector therefore labels `purchased_seats_unavailable_using_assigned_count` and uses assigned count as the denominator. Account last login is an adoption proxy, not product-feature telemetry, and is labeled `activity_uses_account_login_proxy`. These limitations reduce overlap confidence. Missing activity produces a partial snapshot and cannot produce high-confidence overlap.
+Google's Licensing API returns assigned users but not purchased-seat entitlement totals. The connector therefore labels `purchased_seats_unavailable` and leaves purchased seats unknown; assigned seats are never substituted as a purchased entitlement. A reviewed contract quantity or another approved billing source is required before NoticeControl can calculate unassigned-license waste. The current UI does not yet provide a dedicated reviewed Google entitlement editor, so Google-only unassigned-license savings remain unavailable unless trusted quantity evidence is supplied through an approved import path. Account last login is an adoption proxy, not product-feature telemetry, and is labeled `activity_uses_account_login_proxy`. These limitations reduce overlap confidence. Missing activity produces a partial snapshot and cannot produce high-confidence overlap.
+
+The callback records the requested and verified scope names but never stores the access token. Synchronization rechecks the stored verified scope set; a missing or changed scope stops scheduling with `permission_error` until the connection is reauthorized.
 
 Cross-provider mappings are loaded from `config/subscription-capability-taxonomy.v1.json`. Savings use reviewed contract cost only, remain separated by currency, and are presented as a range. Every overlap defaults to `investigate`, requires human review, and is never proof of equivalence.
 

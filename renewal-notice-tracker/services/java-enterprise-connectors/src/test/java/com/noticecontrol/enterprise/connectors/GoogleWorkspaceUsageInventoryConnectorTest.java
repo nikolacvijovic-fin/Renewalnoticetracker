@@ -14,6 +14,8 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GoogleWorkspaceUsageInventoryConnectorTest {
@@ -41,9 +43,25 @@ class GoogleWorkspaceUsageInventoryConnectorTest {
       assertEquals(2, licensingCalls.get());
       assertEquals(2, reportCalls.get());
       assertEquals(2, result.records().get(0).assignedSeats());
+      assertNull(result.records().get(0).purchasedSeats());
       assertEquals(2, result.records().get(0).activeUsers30d());
+      assertTrue(result.warnings().contains("purchased_seats_unavailable"));
       assertFalse(result.toString().contains("person-one"));
       assertFalse(result.toString().contains("access-token"));
+    } finally {
+      server.stop(0);
+    }
+  }
+
+  @Test
+  void forbidsMutationMethodsAndForeignProviderEndpoints() throws Exception {
+    HttpServer server = server(exchange -> json(exchange, 200, "{}"));
+    try {
+      GoogleWorkspaceUsageInventoryConnector connector = connector(server, Duration.ofSeconds(1));
+      URI approved = URI.create("http://localhost:" + server.getAddress().getPort() + "/apps/licensing/v1/product/test");
+      assertEquals("GET", connector.buildProviderRequest(approved, "short-lived", "GET").method());
+      assertThrows(RuntimeException.class, () -> connector.buildProviderRequest(approved, "short-lived", "POST"));
+      assertThrows(RuntimeException.class, () -> connector.buildProviderRequest(URI.create("https://evil.example/apps/licensing"), "short-lived", "GET"));
     } finally {
       server.stop(0);
     }

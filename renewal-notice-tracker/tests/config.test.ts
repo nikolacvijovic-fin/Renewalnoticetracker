@@ -117,6 +117,34 @@ describe("runtime configuration", () => {
     ).toThrow(/PYTHON_INTELLIGENCE_URL/i);
   });
 
+  it("loads a complete optional Microsoft 365 connector configuration", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        ADD_ON_INTERNAL_SIGNING_SECRET: "test-add-on-signing-secret",
+        MICROSOFT_365_CLIENT_ID: "microsoft-client-id",
+        MICROSOFT_365_CLIENT_SECRET: "microsoft-client-secret",
+        MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI: "https://app.example.test/api/subscription-usage/microsoft365/callback"
+      })
+    );
+
+    expect(config.microsoft365).toEqual({
+      clientId: "microsoft-client-id",
+      clientSecret: "microsoft-client-secret",
+      adminConsentRedirectUri: "https://app.example.test/api/subscription-usage/microsoft365/callback"
+    });
+  });
+
+  it("rejects partial Microsoft 365 connector configuration", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          MICROSOFT_365_CLIENT_ID: "microsoft-client-id",
+          MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI: "https://app.example.test/api/subscription-usage/microsoft365/callback"
+        })
+      )
+    ).toThrow(/MICROSOFT_365_CLIENT_SECRET/i);
+  });
+
   it("requires an internal signing secret when add-on URLs are configured", () => {
     expect(() =>
       parseAppConfig(

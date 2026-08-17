@@ -158,6 +158,7 @@ const rawEnvBaseSchema = z.object({
   GO_WORKER_URL: optionalUrl,
   JAVA_ENTERPRISE_CONNECTORS_URL: optionalUrl,
   MICROSOFT_365_CLIENT_ID: optionalNonEmptyString,
+  MICROSOFT_365_CLIENT_SECRET: optionalNonEmptyString,
   MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI: optionalUrl,
   GOOGLE_WORKSPACE_CLIENT_ID: optionalNonEmptyString,
   GOOGLE_WORKSPACE_CLIENT_SECRET: optionalNonEmptyString,
@@ -192,12 +193,32 @@ const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
     });
   }
 
-  if (value.MICROSOFT_365_CLIENT_ID && !value.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI"],
-      message: "MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI is required when MICROSOFT_365_CLIENT_ID is configured."
-    });
+  const microsoft365Configured = Boolean(
+    value.MICROSOFT_365_CLIENT_ID ||
+    value.MICROSOFT_365_CLIENT_SECRET ||
+    value.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI
+  );
+  if (microsoft365Configured) {
+    for (const [key, configured] of [
+      ["MICROSOFT_365_CLIENT_ID", value.MICROSOFT_365_CLIENT_ID],
+      ["MICROSOFT_365_CLIENT_SECRET", value.MICROSOFT_365_CLIENT_SECRET],
+      ["MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI", value.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI]
+    ] as const) {
+      if (!configured) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when Microsoft 365 synchronization is configured.`
+        });
+      }
+    }
+    if (!value.ADD_ON_INTERNAL_SIGNING_SECRET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ADD_ON_INTERNAL_SIGNING_SECRET"],
+        message: "ADD_ON_INTERNAL_SIGNING_SECRET is required when Microsoft 365 synchronization is configured."
+      });
+    }
   }
 
   const googleWorkspaceConfigured = Boolean(
@@ -387,6 +408,7 @@ export type AppConfig = {
   };
   microsoft365: {
     clientId: string | null;
+    clientSecret: string | null;
     adminConsentRedirectUri: string | null;
   };
   googleWorkspace: {
@@ -492,6 +514,7 @@ export function parseAppConfig(
     },
     microsoft365: {
       clientId: nullable(raw.MICROSOFT_365_CLIENT_ID),
+      clientSecret: nullable(raw.MICROSOFT_365_CLIENT_SECRET),
       adminConsentRedirectUri: nullable(raw.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI)
     },
     googleWorkspace: {

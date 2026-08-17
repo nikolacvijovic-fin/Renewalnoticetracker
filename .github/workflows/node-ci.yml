@@ -49,6 +49,9 @@ jobs:
       - name: Run complete test suite
         run: npm run test
 
+      - name: Run subscription usage production gate
+        run: npm run test:subscription-usage-production
+
       - name: Run trust-sensitive permission and control-plane gate
         run: npm run test:trust-sensitive
 
@@ -57,6 +60,9 @@ jobs:
 
       - name: Run permission-boundary gate
         run: npm run test:permission-boundaries
+
+      - name: Run intelligence release gate
+        run: npm run test:intelligence-release-gate
 
       - name: Run data-integrity and review-reminder gate
         run: npm run test:data-integrity

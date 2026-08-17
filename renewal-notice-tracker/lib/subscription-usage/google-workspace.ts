@@ -133,7 +133,9 @@ export async function exchangeGoogleWorkspaceAuthorizationCode(input: {
   if (!response.ok || typeof payload.refresh_token !== "string" || !payload.refresh_token) {
     throw new Error(response.status === 401 || response.status === 403 ? "google_authorization_denied" : "google_token_exchange_failed");
   }
-  return { refreshToken: payload.refresh_token };
+  const grantedScopes = parseGrantedGoogleScopes(payload.scope);
+  assertRequiredGoogleScopes(grantedScopes);
+  return { refreshToken: payload.refresh_token, grantedScopes };
 }
 
 export async function refreshGoogleWorkspaceAccessToken(input: {
@@ -159,6 +161,7 @@ export async function refreshGoogleWorkspaceAccessToken(input: {
   if (!response.ok || typeof payload.access_token !== "string" || !payload.access_token) {
     throw new Error(response.status === 401 || response.status === 403 ? "revoked_access" : "google_token_refresh_failed");
   }
+  if (payload.scope !== undefined) assertRequiredGoogleScopes(parseGrantedGoogleScopes(payload.scope));
   return payload.access_token;
 }
 
@@ -225,6 +228,7 @@ export function sanitizeGoogleWorkspaceOperationalMetadata(metadata: Record<stri
 export function normalizeGoogleWorkspaceFailureCode(value: unknown) {
   const allowed = new Set([
     "unauthorized",
+    "permission_error",
     "revoked_access",
     "expired_credential",
     "provider_timeout",
@@ -253,6 +257,16 @@ function getMissingGoogleWorkspaceConfig(config: GoogleWorkspaceOAuthConfig) {
   if (!config.signingSecret) return { ok: false as const, reason: "missing_signing_secret", safeMessage: "Add-on signing secret is required for Google Workspace connection state." };
   if (!config.credentialEncryptionKey) return { ok: false as const, reason: "missing_encryption_key", safeMessage: "Google Workspace credential encryption is not configured." };
   return null;
+}
+
+function parseGrantedGoogleScopes(value: unknown) {
+  return typeof value === "string" ? [...new Set(value.split(/\s+/).filter(Boolean))].sort() : [];
+}
+
+function assertRequiredGoogleScopes(grantedScopes: string[]) {
+  if (GOOGLE_WORKSPACE_REQUIRED_SCOPES.some((scope) => !grantedScopes.includes(scope))) {
+    throw new Error("permission_error");
+  }
 }
 
 async function fetchGoogleToken(fetchImpl: typeof fetch, init: RequestInit) {

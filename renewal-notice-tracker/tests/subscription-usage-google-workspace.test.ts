@@ -47,9 +47,9 @@ describe("Google Workspace subscription usage connector boundary", () => {
   });
 
   it("exchanges authorization codes without returning raw provider payloads", async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ access_token: "SHORT_LIVED", refresh_token: "REFRESH_SECRET", provider_payload: "hidden" }), { status: 200, headers: { "content-type": "application/json" } }));
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ access_token: "SHORT_LIVED", refresh_token: "REFRESH_SECRET", scope: GOOGLE_WORKSPACE_REQUIRED_SCOPES.join(" "), provider_payload: "hidden" }), { status: 200, headers: { "content-type": "application/json" } }));
     const result = await exchangeGoogleWorkspaceAuthorizationCode({ code: "authorization-code", config, fetchImpl });
-    expect(result).toEqual({ refreshToken: "REFRESH_SECRET" });
+    expect(result).toEqual({ refreshToken: "REFRESH_SECRET", grantedScopes: [...GOOGLE_WORKSPACE_REQUIRED_SCOPES].sort() });
     expect(result).not.toHaveProperty("accessToken");
     expect(result).not.toHaveProperty("provider_payload");
   });
@@ -95,13 +95,13 @@ describe("Google Workspace subscription usage connector boundary", () => {
     const rows = mapGoogleWorkspaceSnapshotToImportRows({
       accepted: true,
       connector_type: "subscription_usage",
-      records: [{ external_product_id: "sku-1", vendor: "Google", product: "Google Workspace Business Standard", category: "productivity_suite", purchased_seats: 20, assigned_seats: 20, active_users_30d: 8, active_users_90d: 15, collected_at: "2026-08-17T00:00:00Z", source_label: "Google Admin APIs", warning_codes: ["activity_uses_account_login_proxy"] }],
+      records: [{ external_product_id: "sku-1", vendor: "Google", product: "Google Workspace Business Standard", category: "productivity_suite", purchased_seats: null, assigned_seats: 20, active_users_30d: 8, active_users_90d: 15, collected_at: "2026-08-17T00:00:00Z", source_label: "Google Admin APIs", warning_codes: ["activity_uses_account_login_proxy", "purchased_seats_unavailable"] }],
       next_cursor: null,
       warnings: ["activity_uses_account_login_proxy"],
       retry_count: 1,
       partial: true
     });
-    expect(rows[0]).toEqual(expect.objectContaining({ vendor: "Google", purchased_seats: 20, active_users_30d: 8, contract_reference: "sku-1" }));
+    expect(rows[0]).toEqual(expect.objectContaining({ vendor: "Google", purchased_seats: null, assigned_seats: 20, active_users_30d: 8, contract_reference: "sku-1" }));
     expect(JSON.stringify(rows)).not.toMatch(/userEmail|primaryEmail|Bearer|provider_payload/i);
   });
 

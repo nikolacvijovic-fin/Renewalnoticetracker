@@ -37,10 +37,10 @@ export type UsageInventoryConnectorResult = {
     vendor: string;
     product: string;
     category?: string | null;
-    purchased_seats: number;
+    purchased_seats: number | null;
     assigned_seats: number;
-    active_users_30d: number;
-    active_users_90d: number;
+    active_users_30d: number | null;
+    active_users_90d: number | null;
     last_activity_at?: string | null;
     collected_at: string;
     source_label: string;

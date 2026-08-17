@@ -250,8 +250,8 @@ export type Database = {
         Relationships: [];
       };
       subscription_usage_provider_connections: {
-        Row: { id: string; organization_id: string; provider: string; provider_tenant_id: string; provider_tenant_name: string | null; status: string; credential_reference: string; credential_fingerprint: string; required_permissions: string[]; connection_owner_user_id: string | null; last_successful_sync_at: string | null; last_error_code: string | null; next_scheduled_sync_at: string | null; disconnected_at: string | null; metadata: Json; created_at: string; updated_at: string };
-        Insert: { id?: string; organization_id: string; provider: string; provider_tenant_id: string; provider_tenant_name?: string | null; status?: string; credential_reference: string; credential_fingerprint: string; required_permissions?: string[]; connection_owner_user_id?: string | null; last_successful_sync_at?: string | null; last_error_code?: string | null; next_scheduled_sync_at?: string | null; disconnected_at?: string | null; metadata?: Json; created_at?: string; updated_at?: string };
+        Row: { id: string; organization_id: string; provider: string; provider_tenant_id: string; provider_tenant_name: string | null; status: string; credential_reference: string; credential_fingerprint: string; required_permissions: string[]; requested_permissions: string[]; verified_permissions: string[]; last_verified_at: string | null; connection_owner_user_id: string | null; last_successful_sync_at: string | null; last_error_code: string | null; next_scheduled_sync_at: string | null; sync_claim_token: string | null; sync_claimed_at: string | null; sync_claim_expires_at: string | null; disconnected_at: string | null; metadata: Json; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; provider: string; provider_tenant_id: string; provider_tenant_name?: string | null; status?: string; credential_reference: string; credential_fingerprint: string; required_permissions?: string[]; requested_permissions?: string[]; verified_permissions?: string[]; last_verified_at?: string | null; connection_owner_user_id?: string | null; last_successful_sync_at?: string | null; last_error_code?: string | null; next_scheduled_sync_at?: string | null; sync_claim_token?: string | null; sync_claimed_at?: string | null; sync_claim_expires_at?: string | null; disconnected_at?: string | null; metadata?: Json; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["subscription_usage_provider_connections"]["Insert"]>;
         Relationships: [];
       };
@@ -259,6 +259,24 @@ export type Database = {
         Row: { id: string; organization_id: string; provider_connection_id: string; provider: string; encrypted_credential: string; credential_fingerprint: string; created_at: string; updated_at: string };
         Insert: { id?: string; organization_id: string; provider_connection_id: string; provider: string; encrypted_credential: string; credential_fingerprint: string; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["subscription_usage_provider_credentials"]["Insert"]>;
+        Relationships: [];
+      };
+      subscription_usage_consent_attempts: {
+        Row: { id: string; organization_id: string; actor_user_id: string; provider: string; nonce_hash: string; status: string; requested_permissions: string[]; expires_at: string; consumed_at: string | null; created_at: string };
+        Insert: { id?: string; organization_id: string; actor_user_id: string; provider: string; nonce_hash: string; status?: string; requested_permissions?: string[]; expires_at: string; consumed_at?: string | null; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["subscription_usage_consent_attempts"]["Insert"]>;
+        Relationships: [];
+      };
+      subscription_usage_analysis_scopes: {
+        Row: { id: string; organization_id: string; scope_key: string; scope_family_key: string; current_batch_id: string; snapshot_batch_ids: string[]; provider_set: string[]; calculation_version: string; include_manual_imports: boolean; created_by_user_id: string | null; created_at: string };
+        Insert: { id?: string; organization_id: string; scope_key: string; scope_family_key: string; current_batch_id: string; snapshot_batch_ids: string[]; provider_set: string[]; calculation_version: string; include_manual_imports?: boolean; created_by_user_id?: string | null; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["subscription_usage_analysis_scopes"]["Insert"]>;
+        Relationships: [];
+      };
+      subscription_usage_analysis_findings: {
+        Row: { organization_id: string; analysis_scope_id: string; finding_id: string; created_at: string };
+        Insert: { organization_id: string; analysis_scope_id: string; finding_id: string; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["subscription_usage_analysis_findings"]["Insert"]>;
         Relationships: [];
       };
       subscription_usage_sync_runs: {
@@ -280,8 +298,8 @@ export type Database = {
         Relationships: [];
       };
       license_waste_opportunities: {
-        Row: { id: string; organization_id: string; contract_id: string | null; usage_batch_id: string | null; finding_type: string; estimated_savings: number | null; currency: string | null; evidence: Json; status: string; reason_code: string | null; calculation_version: string | null; usage_row_ids: string[]; matched_contract_ids: string[]; utilization: number | null; unused_seats: number | null; confidence: number; warnings: string[]; recommended_action: string | null; review_status: string; reviewed_by_user_id: string | null; reviewed_at: string | null; accepted_action: string | null; realized_savings: number | null; is_sample: boolean; provider: string | null; provider_connection_id: string | null; sync_run_id: string | null; finding_fingerprint: string | null; superseded_at: string | null; superseded_by_sync_run_id: string | null; capability_category: string | null; taxonomy_version: string | null; involved_providers: string[]; involved_products: string[]; estimated_savings_min: number | null; estimated_savings_max: number | null; feedback_classification: string | null; feedback_reason: string | null; created_at: string };
-        Insert: { id?: string; organization_id: string; contract_id?: string | null; usage_batch_id?: string | null; finding_type: string; estimated_savings?: number | null; currency?: string | null; evidence?: Json; status?: string; reason_code?: string | null; calculation_version?: string | null; usage_row_ids?: string[]; matched_contract_ids?: string[]; utilization?: number | null; unused_seats?: number | null; confidence?: number; warnings?: string[]; recommended_action?: string | null; review_status?: string; reviewed_by_user_id?: string | null; reviewed_at?: string | null; accepted_action?: string | null; realized_savings?: number | null; is_sample?: boolean; provider?: string | null; provider_connection_id?: string | null; sync_run_id?: string | null; finding_fingerprint?: string | null; superseded_at?: string | null; superseded_by_sync_run_id?: string | null; capability_category?: string | null; taxonomy_version?: string | null; involved_providers?: string[]; involved_products?: string[]; estimated_savings_min?: number | null; estimated_savings_max?: number | null; feedback_classification?: string | null; feedback_reason?: string | null; created_at?: string };
+        Row: { id: string; organization_id: string; contract_id: string | null; usage_batch_id: string | null; analysis_scope_id: string | null; scope_family_key: string | null; logical_opportunity_key: string | null; evidence_hash: string | null; revision_of_id: string | null; revision_number: number; resolved_at: string | null; finding_type: string; estimated_savings: number | null; currency: string | null; evidence: Json; status: string; reason_code: string | null; calculation_version: string | null; usage_row_ids: string[]; matched_contract_ids: string[]; utilization: number | null; unused_seats: number | null; confidence: number; warnings: string[]; recommended_action: string | null; review_status: string; reviewed_by_user_id: string | null; reviewed_at: string | null; accepted_action: string | null; realized_savings: number | null; is_sample: boolean; provider: string | null; provider_connection_id: string | null; sync_run_id: string | null; finding_fingerprint: string | null; superseded_at: string | null; superseded_by_sync_run_id: string | null; capability_category: string | null; taxonomy_version: string | null; involved_providers: string[]; involved_products: string[]; estimated_savings_min: number | null; estimated_savings_max: number | null; feedback_classification: string | null; feedback_reason: string | null; created_at: string };
+        Insert: { id?: string; organization_id: string; contract_id?: string | null; usage_batch_id?: string | null; analysis_scope_id?: string | null; scope_family_key?: string | null; logical_opportunity_key?: string | null; evidence_hash?: string | null; revision_of_id?: string | null; revision_number?: number; resolved_at?: string | null; finding_type: string; estimated_savings?: number | null; currency?: string | null; evidence?: Json; status?: string; reason_code?: string | null; calculation_version?: string | null; usage_row_ids?: string[]; matched_contract_ids?: string[]; utilization?: number | null; unused_seats?: number | null; confidence?: number; warnings?: string[]; recommended_action?: string | null; review_status?: string; reviewed_by_user_id?: string | null; reviewed_at?: string | null; accepted_action?: string | null; realized_savings?: number | null; is_sample?: boolean; provider?: string | null; provider_connection_id?: string | null; sync_run_id?: string | null; finding_fingerprint?: string | null; superseded_at?: string | null; superseded_by_sync_run_id?: string | null; capability_category?: string | null; taxonomy_version?: string | null; involved_providers?: string[]; involved_products?: string[]; estimated_savings_min?: number | null; estimated_savings_max?: number | null; feedback_classification?: string | null; feedback_reason?: string | null; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["license_waste_opportunities"]["Insert"]>;
         Relationships: [];
       };
@@ -344,6 +362,30 @@ export type Database = {
       };
       create_subscription_usage_batch_with_rows: {
         Args: { p_organization_id: string; p_source: string; p_status: string; p_file_name: string | null; p_idempotency_key: string | null; p_provider: string | null; p_provider_connection_id: string | null; p_sync_run_id: string | null; p_metadata: Json; p_rows: Json };
+        Returns: string;
+      };
+      create_subscription_usage_consent_attempt: {
+        Args: { p_organization_id: string; p_provider: string; p_nonce_hash: string; p_requested_permissions: string[]; p_expires_at: string };
+        Returns: string;
+      };
+      consume_subscription_usage_consent_attempt: {
+        Args: { p_organization_id: string; p_provider: string; p_nonce_hash: string };
+        Returns: string;
+      };
+      create_subscription_usage_analysis_scope: {
+        Args: { p_organization_id: string; p_current_batch_id: string; p_include_manual_imports?: boolean };
+        Returns: Json;
+      };
+      persist_subscription_usage_analysis_findings: {
+        Args: { p_organization_id: string; p_analysis_scope_id: string; p_batch_id: string; p_provider: string; p_provider_connection_id: string; p_sync_run_id: string; p_findings: Json };
+        Returns: number;
+      };
+      claim_due_subscription_usage_connections: {
+        Args: { p_limit: number; p_lease_minutes: number; p_worker_token: string };
+        Returns: Database["public"]["Tables"]["subscription_usage_provider_connections"]["Row"][];
+      };
+      create_scheduled_subscription_usage_batch_with_rows: {
+        Args: { p_organization_id: string; p_source: string; p_status: string; p_idempotency_key: string; p_provider: string; p_provider_connection_id: string; p_sync_run_id: string; p_metadata: Json; p_rows: Json };
         Returns: string;
       };
       disconnect_google_workspace_subscription_usage_connection: {
