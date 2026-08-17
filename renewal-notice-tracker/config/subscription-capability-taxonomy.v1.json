@@ -1,0 +1,87 @@
+{
+  "version": "subscription_capability_taxonomy_v1",
+  "capabilities": [
+    "email_calendar",
+    "video_meetings",
+    "team_chat",
+    "file_collaboration",
+    "office_editing",
+    "identity_access",
+    "device_management",
+    "security_compliance"
+  ],
+  "products": [
+    {
+      "provider": "microsoft_365",
+      "patterns": ["exchange", "microsoft 365", "office 365", "enterprise pack", "business premium", "business standard"],
+      "capabilities": ["email_calendar", "office_editing"],
+      "mappingSpecificity": "suite"
+    },
+    {
+      "provider": "microsoft_365",
+      "patterns": ["teams"],
+      "capabilities": ["video_meetings", "team_chat"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "microsoft_365",
+      "patterns": ["onedrive", "sharepoint"],
+      "capabilities": ["file_collaboration"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "microsoft_365",
+      "patterns": ["entra", "azure active directory", "aad"],
+      "capabilities": ["identity_access"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "microsoft_365",
+      "patterns": ["intune"],
+      "capabilities": ["device_management"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "microsoft_365",
+      "patterns": ["defender", "purview", "security", "compliance"],
+      "capabilities": ["security_compliance"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "google_workspace",
+      "patterns": ["google workspace", "google apps", "business starter", "business standard", "business plus", "enterprise standard", "enterprise plus"],
+      "capabilities": ["email_calendar", "video_meetings", "team_chat", "file_collaboration", "office_editing", "identity_access"],
+      "mappingSpecificity": "suite"
+    },
+    {
+      "provider": "google_workspace",
+      "patterns": ["google meet"],
+      "capabilities": ["video_meetings"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "google_workspace",
+      "patterns": ["google chat"],
+      "capabilities": ["team_chat"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "google_workspace",
+      "patterns": ["google drive"],
+      "capabilities": ["file_collaboration"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "google_workspace",
+      "patterns": ["cloud identity"],
+      "capabilities": ["identity_access", "device_management"],
+      "mappingSpecificity": "product"
+    },
+    {
+      "provider": "google_workspace",
+      "patterns": ["vault", "endpoint management", "context aware access"],
+      "capabilities": ["device_management", "security_compliance"],
+      "mappingSpecificity": "product"
+    }
+  ]
+}

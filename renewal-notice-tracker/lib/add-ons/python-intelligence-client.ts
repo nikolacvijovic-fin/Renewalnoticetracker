@@ -100,6 +100,8 @@ export type ReconcileUsageRequest = {
     vendor: string;
     product: string;
     normalized_product: string;
+    provider?: "manual_csv" | "microsoft_365" | "google_workspace";
+    external_product_id?: string | null;
     category?: string | null;
     annual_reviewed_cost?: number | null;
     currency?: string | null;
@@ -112,6 +114,7 @@ export type ReconcileUsageRequest = {
     trust_state?: string | null;
     confidence?: number | null;
     is_sample?: boolean | null;
+    department?: string | null;
   }>;
   contract_candidates?: Array<{
     contract_id: string;
@@ -123,6 +126,7 @@ export type ReconcileUsageRequest = {
     currency?: string | null;
     is_sample?: boolean | null;
   }>;
+  provider_warning_codes?: string[];
 };
 
 export type ReconcileUsageResponse = {
@@ -158,7 +162,18 @@ export type ReconcileUsageResponse = {
       | "consolidate"
       | "terminate"
       | "renegotiate"
+      | "investigate"
       | "insufficient_evidence";
+    involved_providers?: string[];
+    involved_products?: string[];
+    capability_category?: string | null;
+    taxonomy_version?: string | null;
+    estimated_savings_min?: number | null;
+    estimated_savings_max?: number | null;
+    evidence?: Record<string, unknown>;
+    explanation?: string | null;
+    recommended_human_action?: string | null;
+    fingerprint_key?: string | null;
   }>;
 };
 

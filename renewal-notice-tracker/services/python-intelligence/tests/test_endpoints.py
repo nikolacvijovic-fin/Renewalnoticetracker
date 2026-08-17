@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 import hashlib
 import hmac
+import json
 from datetime import datetime, timedelta, timezone
 
 from app.main import app
@@ -189,6 +190,67 @@ def test_reconcile_usage_returns_deterministic_savings_findings(monkeypatch):
     assert payload["findings"][0]["calculation_version"] == "subscription_usage_v1"
 
 
+def test_reconcile_usage_matches_contract_candidates_with_sufficient_evidence(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":[{'
+        '"usage_row_id":"row-1","vendor":"Microsoft","product":"Microsoft 365 E3","normalized_product":"microsoft 365 e3",'
+        '"annual_reviewed_cost":24000,"currency":"USD","purchased_seats":100,"active_users_30d":40,"confidence":0.9'
+        '}],"contract_candidates":[{'
+        '"contract_id":"contract-1","vendor":"Microsoft","title":"Microsoft 365 E3 renewal",'
+        '"renewal_date":"2026-12-31","notice_deadline_date":"2026-11-30","annual_cost":24000,"currency":"USD"'
+        '}]}'
+    )
+    response = client.post("/reconcile-usage", content=body, headers=signed_headers("POST", "/reconcile-usage", body))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matched_count"] == 1
+    assert payload["unmatched_count"] == 0
+    assert all(finding["matched_contract_ids"] == ["contract-1"] for finding in payload["findings"])
+
+
+def test_reconcile_usage_does_not_attach_ambiguous_contract_match(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":[{'
+        '"usage_row_id":"row-1","vendor":"Microsoft","product":"Microsoft 365","normalized_product":"microsoft 365",'
+        '"annual_reviewed_cost":24000,"currency":"USD","purchased_seats":100,"active_users_30d":0,"confidence":0.9'
+        '}],"contract_candidates":['
+        '{"contract_id":"contract-1","vendor":"Microsoft","title":"Microsoft 365 E3 renewal"},'
+        '{"contract_id":"contract-2","vendor":"Microsoft","title":"Microsoft 365 E5 renewal"}'
+        ']}'
+    )
+    response = client.post("/reconcile-usage", content=body, headers=signed_headers("POST", "/reconcile-usage", body))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matched_count"] == 0
+    assert payload["unmatched_count"] == 1
+    assert payload["findings"][0]["matched_contract_ids"] == []
+    assert "ambiguous_contract_match" in payload["findings"][0]["warnings"]
+
+
+def test_reconcile_usage_keeps_unmatched_rows_unattached(monkeypatch):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = (
+        '{"organization_id":"org-1","usage_import_batch_id":"batch-1","matching_mode":"balanced",'
+        '"normalized_rows":[{'
+        '"usage_row_id":"row-1","vendor":"Microsoft","product":"Microsoft 365 E3","normalized_product":"microsoft 365 e3",'
+        '"annual_reviewed_cost":24000,"currency":"USD","purchased_seats":100,"active_users_30d":0,"confidence":0.9'
+        '}],"contract_candidates":[{"contract_id":"contract-1","vendor":"Salesforce","title":"Salesforce renewal"}]}'
+    )
+    response = client.post("/reconcile-usage", content=body, headers=signed_headers("POST", "/reconcile-usage", body))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["matched_count"] == 0
+    assert payload["unmatched_count"] == 1
+    assert all(finding["matched_contract_ids"] == [] for finding in payload["findings"])
+
+
 def test_reconcile_usage_never_invents_missing_price_per_seat(monkeypatch):
     monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
     body = (
@@ -253,6 +315,119 @@ def test_reconcile_usage_detects_duplicate_products_and_excludes_samples(monkeyp
     duplicate = [finding for finding in payload["findings"] if finding["finding_type"] == "duplicate_product_contract"][0]
     assert duplicate["source_row_ids"] == ["row-1", "row-2"]
     assert "row-sample" not in str(payload)
+
+
+def post_reconciliation(monkeypatch, payload):
+    monkeypatch.setenv("ADD_ON_INTERNAL_SIGNING_SECRET", SECRET)
+    body = json.dumps(payload, separators=(",", ":"))
+    return client.post("/reconcile-usage", content=body, headers=signed_headers("POST", "/reconcile-usage", body))
+
+
+def cross_provider_payload(google_active=10, microsoft_active=80, google_cost=12000, google_currency="USD"):
+    return {
+        "organization_id": "org-1",
+        "usage_import_batch_id": "batch-google",
+        "matching_mode": "balanced",
+        "provider_warning_codes": ["purchased_seats_unavailable_using_assigned_count"],
+        "normalized_rows": [
+            {
+                "usage_row_id": "row-microsoft",
+                "provider": "microsoft_365",
+                "vendor": "Microsoft",
+                "product": "Microsoft 365 Enterprise Pack",
+                "normalized_product": "microsoft 365 enterprise pack",
+                "annual_reviewed_cost": 24000,
+                "currency": "USD",
+                "purchased_seats": 100,
+                "assigned_seats": 100,
+                "active_users_30d": microsoft_active,
+                "active_users_90d": 90,
+                "collected_at": "2026-08-17T00:00:00Z",
+                "confidence": 0.9,
+            },
+            {
+                "usage_row_id": "row-google",
+                "provider": "google_workspace",
+                "vendor": "Google",
+                "product": "Google Workspace Business Standard",
+                "normalized_product": "google workspace business standard",
+                "annual_reviewed_cost": google_cost,
+                "currency": google_currency,
+                "purchased_seats": 100,
+                "assigned_seats": 100,
+                "active_users_30d": google_active,
+                "active_users_90d": 20,
+                "collected_at": "2026-08-17T00:00:00Z",
+                "confidence": 0.9,
+            },
+        ],
+        "contract_candidates": [
+            {"contract_id": "contract-microsoft", "vendor": "Microsoft", "title": "Microsoft 365 renewal", "renewal_date": "2026-12-01", "notice_deadline_date": "2026-10-01", "annual_cost": 24000, "currency": "USD"},
+            {"contract_id": "contract-google", "vendor": "Google", "title": "Google Workspace renewal", "renewal_date": "2027-01-01", "notice_deadline_date": "2026-11-01", "annual_cost": google_cost, "currency": google_currency},
+        ],
+    }
+
+
+def test_reconcile_usage_detects_evidence_backed_cross_provider_overlap(monkeypatch):
+    response = post_reconciliation(monkeypatch, cross_provider_payload())
+    assert response.status_code == 200
+    overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+    assert overlaps
+    finding = overlaps[0]
+    assert finding["involved_providers"] == ["microsoft_365", "google_workspace"]
+    assert finding["capability_category"] in {"email_calendar", "office_editing"}
+    assert finding["taxonomy_version"] == "subscription_capability_taxonomy_v1"
+    assert finding["recommended_action"] == "investigate"
+    assert finding["estimated_savings_min"] <= finding["estimated_savings_max"]
+    assert finding["confidence"] < 0.75
+    assert set(finding["matched_contract_ids"]) == {"contract-microsoft", "contract-google"}
+    assert {item["contract_id"] for item in finding["evidence"]["contract_deadlines"]} == {"contract-microsoft", "contract-google"}
+    assert all(item["renewal_date"] for item in finding["evidence"]["contract_deadlines"])
+
+
+def test_reconcile_usage_avoids_overlap_when_both_products_are_well_adopted(monkeypatch):
+    response = post_reconciliation(monkeypatch, cross_provider_payload(google_active=80, microsoft_active=85))
+    assert response.status_code == 200
+    assert not [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+
+
+def test_reconcile_usage_marks_missing_cost_without_inventing_overlap_savings(monkeypatch):
+    response = post_reconciliation(monkeypatch, cross_provider_payload(google_cost=None))
+    overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+    assert overlaps
+    assert overlaps[0]["estimated_savings"] is None
+    assert "missing_reviewed_cost" in overlaps[0]["warnings"]
+
+
+def test_reconcile_usage_keeps_cross_currency_savings_in_low_usage_currency(monkeypatch):
+    response = post_reconciliation(monkeypatch, cross_provider_payload(google_currency="EUR"))
+    overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+    assert overlaps
+    assert all(item["currency"] == "EUR" for item in overlaps)
+    assert "USD" not in {item["currency"] for item in overlaps}
+
+
+def test_reconcile_usage_uses_uniquely_matched_reviewed_contract_cost_for_live_provider_rows(monkeypatch):
+    payload = cross_provider_payload()
+    payload["normalized_rows"][1]["annual_reviewed_cost"] = None
+    payload["normalized_rows"][1]["currency"] = None
+    response = post_reconciliation(monkeypatch, payload)
+    overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+    assert overlaps
+    assert all(item["estimated_savings_max"] is not None for item in overlaps)
+    assert all(item["currency"] == "USD" for item in overlaps)
+    assert all("missing_reviewed_cost" not in item["warnings"] for item in overlaps)
+
+
+def test_reconcile_usage_stale_or_partial_evidence_cannot_be_high_confidence(monkeypatch):
+    payload = cross_provider_payload()
+    payload["provider_warning_codes"].append("partial_activity_data")
+    payload["normalized_rows"][1]["last_activity_at"] = "2025-01-01T00:00:00Z"
+    response = post_reconciliation(monkeypatch, payload)
+    overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+    assert overlaps
+    assert all(item["confidence"] < 0.5 for item in overlaps)
+    assert all("partial_activity_data" in item["warnings"] for item in overlaps)
 
 
 def test_invalid_signature_rejected(monkeypatch):

@@ -80,7 +80,18 @@ Current implementation is deterministic scaffold logic. It does not call AI prov
 
 Add-on ID: `subscription_usage_optimization`
 
-This is a Growth-gated, CSV-first starter add-on. TypeScript owns customer workflow state, entitlement checks, persistence, audit, and human review. Python receives only bounded, organization-scoped normalized usage rows and optional eligible contract candidates through the signed add-on client.
+This is a Growth-gated add-on. Microsoft 365 and Google Workspace are provider connector paths when their provider settings, `JAVA_ENTERPRISE_CONNECTORS_URL`, and `ADD_ON_INTERNAL_SIGNING_SECRET` are configured. CSV/XLSX import remains an Advanced fallback. TypeScript owns customer workflow state, entitlement checks, persistence, audit, and human review. Java retrieves provider usage and returns aggregate product counts only. Python receives only bounded, organization-scoped normalized usage rows and optional eligible contract candidates through the signed add-on client.
+
+Microsoft Graph permissions are intentionally narrow:
+
+- `LicenseAssignment.Read.All` for purchased/assigned license inventory.
+- `Reports.Read.All` for 30/90-day active-user report summaries.
+
+The Microsoft 365 connector must not store or log access tokens, refresh tokens, authorization codes, raw Graph CSV/JSON payloads, user principal names, or user activity detail rows. Credentials are represented in the TypeScript database only as `managed-secret:microsoft365:{organizationId}:{tenantId}` references plus a fingerprint.
+
+Google Workspace uses administrator OAuth with two scopes: `apps.licensing` for assigned SKU inventory and `admin.reports.usage.readonly` for aggregate 30/90-day activity evidence. Google does not offer a read-only Licensing API scope, so the connector requests the official licensing scope but performs GET operations only. Directory scope is intentionally not requested because the current aggregate connector does not need directory profiles. Refresh credentials are AES-256-GCM encrypted in a service-role-only vault; customer sessions and add-on services see only a managed reference and fingerprint. See [Google Workspace Subscription Usage Connector](GOOGLE_WORKSPACE_SUBSCRIPTION_USAGE_CONNECTOR.md).
+
+Cross-provider overlap uses the versioned, reviewable mapping in `config/subscription-capability-taxonomy.v1.json`. Findings are candidates for investigation, never proof of equivalence or an automatic cancellation instruction. Costs remain separated by currency unless an explicit conversion process is introduced.
 
 The starter reconciliation returns reviewable findings only:
 
@@ -130,11 +141,9 @@ Planned adapters remain future-only:
 - Workday
 - NetSuite
 - SCIM/SAML identity provisioning
-- Microsoft 365 usage inventory
-- Google Workspace usage inventory
 - Okta usage inventory
 
-The `subscription_usage` connector type is a future enterprise connector boundary. The Java service defines a `UsageInventoryConnector` interface with credential references, paginated snapshots, idempotency, health/capability semantics, and fixture-only tests. It is not a production usage integration yet.
+The `subscription_usage` connector type has Microsoft 365 and Google Workspace adapters. The Java service defines a `UsageInventoryConnector` interface with credential references, paginated snapshots, idempotency, health/capability semantics, Retry-After/backoff handling, bounded payload reads, and mocked provider tests. Okta, procurement, ERP, workflow, and identity provider adapters remain future-only.
 
 ## TypeScript Clients
 

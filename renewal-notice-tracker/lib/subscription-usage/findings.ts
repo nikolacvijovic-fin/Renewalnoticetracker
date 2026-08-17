@@ -21,6 +21,8 @@ export type SubscriptionUsageFindingReviewResult =
         reviewStatus: Exclude<SubscriptionUsageFindingReviewStatus, "open">;
         acceptedAction: SubscriptionUsageAcceptedAction | null;
         hasRealizedSavings: boolean;
+        feedbackClassification: "correct" | "incorrect" | "requires_help" | null;
+        feedbackReason: string | null;
       };
     }
   | {
@@ -72,7 +74,9 @@ export function prepareSubscriptionUsageFindingReview(
       actorUserId: input.actorUserId,
       reviewStatus: input.nextStatus,
       acceptedAction: input.acceptedAction ?? null,
-      hasRealizedSavings: input.realizedSavings !== null && input.realizedSavings !== undefined
+      hasRealizedSavings: input.realizedSavings !== null && input.realizedSavings !== undefined,
+      feedbackClassification: input.feedbackClassification ?? null,
+      feedbackReason: input.feedbackReason ?? null
     }
   };
 }
@@ -106,7 +110,12 @@ export function sanitizeSubscriptionUsageAuditMetadata(metadata: Record<string, 
     "reasonCode",
     "calculationVersion",
     "confidence",
-    "hasRealizedSavings"
+    "hasRealizedSavings",
+    "feedbackClassification",
+    "feedbackReason",
+    "capabilityCategory",
+    "taxonomyVersion",
+    "involvedProviders"
   ]);
   return Object.fromEntries(
     Object.entries(metadata)

@@ -162,7 +162,7 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
       minimumPlan: "growth",
       commercialFeatures: ["subscription_usage_optimization"],
       policy:
-        "Growth-gated CSV-first add-on. Customer activation remains blocked when Python reconciliation is unhealthy or unconfigured; Java connectors are optional/future-only."
+        "Growth-gated experimental add-on with Microsoft 365 and Google Workspace connector paths plus a CSV/XLSX fallback. Activation remains blocked when signed Java retrieval or Python reconciliation is unhealthy or unconfigured."
     },
     ownerSurfaces: {
       routes: ["/dashboard/subscription-optimization"],
@@ -170,14 +170,18 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
       modules: [
         "lib/subscription-usage",
         "lib/add-ons/python-intelligence-client.ts",
+        "lib/add-ons/java-enterprise-client.ts",
         "services/python-intelligence/app/routes/reconcile_usage.py",
-        "services/java-enterprise-connectors/src/main/java/com/noticecontrol/enterprise/connectors/UsageInventoryConnector.java"
+        "services/java-enterprise-connectors/src/main/java/com/noticecontrol/enterprise/connectors/UsageInventoryConnector.java",
+        "services/java-enterprise-connectors/src/main/java/com/noticecontrol/enterprise/connectors/GoogleWorkspaceUsageInventoryConnector.java"
       ],
-      docs: ["docs/add-on-architecture.md"]
+      docs: ["docs/add-on-architecture.md", "docs/GOOGLE_WORKSPACE_SUBSCRIPTION_USAGE_CONNECTOR.md"]
     },
     requiredTestsOrReleaseGates: [
       "tests/subscription-usage-import.test.ts",
       "tests/subscription-usage-workflow.test.ts",
+      "tests/subscription-usage-microsoft365.test.ts",
+      "tests/subscription-usage-google-workspace.test.ts",
       "services/python-intelligence/tests/test_endpoints.py",
       "services/java-enterprise-connectors/src/test/java/com/noticecontrol/enterprise/UsageInventoryConnectorTest.java",
       "test:intelligence-release-gate"
@@ -185,13 +189,14 @@ export const PLATFORM_MODULES: Record<PlatformModuleId, PlatformModule> = {
     promotionCriteria: [
       "Usage imports are tenant-scoped, idempotent, and reviewable.",
       "Python returns deterministic findings with source row IDs, confidence, warnings, and no invented per-seat prices.",
-      "Human-reviewed actions are required before any savings claim becomes accepted."
+      "Human-reviewed actions are required before any savings claim becomes accepted.",
+      "Provider consent, credential rotation, scheduled synchronization, and mocked provider failure suites are proven in staging."
     ],
     notAllowed: [
       "Automatic cancellation",
       "Vendor messages",
       "Unsupported savings guarantees",
-      "Production Java usage connectors before provider-specific auth and support gates"
+      "Provider writes, automatic license removal, or automatic subscription cancellation"
     ]
   },
   export_reporting_intelligence: {

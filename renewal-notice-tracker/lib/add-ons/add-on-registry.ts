@@ -68,7 +68,7 @@ export const ADD_ON_MANIFESTS = [
     outputContract: "SubscriptionUsageReconcileResponse",
     healthCheckPath: "/health",
     documentationHref: "/docs/add-on-architecture#subscription-usage-optimization",
-    commercialValue: "CSV-first reviewable savings findings for unused seats, low utilization, stale usage, and duplicate/overlap candidates before renewal.",
+    commercialValue: "Provider-synchronized and file-fallback reviewable findings for unused seats, stale usage, and cautious Microsoft/Google capability overlap before renewal.",
     riskLevel: "high"
   },
   {

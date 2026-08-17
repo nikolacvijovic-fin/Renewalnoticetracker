@@ -127,6 +127,35 @@ describe("runtime configuration", () => {
     ).toThrow(/ADD_ON_INTERNAL_SIGNING_SECRET/i);
   });
 
+  it("loads a complete optional Google Workspace connector configuration", () => {
+    const config = parseAppConfig(
+      makeValidEnv({
+        ADD_ON_INTERNAL_SIGNING_SECRET: "test-add-on-signing-secret",
+        GOOGLE_WORKSPACE_CLIENT_ID: "google-client-id",
+        GOOGLE_WORKSPACE_CLIENT_SECRET: "google-client-secret",
+        GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI: "https://app.example.test/api/subscription-usage/google-workspace/callback",
+        GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY: "test-credential-encryption-key-32chars"
+      })
+    );
+
+    expect(config.googleWorkspace).toEqual({
+      clientId: "google-client-id",
+      clientSecret: "google-client-secret",
+      oauthRedirectUri: "https://app.example.test/api/subscription-usage/google-workspace/callback",
+      credentialEncryptionKey: "test-credential-encryption-key-32chars"
+    });
+  });
+
+  it("rejects partial Google Workspace connector configuration", () => {
+    expect(() =>
+      parseAppConfig(
+        makeValidEnv({
+          GOOGLE_WORKSPACE_CLIENT_ID: "google-client-id"
+        })
+      )
+    ).toThrow(/GOOGLE_WORKSPACE_CLIENT_SECRET/i);
+  });
+
   it("fails clearly when required secrets are missing", () => {
     const env = makeValidEnv();
     delete env.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET;

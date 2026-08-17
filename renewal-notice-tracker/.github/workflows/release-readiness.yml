@@ -1,0 +1,73 @@
+name: Release readiness
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  release-readiness:
+    name: Release readiness gates
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: renewal-notice-tracker/package-lock.json
+
+      - name: Install Node dependencies
+        working-directory: renewal-notice-tracker
+        run: npm ci
+
+      - name: Run lint
+        working-directory: renewal-notice-tracker
+        run: npm run lint
+
+      - name: Run typecheck
+        working-directory: renewal-notice-tracker
+        run: npm run typecheck
+
+      - name: Run release-critical tests
+        working-directory: renewal-notice-tracker
+        run: npm run test:release-critical
+
+      - name: Run intelligence release gate
+        working-directory: renewal-notice-tracker
+        run: npm run test:intelligence-release-gate
+
+  add-on-runtimes:
+    name: Add-on runtime tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python test dependencies
+        working-directory: renewal-notice-tracker/services/python-intelligence
+        run: python -m pip install -e ".[test]"
+
+      - name: Run Python intelligence tests
+        working-directory: renewal-notice-tracker
+        run: python -m pytest services/python-intelligence/tests/test_endpoints.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Run Java enterprise connector tests
+        working-directory: renewal-notice-tracker/services/java-enterprise-connectors
+        run: mvn test

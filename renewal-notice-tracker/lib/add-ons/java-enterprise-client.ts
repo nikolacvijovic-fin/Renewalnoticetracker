@@ -18,7 +18,12 @@ export type EnterpriseConnectorResult = {
 export type UsageInventoryConnectorRequest = {
   organization_id: string;
   connector_type: "subscription_usage";
+  provider?: "microsoft_365" | "google_workspace";
+  tenant_id?: string | null;
+  customer_id?: string | null;
+  domain?: string | null;
   credential_reference: string;
+  provider_access_token?: string | null;
   cursor?: string | null;
   page_size: number;
   idempotency_key: string;
@@ -39,9 +44,12 @@ export type UsageInventoryConnectorResult = {
     last_activity_at?: string | null;
     collected_at: string;
     source_label: string;
+    warning_codes?: string[];
   }>;
   next_cursor: string | null;
   warnings: string[];
+  retry_count?: number;
+  partial?: boolean;
 };
 
 function options(overrides: Partial<AddOnClientOptions> = {}): AddOnClientOptions {
@@ -61,6 +69,17 @@ export function executeEnterpriseConnector(request: EnterpriseConnectorRequest, 
   return callAddOnJson<EnterpriseConnectorRequest, EnterpriseConnectorResult>({
     ...options(overrides),
     path: "/connectors/execute",
+    body: request
+  });
+}
+
+export function fetchUsageInventorySnapshot(
+  request: UsageInventoryConnectorRequest,
+  overrides?: Partial<AddOnClientOptions>
+) {
+  return callAddOnJson<UsageInventoryConnectorRequest, UsageInventoryConnectorResult>({
+    ...options(overrides),
+    path: "/connectors/subscription-usage/snapshot",
     body: request
   });
 }

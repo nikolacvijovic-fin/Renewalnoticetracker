@@ -16,15 +16,15 @@ final class FixtureUsageInventoryConnector implements UsageInventoryConnector {
   @Override
   public UsageInventorySnapshotResult fetchUsageSnapshot(UsageInventorySnapshotRequest request) {
     if (production) {
-      return new UsageInventorySnapshotResult(false, request.connectorType(), List.of(), null, List.of("fixture_adapter_disabled_in_production"));
+      return new UsageInventorySnapshotResult(false, request.connectorType(), List.of(), null, List.of("fixture_adapter_disabled_in_production"), 0, false);
     }
     if (request.credentialReference() == null || request.credentialReference().isBlank()) {
-      return new UsageInventorySnapshotResult(false, request.connectorType(), List.of(), null, List.of("missing_credential_reference"));
+      return new UsageInventorySnapshotResult(false, request.connectorType(), List.of(), null, List.of("missing_credential_reference"), 0, false);
     }
     int pageSize = Math.max(1, Math.min(request.pageSize(), 100));
     List<UsageInventoryRecord> records = List.of(
-        new UsageInventoryRecord("fixture-1", "Acme", "Acme Suite", "collaboration", 100, 90, 35, 50, "2026-08-01T00:00:00Z", "2026-08-12T00:00:00Z", "fixture")
+        new UsageInventoryRecord("fixture-1", "Acme", "Acme Suite", "collaboration", 100, 90, 35, 50, "2026-08-01T00:00:00Z", "2026-08-12T00:00:00Z", "fixture", List.of())
     ).subList(0, Math.min(1, pageSize));
-    return new UsageInventorySnapshotResult(true, request.connectorType(), records, null, List.of("fixture_only_not_production_connector"));
+    return new UsageInventorySnapshotResult(true, request.connectorType(), records, null, List.of("fixture_only_not_production_connector"), 0, false);
   }
 }

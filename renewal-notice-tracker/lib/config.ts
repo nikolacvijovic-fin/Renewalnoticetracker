@@ -157,6 +157,12 @@ const rawEnvBaseSchema = z.object({
   PYTHON_INTELLIGENCE_URL: optionalUrl,
   GO_WORKER_URL: optionalUrl,
   JAVA_ENTERPRISE_CONNECTORS_URL: optionalUrl,
+  MICROSOFT_365_CLIENT_ID: optionalNonEmptyString,
+  MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI: optionalUrl,
+  GOOGLE_WORKSPACE_CLIENT_ID: optionalNonEmptyString,
+  GOOGLE_WORKSPACE_CLIENT_SECRET: optionalNonEmptyString,
+  GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI: optionalUrl,
+  GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY: optionalNonEmptyString,
   BACKGROUND_EXPORT_PAGE_SIZE: operationalInt({ min: 100, max: 5000, fallback: 1000 }),
   BACKGROUND_EXPORT_JOB_LIMIT: operationalInt({ min: 1, max: 10, fallback: 3 }),
   REMINDER_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 15 }),
@@ -184,6 +190,51 @@ const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
       path: ["ADD_ON_INTERNAL_SIGNING_SECRET"],
       message: "ADD_ON_INTERNAL_SIGNING_SECRET is required when any add-on service URL is configured."
     });
+  }
+
+  if (value.MICROSOFT_365_CLIENT_ID && !value.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI"],
+      message: "MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI is required when MICROSOFT_365_CLIENT_ID is configured."
+    });
+  }
+
+  const googleWorkspaceConfigured = Boolean(
+    value.GOOGLE_WORKSPACE_CLIENT_ID ||
+    value.GOOGLE_WORKSPACE_CLIENT_SECRET ||
+    value.GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI ||
+    value.GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY
+  );
+  if (googleWorkspaceConfigured) {
+    for (const [key, configured] of [
+      ["GOOGLE_WORKSPACE_CLIENT_ID", value.GOOGLE_WORKSPACE_CLIENT_ID],
+      ["GOOGLE_WORKSPACE_CLIENT_SECRET", value.GOOGLE_WORKSPACE_CLIENT_SECRET],
+      ["GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI", value.GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI],
+      ["GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY", value.GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY]
+    ] as const) {
+      if (!configured) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} is required when Google Workspace synchronization is configured.`
+        });
+      }
+    }
+    if (!value.ADD_ON_INTERNAL_SIGNING_SECRET) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ADD_ON_INTERNAL_SIGNING_SECRET"],
+        message: "ADD_ON_INTERNAL_SIGNING_SECRET is required when Google Workspace synchronization is configured."
+      });
+    }
+    if (value.GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY && value.GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY.length < 32) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY"],
+        message: "GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY must contain at least 32 characters."
+      });
+    }
   }
 
   if (!isProductionConfigSource(value)) {
@@ -334,6 +385,16 @@ export type AppConfig = {
     goWorkerUrl: string | null;
     javaEnterpriseConnectorsUrl: string | null;
   };
+  microsoft365: {
+    clientId: string | null;
+    adminConsentRedirectUri: string | null;
+  };
+  googleWorkspace: {
+    clientId: string | null;
+    clientSecret: string | null;
+    oauthRedirectUri: string | null;
+    credentialEncryptionKey: string | null;
+  };
   raw: RawConfig;
 };
 
@@ -428,6 +489,16 @@ export function parseAppConfig(
       pythonIntelligenceUrl: nullable(raw.PYTHON_INTELLIGENCE_URL),
       goWorkerUrl: nullable(raw.GO_WORKER_URL),
       javaEnterpriseConnectorsUrl: nullable(raw.JAVA_ENTERPRISE_CONNECTORS_URL)
+    },
+    microsoft365: {
+      clientId: nullable(raw.MICROSOFT_365_CLIENT_ID),
+      adminConsentRedirectUri: nullable(raw.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI)
+    },
+    googleWorkspace: {
+      clientId: nullable(raw.GOOGLE_WORKSPACE_CLIENT_ID),
+      clientSecret: nullable(raw.GOOGLE_WORKSPACE_CLIENT_SECRET),
+      oauthRedirectUri: nullable(raw.GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI),
+      credentialEncryptionKey: nullable(raw.GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY)
     },
     raw
   };

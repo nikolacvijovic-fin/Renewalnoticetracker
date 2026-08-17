@@ -1,8 +1,8 @@
 # Java Enterprise Connectors
 
-Optional enterprise connector boundary for future large-customer integrations.
+Optional enterprise connector boundary for large-customer integrations.
 
-Current state: interface and health scaffold only. This service does not ship Coupa, SAP Ariba, Oracle, ServiceNow, Workday, NetSuite, SCIM, or SAML adapters yet.
+Current state: health scaffold plus Microsoft 365 and Google Workspace subscription-usage inventory adapters. This service does not ship Coupa, SAP Ariba, Oracle, ServiceNow, Workday, NetSuite, Okta, SCIM, or SAML adapters yet.
 
 ## What This Teaches
 
@@ -39,16 +39,18 @@ Intermediate:
 
 Advanced:
 
-- Implement a provider-specific connector behind an explicit enterprise gate.
+- Extend the provider usage adapters with additional mocked provider scenarios before production rollout.
 - Add idempotent sync and provider retry behavior without logging raw payloads.
 
 ## Integration With TypeScript
 
-The Next.js app calls this service only through `lib/add-ons/java-enterprise-client.ts`. Java remains optional and enterprise-only until a gated connector integration is actually shipped.
+The Next.js app calls this service only through `lib/add-ons/java-enterprise-client.ts`. Java remains optional and add-on-gated; TypeScript continues to own organization membership, billing/entitlement checks, persistence, audit, and review workflow.
 
 ## Scaffolded vs Production-Ready
 
-Current state: scaffolded. Production readiness requires provider-specific adapters, tenant-scoped persistence, audit contracts, idempotency, monitoring, and customer-specific enablement.
+Microsoft 365 and Google Workspace subscription usage are implemented behind the signed connector boundary. Production rollout still requires the service to be deployed and `JAVA_ENTERPRISE_CONNECTORS_URL` plus `ADD_ON_INTERNAL_SIGNING_SECRET` to be configured in the Next.js app. Microsoft uses tenant admin consent and a managed Graph credential reference. Google uses administrator OAuth; TypeScript refreshes a server-encrypted credential and sends only the short-lived access token over the signed internal request. Java never receives database authority or refresh credentials.
+
+The adapters return normalized aggregate subscription inventory only. They must not log raw provider responses, access tokens, refresh tokens, authorization codes, user principal names, email addresses, or user activity detail rows.
 
 ## Boundary
 

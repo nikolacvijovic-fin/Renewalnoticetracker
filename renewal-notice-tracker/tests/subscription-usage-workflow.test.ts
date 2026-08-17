@@ -127,4 +127,23 @@ describe("subscription usage optimization workflow", () => {
     });
     expect(JSON.stringify(safe)).not.toMatch(/RAW_USAGE_FILE|secret|token|payload/i);
   });
+
+  it("preserves structured overlap feedback in safe review evidence", () => {
+    expect(
+      prepareSubscriptionUsageFindingReview({
+        findingId: "finding-overlap",
+        organizationId: "org-1",
+        actorUserId: "reviewer-1",
+        nextStatus: "rejected",
+        feedbackClassification: "incorrect",
+        feedbackReason: "separate_departments"
+      })
+    ).toEqual(expect.objectContaining({
+      allowed: true,
+      auditMetadata: expect.objectContaining({
+        feedbackClassification: "incorrect",
+        feedbackReason: "separate_departments"
+      })
+    }));
+  });
 });

@@ -125,6 +125,7 @@ class ReconcileUsageRequest(BaseModel):
     matching_mode: Literal["strict", "balanced", "exploratory"]
     normalized_rows: list["UsageInventoryRow"] = Field(default_factory=list, max_length=1000)
     contract_candidates: list["UsageContractCandidate"] = Field(default_factory=list, max_length=1000)
+    provider_warning_codes: list[str] = Field(default_factory=list, max_length=50)
 
 
 class UsageInventoryRow(BaseModel):
@@ -132,6 +133,8 @@ class UsageInventoryRow(BaseModel):
     vendor: str = ""
     product: str = ""
     normalized_product: str = ""
+    provider: Literal["manual_csv", "microsoft_365", "google_workspace"] = "manual_csv"
+    external_product_id: str | None = None
     category: str | None = None
     annual_reviewed_cost: float | None = Field(default=None, ge=0)
     currency: str | None = None
@@ -144,6 +147,7 @@ class UsageInventoryRow(BaseModel):
     trust_state: str | None = None
     confidence: float | None = Field(default=None, ge=0, le=1)
     is_sample: bool | None = False
+    department: str | None = None
 
 
 class UsageContractCandidate(BaseModel):
@@ -185,8 +189,19 @@ class ReconcileUsageFinding(BaseModel):
         "consolidate",
         "terminate",
         "renegotiate",
+        "investigate",
         "insufficient_evidence",
     ]
+    involved_providers: list[str] = Field(default_factory=list)
+    involved_products: list[str] = Field(default_factory=list)
+    capability_category: str | None = None
+    taxonomy_version: str | None = None
+    estimated_savings_min: float | None = None
+    estimated_savings_max: float | None = None
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    explanation: str | None = None
+    recommended_human_action: str | None = None
+    fingerprint_key: str | None = None
 
 
 class ReconcileUsageResponse(BaseModel):

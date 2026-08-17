@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { callAddOnJson, sha256Hex, signAddOnRequest } from "@/lib/add-ons/client-core";
 import { checkPythonIntelligenceHealth, extractContract } from "@/lib/add-ons/python-intelligence-client";
 import { checkGoWorkerHealth, enqueueGoWorkerJob } from "@/lib/add-ons/go-worker-client";
-import { checkJavaEnterpriseHealth } from "@/lib/add-ons/java-enterprise-client";
+import { checkJavaEnterpriseHealth, fetchUsageInventorySnapshot } from "@/lib/add-ons/java-enterprise-client";
 
 describe("add-on clients", () => {
   it("returns a safe not-configured result when base URL is missing", async () => {
@@ -124,6 +124,45 @@ describe("add-on clients", () => {
         payload: { reminder_id: "reminder-1" }
       },
       { baseUrl: "https://worker.example.com", fetchImpl, signingSecret: "test-add-on-secret" }
+    );
+
+    expect(result).toEqual(expect.objectContaining({ ok: true }));
+  });
+
+  it("requests Microsoft 365 usage snapshots through the signed Java connector boundary", async () => {
+    const fetchImpl = vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body).toEqual(
+        expect.objectContaining({
+          organization_id: "org-1",
+          connector_type: "subscription_usage",
+          provider: "microsoft_365",
+          tenant_id: "tenant-1",
+          credential_reference: "managed-secret:microsoft365:org-1:tenant-1",
+          idempotency_key: "sync-key-1"
+        })
+      );
+      expect(JSON.stringify(init?.headers)).not.toMatch(/managed-secret:microsoft365:org-1:tenant-1/);
+      return Response.json({
+        accepted: true,
+        connector_type: "subscription_usage",
+        records: [],
+        next_cursor: null,
+        warnings: []
+      });
+    });
+
+    const result = await fetchUsageInventorySnapshot(
+      {
+        organization_id: "org-1",
+        connector_type: "subscription_usage",
+        provider: "microsoft_365",
+        tenant_id: "tenant-1",
+        credential_reference: "managed-secret:microsoft365:org-1:tenant-1",
+        page_size: 500,
+        idempotency_key: "sync-key-1"
+      },
+      { baseUrl: "https://java.example.com", fetchImpl, signingSecret: "test-add-on-secret" }
     );
 
     expect(result).toEqual(expect.objectContaining({ ok: true }));

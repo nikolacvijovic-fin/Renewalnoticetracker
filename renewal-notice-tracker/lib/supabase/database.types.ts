@@ -249,6 +249,42 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["saas_contract_metadata_conflict_resolutions"]["Insert"]>;
         Relationships: [];
       };
+      subscription_usage_provider_connections: {
+        Row: { id: string; organization_id: string; provider: string; provider_tenant_id: string; provider_tenant_name: string | null; status: string; credential_reference: string; credential_fingerprint: string; required_permissions: string[]; connection_owner_user_id: string | null; last_successful_sync_at: string | null; last_error_code: string | null; next_scheduled_sync_at: string | null; disconnected_at: string | null; metadata: Json; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; provider: string; provider_tenant_id: string; provider_tenant_name?: string | null; status?: string; credential_reference: string; credential_fingerprint: string; required_permissions?: string[]; connection_owner_user_id?: string | null; last_successful_sync_at?: string | null; last_error_code?: string | null; next_scheduled_sync_at?: string | null; disconnected_at?: string | null; metadata?: Json; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["subscription_usage_provider_connections"]["Insert"]>;
+        Relationships: [];
+      };
+      subscription_usage_provider_credentials: {
+        Row: { id: string; organization_id: string; provider_connection_id: string; provider: string; encrypted_credential: string; credential_fingerprint: string; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; provider_connection_id: string; provider: string; encrypted_credential: string; credential_fingerprint: string; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["subscription_usage_provider_credentials"]["Insert"]>;
+        Relationships: [];
+      };
+      subscription_usage_sync_runs: {
+        Row: { id: string; organization_id: string; provider_connection_id: string; provider: string; status: string; idempotency_key: string; usage_import_batch_id: string | null; started_at: string | null; completed_at: string | null; failed_at: string | null; duration_ms: number | null; row_count: number; finding_count: number; retry_count: number; provider_error_category: string | null; last_error_code: string | null; cursor_checkpoint: string | null; metadata: Json; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; provider_connection_id: string; provider: string; status?: string; idempotency_key: string; usage_import_batch_id?: string | null; started_at?: string | null; completed_at?: string | null; failed_at?: string | null; duration_ms?: number | null; row_count?: number; finding_count?: number; retry_count?: number; provider_error_category?: string | null; last_error_code?: string | null; cursor_checkpoint?: string | null; metadata?: Json; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["subscription_usage_sync_runs"]["Insert"]>;
+        Relationships: [];
+      };
+      usage_import_batches: {
+        Row: { id: string; organization_id: string; actor_user_id: string | null; source: string; status: string; row_count: number; metadata: Json; idempotency_key: string | null; file_name: string | null; template_version: string; committed_at: string | null; completed_at: string | null; failed_at: string | null; error_count: number; ready_count: number; rejected_count: number; partial_success: boolean; provider: string | null; provider_connection_id: string | null; sync_run_id: string | null; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; actor_user_id?: string | null; source: string; status?: string; row_count?: number; metadata?: Json; idempotency_key?: string | null; file_name?: string | null; template_version?: string; committed_at?: string | null; completed_at?: string | null; failed_at?: string | null; error_count?: number; ready_count?: number; rejected_count?: number; partial_success?: boolean; provider?: string | null; provider_connection_id?: string | null; sync_run_id?: string | null; created_at?: string; updated_at?: string };
+        Update: Partial<Database["public"]["Tables"]["usage_import_batches"]["Insert"]>;
+        Relationships: [];
+      };
+      usage_import_rows: {
+        Row: { id: string; organization_id: string; batch_id: string; row_number: number; vendor_name: string | null; product_name: string | null; seats_purchased: number | null; seats_used: number | null; spend_amount: number | null; currency: string | null; normalized_product: string | null; product_category: string | null; annual_reviewed_cost: number | null; purchased_seats: number | null; assigned_seats: number | null; active_users_30d: number | null; active_users_90d: number | null; last_activity_at: string | null; department: string | null; owner_label: string | null; contract_reference: string | null; source_label: string | null; collected_at: string | null; trust_state: string; confidence: number; validation_status: string; issue_codes: string[]; source_row_hash: string | null; is_sample: boolean; provider: string | null; provider_connection_id: string | null; sync_run_id: string | null; external_product_id: string | null; normalized_payload: Json; created_at: string };
+        Insert: { id?: string; organization_id: string; batch_id: string; row_number: number; vendor_name?: string | null; product_name?: string | null; seats_purchased?: number | null; seats_used?: number | null; spend_amount?: number | null; currency?: string | null; normalized_product?: string | null; product_category?: string | null; annual_reviewed_cost?: number | null; purchased_seats?: number | null; assigned_seats?: number | null; active_users_30d?: number | null; active_users_90d?: number | null; last_activity_at?: string | null; department?: string | null; owner_label?: string | null; contract_reference?: string | null; source_label?: string | null; collected_at?: string | null; trust_state?: string; confidence?: number; validation_status?: string; issue_codes?: string[]; source_row_hash?: string | null; is_sample?: boolean; provider?: string | null; provider_connection_id?: string | null; sync_run_id?: string | null; external_product_id?: string | null; normalized_payload?: Json; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["usage_import_rows"]["Insert"]>;
+        Relationships: [];
+      };
+      license_waste_opportunities: {
+        Row: { id: string; organization_id: string; contract_id: string | null; usage_batch_id: string | null; finding_type: string; estimated_savings: number | null; currency: string | null; evidence: Json; status: string; reason_code: string | null; calculation_version: string | null; usage_row_ids: string[]; matched_contract_ids: string[]; utilization: number | null; unused_seats: number | null; confidence: number; warnings: string[]; recommended_action: string | null; review_status: string; reviewed_by_user_id: string | null; reviewed_at: string | null; accepted_action: string | null; realized_savings: number | null; is_sample: boolean; provider: string | null; provider_connection_id: string | null; sync_run_id: string | null; finding_fingerprint: string | null; superseded_at: string | null; superseded_by_sync_run_id: string | null; capability_category: string | null; taxonomy_version: string | null; involved_providers: string[]; involved_products: string[]; estimated_savings_min: number | null; estimated_savings_max: number | null; feedback_classification: string | null; feedback_reason: string | null; created_at: string };
+        Insert: { id?: string; organization_id: string; contract_id?: string | null; usage_batch_id?: string | null; finding_type: string; estimated_savings?: number | null; currency?: string | null; evidence?: Json; status?: string; reason_code?: string | null; calculation_version?: string | null; usage_row_ids?: string[]; matched_contract_ids?: string[]; utilization?: number | null; unused_seats?: number | null; confidence?: number; warnings?: string[]; recommended_action?: string | null; review_status?: string; reviewed_by_user_id?: string | null; reviewed_at?: string | null; accepted_action?: string | null; realized_savings?: number | null; is_sample?: boolean; provider?: string | null; provider_connection_id?: string | null; sync_run_id?: string | null; finding_fingerprint?: string | null; superseded_at?: string | null; superseded_by_sync_run_id?: string | null; capability_category?: string | null; taxonomy_version?: string | null; involved_providers?: string[]; involved_products?: string[]; estimated_savings_min?: number | null; estimated_savings_max?: number | null; feedback_classification?: string | null; feedback_reason?: string | null; created_at?: string };
+        Update: Partial<Database["public"]["Tables"]["license_waste_opportunities"]["Insert"]>;
+        Relationships: [];
+      };
       reminders: {
         Row: { id: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails: Json; status: string; source: string; sent_at: string | null; created_at: string; rule_name: string | null; escalation_level: number; ical_uid: string | null; delivery_key: string | null; attempt_count: number; max_attempts: number; next_retry_at: string | null; last_attempt_at: string | null; last_error: string | null; processing_started_at: string | null; processing_token: string | null };
         Insert: { id?: string; contract_id: string; organization_id: string; reminder_type: string; remind_at: string; recipient_email: string; recipient_emails?: Json; status?: string; source?: string; sent_at?: string | null; created_at?: string; rule_name?: string | null; escalation_level?: number; ical_uid?: string | null; delivery_key?: string | null; attempt_count?: number; max_attempts?: number; next_retry_at?: string | null; last_attempt_at?: string | null; last_error?: string | null; processing_started_at?: string | null; processing_token?: string | null };
@@ -305,6 +341,14 @@ export type Database = {
       create_sample_contract_with_metadata: {
         Args: { p_organization_id: string };
         Returns: string;
+      };
+      create_subscription_usage_batch_with_rows: {
+        Args: { p_organization_id: string; p_source: string; p_status: string; p_file_name: string | null; p_idempotency_key: string | null; p_provider: string | null; p_provider_connection_id: string | null; p_sync_run_id: string | null; p_metadata: Json; p_rows: Json };
+        Returns: string;
+      };
+      disconnect_google_workspace_subscription_usage_connection: {
+        Args: { p_organization_id: string; p_connection_id: string };
+        Returns: boolean;
       };
       expire_renewal_action_request: {
         Args: { p_request_id: string };

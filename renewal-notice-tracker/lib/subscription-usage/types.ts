@@ -109,6 +109,7 @@ export type SubscriptionUsageAcceptedAction =
   | "consolidate"
   | "terminate"
   | "renegotiate"
+  | "investigate"
   | "insufficient_evidence";
 
 export type SubscriptionUsageFinding = {
@@ -134,4 +135,14 @@ export type SubscriptionUsageFindingReviewInput = {
   nextStatus: Exclude<SubscriptionUsageFindingReviewStatus, "open">;
   acceptedAction?: SubscriptionUsageAcceptedAction | null;
   realizedSavings?: number | null;
+  feedbackClassification?: "correct" | "incorrect" | "requires_help" | null;
+  feedbackReason?:
+    | "separate_departments"
+    | "compliance_requirement"
+    | "migration_in_progress"
+    | "backup_requirement"
+    | "incorrect_product_mapping"
+    | "insufficient_evidence"
+    | "other"
+    | null;
 };
