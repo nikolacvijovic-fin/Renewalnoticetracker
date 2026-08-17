@@ -196,8 +196,17 @@ export function mapGoogleWorkspaceSnapshotToImportRows(result: UsageInventoryCon
     last_activity_at: record.last_activity_at ?? "",
     department: "",
     owner: "",
-    contract_reference: record.external_product_id
+    contract_reference: record.external_product_id,
+    warning_codes: record.warning_codes ?? [],
+    evidence_state: evidenceStateForWarnings(record.warning_codes ?? [])
   }));
+}
+
+function evidenceStateForWarnings(warnings: string[]) {
+  if (warnings.some((code) => /missing|unavailable/.test(code))) return "missing" as const;
+  if (warnings.some((code) => /stale/.test(code))) return "stale" as const;
+  if (warnings.some((code) => /unmapped/.test(code))) return "unmapped" as const;
+  return warnings.length > 0 ? "partial" as const : "complete" as const;
 }
 
 export function buildGoogleWorkspaceSyncIdempotencyKey(input: {

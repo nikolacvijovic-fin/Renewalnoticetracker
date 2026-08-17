@@ -167,13 +167,23 @@ export async function acquireMicrosoft365ApplicationToken(input: {
   }
   const claims = decodeMicrosoftJwtClaims(payload.access_token);
   if (claims.tenantId !== tenantId) throw new Error("tenant_mismatch");
-  if (claims.audience !== "https://graph.microsoft.com") throw new Error("verification_failed");
+  if (!["https://graph.microsoft.com", "00000003-0000-0000-c000-000000000000"].includes(claims.audience)) {
+    throw new Error("verification_failed");
+  }
+  if (claims.applicationId !== input.config.clientId) throw new Error("verification_failed");
+  if (!isMicrosoftIssuerForTenant(claims.issuer, tenantId)) throw new Error("verification_failed");
+  const nowSeconds = Math.floor(nowMs / 1000);
+  if (!Number.isFinite(claims.expiresAt) || claims.expiresAt <= nowSeconds) throw new Error("expired_credential");
+  if (!Number.isFinite(claims.notBefore) || claims.notBefore > nowSeconds + 60) throw new Error("verification_failed");
   const missing = MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS.filter((permission) => !claims.permissions.includes(permission));
   if (missing.length > 0) throw new Error("permission_error");
   const expiresInSeconds = typeof payload.expires_in === "number" ? payload.expires_in : Number(payload.expires_in ?? 3600);
   const token: CachedMicrosoftToken = {
     accessToken: payload.access_token,
-    expiresAtMs: nowMs + Math.max(1, Number.isFinite(expiresInSeconds) ? expiresInSeconds : 3600) * 1000,
+    expiresAtMs: Math.min(
+      claims.expiresAt * 1000,
+      nowMs + Math.max(1, Number.isFinite(expiresInSeconds) ? expiresInSeconds : 3600) * 1000
+    ),
     permissions: claims.permissions
   };
   microsoftTokenCache.set(cacheKey, token);
@@ -254,8 +264,17 @@ export function mapMicrosoft365SnapshotToImportRows(
     last_activity_at: record.last_activity_at ?? "",
     department: "",
     owner: "",
-    contract_reference: record.external_product_id
+    contract_reference: record.external_product_id,
+    warning_codes: record.warning_codes ?? [],
+    evidence_state: evidenceStateForWarnings(record.warning_codes ?? [])
   }));
+}
+
+function evidenceStateForWarnings(warnings: string[]) {
+  if (warnings.some((code) => /missing|unavailable/.test(code))) return "missing" as const;
+  if (warnings.some((code) => /stale/.test(code))) return "stale" as const;
+  if (warnings.some((code) => /unmapped/.test(code))) return "unmapped" as const;
+  return warnings.length > 0 ? "partial" as const : "complete" as const;
 }
 
 export function sanitizeMicrosoft365OperationalMetadata(metadata: Record<string, unknown>) {
@@ -312,10 +331,23 @@ function decodeMicrosoftJwtClaims(token: string) {
     const permissions = Array.isArray(payload.roles)
       ? payload.roles.filter((role): role is string => typeof role === "string")
       : [];
-    return { tenantId: String(payload.tid ?? ""), audience: String(payload.aud ?? ""), permissions };
+    return {
+      tenantId: String(payload.tid ?? ""),
+      audience: String(payload.aud ?? ""),
+      applicationId: String(payload.appid ?? payload.azp ?? ""),
+      issuer: String(payload.iss ?? ""),
+      expiresAt: Number(payload.exp),
+      notBefore: Number(payload.nbf),
+      permissions
+    };
   } catch {
     throw new Error("verification_failed");
   }
+}
+
+function isMicrosoftIssuerForTenant(issuer: string, tenantId: string) {
+  return issuer === `https://sts.windows.net/${tenantId}/`
+    || issuer === `https://login.microsoftonline.com/${tenantId}/v2.0`;
 }
 
 function normalizeSafeLabel(value: string | null | undefined) {

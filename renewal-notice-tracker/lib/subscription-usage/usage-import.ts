@@ -258,6 +258,8 @@ function normalizeSubscriptionUsageRow(
     confidence: isSample ? 0 : 0.8,
     trustState: isSample ? "sample" as const : "needs_review" as const,
     isSample,
+    warningCodes: normalizeWarningCodes(row.warning_codes),
+    evidenceState: normalizeSubscriptionUsageEvidenceState(row.evidence_state),
     sourceRowHash: ""
   };
 
@@ -273,6 +275,17 @@ function normalizeSubscriptionUsageRow(
       contractReference: normalized.contractReference
     })
   };
+}
+
+function normalizeWarningCodes(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean))].slice(0, 25);
+}
+
+export function normalizeSubscriptionUsageEvidenceState(value: unknown): NormalizedSubscriptionUsageRow["evidenceState"] {
+  return ["complete", "partial", "missing", "stale", "unmapped", "conflicting"].includes(String(value))
+    ? String(value) as NormalizedSubscriptionUsageRow["evidenceState"]
+    : "complete";
 }
 
 function emptyRow(): SubscriptionUsageImportRow {

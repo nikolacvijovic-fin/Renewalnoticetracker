@@ -20,6 +20,7 @@ import {
 import { getSubscriptionProviderCredential } from "@/lib/subscription-usage/repositories/admin-provider-credentials-repository";
 import {
   claimDueSubscriptionUsageConnections,
+  cleanupSubscriptionUsageConsentAttempts,
   completeScheduledSubscriptionUsageSync,
   createScheduledAnalysisScope,
   createScheduledSubscriptionUsageBatch,
@@ -31,7 +32,8 @@ import {
   releaseSkippedScheduledSubscriptionUsageClaim,
   type ClaimedSubscriptionUsageConnection
 } from "@/lib/subscription-usage/repositories/admin-scheduled-sync-repository";
-import { assessSubscriptionUsageRows } from "@/lib/subscription-usage/usage-import";
+import { assessSubscriptionUsageRows, normalizeSubscriptionUsageEvidenceState } from "@/lib/subscription-usage/usage-import";
+import { buildStableSubscriptionUsageFindingIdentity } from "@/lib/subscription-usage/finding-identity";
 
 const MAX_ANALYSIS_ROWS = 10_000;
 const PROVIDER_MIN_INTERVAL_MS = 250;
@@ -49,6 +51,8 @@ export async function processDueSubscriptionUsageConnections(input: {
   leaseMinutes?: number;
   concurrency?: number;
 } = {}): Promise<ScheduledSubscriptionUsageSummary> {
+  // Best-effort retention cleanup must never prevent provider synchronization.
+  await cleanupSubscriptionUsageConsentAttempts().catch(() => null);
   const workerToken = crypto.randomUUID();
   const claimed = await claimDueSubscriptionUsageConnections({
     workerToken,
@@ -192,7 +196,7 @@ async function processClaimedConnection(connection: ClaimedSubscriptionUsageConn
       provider_warning_codes: [...new Set([...snapshot.output.warnings, ...scope.warningCodes])]
     });
     if (!reconciliation.ok) throw new Error("reconciliation_failed");
-    const findings = buildFindingPayload(connection.organization_id, scope, reconciliation.output);
+    const findings = buildFindingPayload(connection.organization_id, scope, reconciliation.output, syncRunId);
     const persisted = await persistScheduledAnalysisFindings({
       organizationId: connection.organization_id,
       analysisScopeId: scope.analysisScopeId,
@@ -308,7 +312,14 @@ function buildRowsPayload(assessment: ReturnType<typeof assessSubscriptionUsageR
     source_row_hash: row.normalized.sourceRowHash,
     is_sample: row.normalized.isSample,
     external_product_id: row.normalized.contractReference,
-    normalized_payload: { provider: connection.provider, syncRunId }
+    warning_codes: row.normalized.warningCodes,
+    evidence_state: row.normalized.evidenceState,
+    normalized_payload: {
+      provider: connection.provider,
+      syncRunId,
+      warningCodes: row.normalized.warningCodes,
+      evidenceState: row.normalized.evidenceState
+    }
   }));
 }
 
@@ -339,7 +350,9 @@ function mapAnalysisRow(row: Record<string, unknown>) {
     active_users_30d: nullableNumber(row.active_users_30d), active_users_90d: nullableNumber(row.active_users_90d),
     last_activity_at: nullableString(row.last_activity_at), collected_at: nullableString(row.collected_at),
     trust_state: nullableString(row.trust_state), confidence: nullableNumber(row.confidence),
-    is_sample: Boolean(row.is_sample), department: nullableString(row.department)
+    is_sample: Boolean(row.is_sample), department: nullableString(row.department),
+    warning_codes: Array.isArray(row.warning_codes) ? row.warning_codes.filter((value): value is string => typeof value === "string") : [],
+    evidence_state: normalizeSubscriptionUsageEvidenceState(row.evidence_state)
   };
 }
 
@@ -355,15 +368,24 @@ function mapContractCandidate(contract: Record<string, unknown>) {
   };
 }
 
-function buildFindingPayload(organizationId: string, scope: Scope, output: ReconcileUsageResponse) {
+function buildFindingPayload(organizationId: string, scope: Scope, output: ReconcileUsageResponse, syncRunId: string) {
   return (output.findings ?? []).map((finding) => {
-    const logical = hash({ organizationId, family: scope.scopeFamilyKey, type: finding.finding_type, reason: finding.reason_code, stable: finding.fingerprint_key ?? null, providers: [...(finding.involved_providers ?? [])].sort(), products: [...(finding.involved_products ?? [])].sort(), contracts: [...finding.matched_contract_ids].sort() });
-    const evidence = { warnings: finding.warnings, usageEvidence: finding.evidence ?? {}, analysisScopeId: scope.analysisScopeId, snapshotBatchIds: scope.batchIds, providerSet: scope.providers, explanation: finding.explanation ?? null, recommendedHumanAction: finding.recommended_human_action ?? null };
+    const identity = buildStableSubscriptionUsageFindingIdentity({
+      organizationId,
+      finding,
+      analysisScopeId: scope.analysisScopeId,
+      snapshotBatchIds: scope.batchIds,
+      providerSet: scope.providers,
+      scopeFamilyKey: scope.scopeFamilyKey,
+      syncRunId
+    });
     return {
       contract_id: finding.matched_contract_ids[0] ?? null,
-      finding_fingerprint: hash({ organizationId, logical, rows: [...finding.source_row_ids].sort() }),
-      logical_opportunity_key: logical,
-      evidence_hash: hash({ rows: [...finding.source_row_ids].sort(), contracts: [...finding.matched_contract_ids].sort(), warnings: [...finding.warnings].sort(), confidence: finding.confidence, savings: finding.estimated_savings, evidence }),
+      finding_fingerprint: identity.findingFingerprint,
+      logical_opportunity_key: identity.logicalOpportunityKey,
+      evidence_hash: identity.materialEvidenceHash,
+      material_evidence_hash: identity.materialEvidenceHash,
+      provenance_hash: identity.provenanceHash,
       finding_type: finding.finding_type, reason_code: finding.reason_code, calculation_version: finding.calculation_version,
       usage_row_ids: finding.source_row_ids, matched_contract_ids: finding.matched_contract_ids,
       utilization: finding.utilization, unused_seats: finding.unused_seats, confidence: finding.confidence,
@@ -371,7 +393,7 @@ function buildFindingPayload(organizationId: string, scope: Scope, output: Recon
       recommended_action: finding.recommended_action, capability_category: finding.capability_category ?? null,
       taxonomy_version: finding.taxonomy_version ?? null, involved_providers: finding.involved_providers ?? [],
       involved_products: finding.involved_products ?? [], estimated_savings_min: finding.estimated_savings_min ?? null,
-      estimated_savings_max: finding.estimated_savings_max ?? null, evidence
+      estimated_savings_max: finding.estimated_savings_max ?? null, evidence: identity.evidence
     };
   });
 }
@@ -385,8 +407,6 @@ function normalizeScheduledFailure(error: unknown) {
 
 function nullableString(value: unknown) { return typeof value === "string" && value ? value : null; }
 function nullableNumber(value: unknown) { const number = Number(value); return value !== null && value !== undefined && Number.isFinite(number) ? number : null; }
-function hash(value: unknown) { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
-
 async function waitForProviderRateLimit(provider: string) {
   const now = Date.now();
   const permittedAt = Math.max(now, nextProviderRequestAt.get(provider) ?? now);

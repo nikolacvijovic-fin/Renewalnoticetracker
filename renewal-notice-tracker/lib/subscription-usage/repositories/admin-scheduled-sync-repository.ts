@@ -130,6 +130,13 @@ export function persistScheduledAnalysisFindings(input: {
   });
 }
 
+export function cleanupSubscriptionUsageConsentAttempts(input: { retentionDays?: number; limit?: number } = {}) {
+  return rpcClient().rpc("cleanup_subscription_usage_consent_attempts", {
+    p_consumed_retention_days: input.retentionDays ?? 30,
+    p_limit: input.limit ?? 500
+  });
+}
+
 export async function loadScheduledAnalysisRows(input: {
   organizationId: string;
   batchIds: string[];
@@ -140,7 +147,7 @@ export async function loadScheduledAnalysisRows(input: {
   const pageSize = 500;
   for (let offset = 0; offset <= input.maximumRows; offset += pageSize) {
     const result = await admin.from("usage_import_rows")
-      .select("id, vendor_name, product_name, normalized_product, product_category, annual_reviewed_cost, currency, purchased_seats, assigned_seats, active_users_30d, active_users_90d, last_activity_at, collected_at, trust_state, confidence, is_sample, provider, external_product_id, department")
+      .select("id, vendor_name, product_name, normalized_product, product_category, annual_reviewed_cost, currency, purchased_seats, assigned_seats, active_users_30d, active_users_90d, last_activity_at, collected_at, trust_state, confidence, is_sample, provider, external_product_id, department, warning_codes, evidence_state")
       .eq("organization_id", input.organizationId)
       .in("batch_id", input.batchIds)
       .in("validation_status", ["ready", "needs_review"])

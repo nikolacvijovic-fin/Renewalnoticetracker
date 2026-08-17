@@ -148,6 +148,8 @@ class UsageInventoryRow(BaseModel):
     confidence: float | None = Field(default=None, ge=0, le=1)
     is_sample: bool | None = False
     department: str | None = None
+    warning_codes: list[str] = Field(default_factory=list, max_length=25)
+    evidence_state: Literal["complete", "partial", "missing", "stale", "unmapped", "conflicting"] = "complete"
 
 
 class UsageContractCandidate(BaseModel):

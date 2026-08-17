@@ -4,7 +4,7 @@
 
 The Microsoft 365 connector is a human-review input to Subscription Usage Optimization. It reads aggregate license entitlements and aggregate usage-report counts. It does not remove licenses, cancel subscriptions, contact vendors, or turn findings into automatic actions.
 
-Admin consent is not treated as proof of a connection. NoticeControl signs a 15-minute state value, persists a hash of its nonce, binds it to the current organization and actor, and consumes it once. After the callback, the server obtains a tenant-specific application token from `/{tenant}/oauth2/v2.0/token` with the Graph `.default` scope, verifies the token tenant and application roles, and calls a minimal Graph endpoint. The connection becomes `connected` only after verification succeeds.
+Admin consent is not treated as proof of a connection. A consent attempt is created only after an authorized operator presses Connect. NoticeControl signs a 15-minute state value, persists a hash of its nonce, binds it to the current organization and actor, and consumes it once. After the callback, the server obtains a tenant-specific application token from `/{tenant}/oauth2/v2.0/token` with the Graph `.default` scope, validates tenant, documented Graph audience, application ID, issuer shape, time bounds, and application roles, then calls a minimal Graph endpoint. Locally decoded claims are not cryptographic verification; the connection becomes `connected` only after Microsoft Graph succeeds.
 
 ## Provider setup
 
@@ -28,7 +28,7 @@ Short-lived Graph access tokens are never stored in the database. They are cache
 
 ## Accuracy and disconnect
 
-The Java connector parses Microsoft CSV with Apache Commons CSV, enforces response and row limits, and maps SKU part numbers and report names through `microsoft-sku-mapping.v1.json`. Missing, stale, partial, unmapped, or contradictory activity evidence is a blocking warning; it cannot produce a terminate or high-confidence seat-reduction recommendation.
+The Java connector parses Microsoft CSV with Apache Commons CSV, enforces response and row limits, and maps SKU part numbers and report names through `microsoft-sku-mapping.v1.json`. Missing, stale, partial, unmapped, or contradictory evidence is never converted to confirmed zero usage. Report-wide missing or stale evidence blocks affected recommendations globally; SKU and product warnings remain attached to the affected row and do not downgrade unrelated products.
 
 Disconnecting stops future synchronization and preserves prior snapshots, findings, and review history under existing retention controls. Disconnect does not revoke consent inside the customer's tenant. An Entra administrator must also open **Enterprise applications**, select the NoticeControl application, and remove or revoke its tenant consent when access must be fully removed.
 

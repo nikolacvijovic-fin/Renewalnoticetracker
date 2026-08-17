@@ -8,9 +8,9 @@ import {
   commitSubscriptionUsageImportAction,
   disconnectGoogleWorkspaceConnectionAction,
   disconnectMicrosoft365UsageConnectionAction,
-  getMicrosoft365AdminConsentUrlAction,
   reviewSubscriptionUsageFindingAction,
   startGoogleWorkspaceConnectionAction,
+  startMicrosoft365ConnectionAction,
   syncGoogleWorkspaceUsageNowAction,
   syncMicrosoft365UsageNowAction
 } from "@/lib/actions/subscription-usage-optimization";
@@ -28,15 +28,14 @@ async function syncGoogleWorkspaceUsageNowFormAction(formData: FormData) { "use 
 export default async function SubscriptionOptimizationPage({ searchParams }: { searchParams?: PageSearchParams }) {
   const context = await requireOrganization();
   const access = await evaluateSubscriptionUsageOptimizationAccess(await getBillingSnapshot(context.organizationId));
-  const [connections, latestSyncs, findings, usageRows, microsoftConsent] = access.allowed
+  const [connections, latestSyncs, findings, usageRows] = access.allowed
     ? await Promise.all([
         listProviderConnections(context.organizationId),
         listLatestSyncs(context.organizationId),
         listUsageFindings(context.organizationId),
-        listLatestUsageRows(context.organizationId),
-        getMicrosoft365AdminConsentUrlAction()
+        listLatestUsageRows(context.organizationId)
       ])
-    : [[] as ConnectionRow[], [] as SyncRunRow[], [] as FindingRow[], [] as UsageRow[], null];
+    : [[] as ConnectionRow[], [] as SyncRunRow[], [] as FindingRow[], [] as UsageRow[]];
   const visibleFindings = filterFindings(findings, searchParams ?? {});
   const totals = summarizeUsageRows(usageRows);
   const savingsByCurrency = summarizeSavingsByCurrency(visibleFindings);
@@ -63,8 +62,10 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
         <>
           <section className="grid gap-4 lg:grid-cols-2">
             <ProviderConnectionCard title="Microsoft 365" connection={microsoftConnection} syncAction={syncMicrosoft365UsageNowFormAction} disconnectAction={disconnectMicrosoft365UsageConnectionAction} permissionCopy="LicenseAssignment.Read.All and Reports.Read.All"
-              connectControl={microsoftConsent?.ok ? <Link href={microsoftConsent.url} className="inline-flex rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white">Connect Microsoft 365</Link> : <p className="text-sm text-amber-700">{microsoftConsent?.safeMessage ?? "Microsoft 365 configuration is incomplete."}</p>} />
+              latestSync={latestSyncs.find((sync) => sync.provider === "microsoft_365") ?? null}
+              connectControl={<form action={startMicrosoft365ConnectionAction}><button className="inline-flex rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white">Connect Microsoft 365</button></form>} />
             <ProviderConnectionCard title="Google Workspace" connection={googleConnection} syncAction={syncGoogleWorkspaceUsageNowFormAction} disconnectAction={disconnectGoogleWorkspaceConnectionAction} permissionCopy={`${GOOGLE_WORKSPACE_REQUIRED_SCOPES.length} scopes; Google licensing permission is read/write by definition, but NoticeControl enforces GET-only requests`}
+              latestSync={latestSyncs.find((sync) => sync.provider === "google_workspace") ?? null}
               connectControl={<form action={startGoogleWorkspaceConnectionAction} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm font-medium text-slate-700">Customer ID<input name="customerId" required placeholder="C01234567" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label>
                 <label className="text-sm font-medium text-slate-700">Primary domain<input name="domain" required placeholder="example.com" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label>
@@ -124,14 +125,16 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
   );
 }
 
-function ProviderConnectionCard({ title, connection, syncAction, disconnectAction, connectControl, permissionCopy }: { title: string; connection: ConnectionRow | null; syncAction: (formData: FormData) => Promise<void>; disconnectAction: (formData: FormData) => Promise<void>; connectControl: React.ReactNode; permissionCopy: string }) {
+function ProviderConnectionCard({ title, connection, latestSync, syncAction, disconnectAction, connectControl, permissionCopy }: { title: string; connection: ConnectionRow | null; latestSync: SyncRunRow | null; syncAction: (formData: FormData) => Promise<void>; disconnectAction: (formData: FormData) => Promise<void>; connectControl: React.ReactNode; permissionCopy: string }) {
+  const isProcessing = latestSync?.status === "processing";
+  const canRetry = connection?.status === "connected" && latestSync?.status === "failed" && Boolean(connection.last_error_code);
   return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-semibold text-slate-950">{title}</h2>
     {connection && connection.status !== "disconnected" ? <div className="mt-4 space-y-3 text-sm text-slate-700">
       <p><span className="font-medium">Account:</span> {connection.provider_tenant_name ?? connection.provider_tenant_id}</p>
       <p><span className="font-medium">Status:</span> <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold uppercase tracking-wide">{connection.status}</span></p>
       <p><span className="font-medium">Freshness:</span> {formatDateTime(connection.last_successful_sync_at)}</p>
       {connection.last_error_code ? <p className="text-amber-700"><span className="font-medium">Last error:</span> {connection.last_error_code}</p> : null}
-      <div className="flex flex-wrap gap-3 pt-2"><form action={syncAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white">Sync now</button></form><form action={disconnectAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-800">Disconnect</button></form></div>
+      <div className="flex flex-wrap gap-3 pt-2"><form action={syncAction}><input type="hidden" name="connectionId" value={connection.id} />{canRetry ? <input type="hidden" name="retryFailed" value="true" /> : null}<button disabled={isProcessing || connection.status !== "connected"} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{isProcessing ? "Syncing…" : connection.status !== "connected" ? "Reconnect required" : canRetry ? "Retry sync" : "Sync now"}</button></form><form action={disconnectAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-800">Disconnect</button></form></div>
     </div> : <div className="mt-4">{connectControl}</div>}
     <p className="mt-3 text-xs leading-5 text-slate-500">Permissions: {permissionCopy}. Tokens and raw provider responses are never displayed.</p>
   </div>;

@@ -48,7 +48,7 @@ Disconnect immediately deletes the encrypted credential and clears the next sche
 
 ## Synchronization and Evidence
 
-Manual synchronization is idempotent per organization, connection, and UTC day. A successful run creates an atomic import batch, normalized rows, contract matches, and reviewable findings. A failed run records only a safe error code and leaves the last successful snapshot intact.
+Manual synchronization is idempotent per organization, connection, and UTC-day interval. A successful run creates an atomic import batch, normalized rows, contract matches, and reviewable findings. A failed run records only a safe error code and leaves the last successful snapshot intact; an operator may explicitly retry after bounded backoff, up to three attempts, without duplicating the logical batch.
 
 Google's Licensing API returns assigned users but not purchased-seat entitlement totals. The connector therefore labels `purchased_seats_unavailable` and leaves purchased seats unknown; assigned seats are never substituted as a purchased entitlement. A reviewed contract quantity or another approved billing source is required before NoticeControl can calculate unassigned-license waste. The current UI does not yet provide a dedicated reviewed Google entitlement editor, so Google-only unassigned-license savings remain unavailable unless trusted quantity evidence is supplied through an approved import path. Account last login is an adoption proxy, not product-feature telemetry, and is labeled `activity_uses_account_login_proxy`. These limitations reduce overlap confidence. Missing activity produces a partial snapshot and cannot produce high-confidence overlap.
 

@@ -421,7 +421,8 @@ def test_reconcile_usage_uses_uniquely_matched_reviewed_contract_cost_for_live_p
 
 def test_reconcile_usage_stale_or_partial_evidence_cannot_be_high_confidence(monkeypatch):
     payload = cross_provider_payload()
-    payload["provider_warning_codes"].append("partial_activity_data")
+    payload["normalized_rows"][0]["warning_codes"] = ["partial_activity_data"]
+    payload["normalized_rows"][0]["evidence_state"] = "partial"
     payload["normalized_rows"][1]["last_activity_at"] = "2025-01-01T00:00:00Z"
     response = post_reconciliation(monkeypatch, payload)
     overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
@@ -450,12 +451,38 @@ def test_reconcile_usage_does_not_treat_google_assigned_seats_as_purchased(monke
 
 def test_reconcile_usage_blocks_actionable_recommendations_when_activity_mapping_is_incomplete(monkeypatch):
     payload = cross_provider_payload(google_active=0)
-    payload["provider_warning_codes"].extend(["unmapped_microsoft_sku", "missing_activity_report_30d"])
+    payload["provider_warning_codes"].append("missing_activity_report_30d")
+    payload["normalized_rows"][0]["warning_codes"] = ["unmapped_microsoft_sku"]
+    payload["normalized_rows"][0]["evidence_state"] = "unmapped"
     response = post_reconciliation(monkeypatch, payload)
     assert response.status_code == 200
     assert response.json()["findings"]
     assert all(item["recommended_action"] not in {"terminate", "reduce_seats"} for item in response.json()["findings"])
     assert all(item["confidence"] < 0.5 for item in response.json()["findings"])
+
+
+def test_unmapped_product_warning_does_not_downgrade_unrelated_overlap(monkeypatch):
+    payload = cross_provider_payload()
+    payload["normalized_rows"].append({
+        "usage_row_id": "row-unmapped",
+        "provider": "microsoft_365",
+        "vendor": "Microsoft",
+        "product": "Unknown Product",
+        "normalized_product": "unknown product",
+        "purchased_seats": 10,
+        "assigned_seats": 10,
+        "active_users_30d": None,
+        "active_users_90d": None,
+        "collected_at": "2026-08-17T00:00:00Z",
+        "confidence": 0.3,
+        "warning_codes": ["unmapped_microsoft_sku"],
+        "evidence_state": "unmapped",
+    })
+    response = post_reconciliation(monkeypatch, payload)
+    overlaps = [item for item in response.json()["findings"] if item["finding_type"] == "possible_functional_overlap"]
+    assert overlaps
+    assert all("row-unmapped" not in item["source_row_ids"] for item in overlaps)
+    assert all("unmapped_microsoft_sku" not in item["warnings"] for item in overlaps)
 
 
 def test_invalid_signature_rejected(monkeypatch):

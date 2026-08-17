@@ -115,6 +115,8 @@ export type ReconcileUsageRequest = {
     confidence?: number | null;
     is_sample?: boolean | null;
     department?: string | null;
+    warning_codes?: string[];
+    evidence_state?: "complete" | "partial" | "missing" | "stale" | "unmapped" | "conflicting";
   }>;
   contract_candidates?: Array<{
     contract_id: string;

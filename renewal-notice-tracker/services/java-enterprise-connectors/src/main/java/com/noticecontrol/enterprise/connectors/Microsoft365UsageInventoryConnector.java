@@ -181,7 +181,6 @@ public final class Microsoft365UsageInventoryConnector implements UsageInventory
       snapshotWarnings.add("active_users_exceed_entitlement");
     }
     if (snapshotWarnings.contains("stale_activity_report")) warnings.add("stale_activity_report");
-    if (snapshotWarnings.contains("unmapped_activity_product")) warnings.add("unmapped_activity_product");
     return new UsageInventoryRecord(
         entitlement.canonicalId(), "Microsoft", entitlement.displayName(), entitlement.category(),
         entitlement.purchased(), entitlement.assigned(), active30, active90,

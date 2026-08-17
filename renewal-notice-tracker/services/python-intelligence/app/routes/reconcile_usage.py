@@ -10,12 +10,13 @@ CALCULATION_VERSION = "subscription_usage_v1"
 OVERLAP_CALCULATION_VERSION = "cross_provider_overlap_v1"
 LOW_UTILIZATION_THRESHOLD = 0.35
 STALE_DAYS = 90
-BLOCKING_ACTIVITY_WARNINGS = {
+GLOBAL_BLOCKING_ACTIVITY_WARNINGS = {
     "missing_activity_report",
     "missing_activity_report_30d",
-    "missing_activity_report_90d",
-    "partial_activity_data",
     "stale_activity_report",
+}
+ROW_BLOCKING_ACTIVITY_WARNINGS = GLOBAL_BLOCKING_ACTIVITY_WARNINGS | {
+    "partial_activity_data",
     "unmapped_microsoft_sku",
     "unmapped_activity_product",
     "active_users_exceed_entitlement",
@@ -72,7 +73,10 @@ def analyze_usage_row(
     findings: list[ReconcileUsageFinding] = []
     purchased = row.purchased_seats
     active_30d = row.active_users_30d
-    warnings: list[str] = sorted(set(provider_warning_codes or []).intersection(BLOCKING_ACTIVITY_WARNINGS))
+    warnings: list[str] = sorted(
+        set(row.warning_codes).intersection(ROW_BLOCKING_ACTIVITY_WARNINGS)
+        | set(provider_warning_codes or []).intersection(GLOBAL_BLOCKING_ACTIVITY_WARNINGS)
+    )
 
     if warnings:
         findings.append(
@@ -220,7 +224,7 @@ def find_duplicate_products(rows: list[UsageInventoryRow], matches: dict[str, li
             grouped[key].append(row)
 
     findings: list[ReconcileUsageFinding] = []
-    for group_rows in grouped.values():
+    for normalized_product, group_rows in grouped.items():
         if len(group_rows) < 2:
             continue
         currency = group_rows[0].currency
@@ -239,6 +243,9 @@ def find_duplicate_products(rows: list[UsageInventoryRow], matches: dict[str, li
                 estimated_savings=round(savings, 2) if savings > 0 else None,
                 currency=currency,
                 recommended_action="consolidate",
+                involved_providers=sorted({row.provider for row in group_rows}),
+                involved_products=sorted({row.product for row in group_rows}),
+                fingerprint_key=f"duplicate_product|{normalized_product}",
             )
         )
     return findings
@@ -292,6 +299,13 @@ def build_overlap_finding(
     provider_warning_codes: list[str],
     taxonomy_version: str,
 ) -> ReconcileUsageFinding | None:
+    activity_warnings = (
+        set(provider_warning_codes).intersection(GLOBAL_BLOCKING_ACTIVITY_WARNINGS)
+        | set(microsoft.warning_codes).intersection(ROW_BLOCKING_ACTIVITY_WARNINGS)
+        | set(google.warning_codes).intersection(ROW_BLOCKING_ACTIVITY_WARNINGS)
+    )
+    if activity_warnings.intersection({"missing_activity_report", "missing_activity_report_30d", "stale_activity_report"}):
+        return None
     microsoft_utilization = utilization(microsoft)
     google_utilization = utilization(google)
     if microsoft_utilization is None or google_utilization is None:
@@ -302,7 +316,7 @@ def build_overlap_finding(
     if lower_utilization >= 0.35 or higher_utilization < 0.35:
         return None
 
-    warnings = set(provider_warning_codes)
+    warnings = activity_warnings | set(microsoft.warning_codes) | set(google.warning_codes)
     warnings.add("possible_overlap_not_proof_of_equivalence")
     if microsoft_specificity == "suite" or google_specificity == "suite":
         warnings.add("suite_level_capability_mapping")
@@ -488,6 +502,20 @@ def finding(
         estimated_savings=estimated_savings,
         currency=row.currency,
         recommended_action=recommended_action,
+        evidence={
+            "purchased_seats": row.purchased_seats,
+            "assigned_seats": row.assigned_seats,
+            "active_users_30d": row.active_users_30d,
+            "active_users_90d": row.active_users_90d,
+            "annual_reviewed_cost": row.annual_reviewed_cost,
+            "currency": row.currency,
+        },
+        involved_providers=[row.provider],
+        involved_products=[row.product],
+        fingerprint_key="|".join([
+            row.provider,
+            normalize_key(row.external_product_id or row.normalized_product or row.product),
+        ]),
     )
 
 

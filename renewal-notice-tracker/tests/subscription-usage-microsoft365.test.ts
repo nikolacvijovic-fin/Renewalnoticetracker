@@ -61,6 +61,18 @@ describe("Microsoft 365 subscription usage connector boundary", () => {
     expect(String(fetchImpl.mock.calls[0]?.[1]?.body)).toContain("scope=https%3A%2F%2Fgraph.microsoft.com%2F.default");
   });
 
+  it("accepts the documented Microsoft Graph application-ID audience", async () => {
+    const token = await acquireMicrosoft365ApplicationToken({
+      tenantId: "tenant-1",
+      config: { clientId: "client-1", clientSecret: "credential-1" },
+      fetchImpl: vi.fn(async () => Response.json({
+        access_token: microsoftToken("tenant-1", [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS], "00000003-0000-0000-c000-000000000000"),
+        expires_in: 3600
+      }))
+    });
+    expect(token.permissions).toEqual([...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS]);
+  });
+
   it("rejects tenant, audience, permission, and credential failures with safe codes", async () => {
     const config = { clientId: "client-1", clientSecret: "credential-1" };
     await expect(acquireMicrosoft365ApplicationToken({
@@ -71,6 +83,26 @@ describe("Microsoft 365 subscription usage connector boundary", () => {
       tenantId: "tenant-1", config,
       fetchImpl: vi.fn(async () => Response.json({ access_token: microsoftToken("tenant-1", ["Reports.Read.All"]), expires_in: 3600 }))
     })).rejects.toThrow("permission_error");
+    await expect(acquireMicrosoft365ApplicationToken({
+      tenantId: "tenant-1", config,
+      fetchImpl: vi.fn(async () => Response.json({ access_token: microsoftToken("tenant-1", [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS], "wrong-audience"), expires_in: 3600 }))
+    })).rejects.toThrow("verification_failed");
+    await expect(acquireMicrosoft365ApplicationToken({
+      tenantId: "tenant-1", config,
+      fetchImpl: vi.fn(async () => Response.json({ access_token: microsoftToken("tenant-1", [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS], undefined, { appid: "another-client" }), expires_in: 3600 }))
+    })).rejects.toThrow("verification_failed");
+    await expect(acquireMicrosoft365ApplicationToken({
+      tenantId: "tenant-1", config,
+      fetchImpl: vi.fn(async () => Response.json({ access_token: microsoftToken("tenant-1", [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS], undefined, { iss: "https://issuer.invalid/tenant-1" }), expires_in: 3600 }))
+    })).rejects.toThrow("verification_failed");
+    await expect(acquireMicrosoft365ApplicationToken({
+      tenantId: "tenant-1", config,
+      fetchImpl: vi.fn(async () => Response.json({ access_token: microsoftToken("tenant-1", [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS], undefined, { exp: 1 }), expires_in: 3600 }))
+    })).rejects.toThrow("expired_credential");
+    await expect(acquireMicrosoft365ApplicationToken({
+      tenantId: "tenant-1", config,
+      fetchImpl: vi.fn(async () => Response.json({ access_token: microsoftToken("tenant-1", [...MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS], undefined, { nbf: 4_102_444_800 }), expires_in: 3600 }))
+    })).rejects.toThrow("verification_failed");
     await expect(acquireMicrosoft365ApplicationToken({
       tenantId: "tenant-1", config,
       fetchImpl: vi.fn(async () => new Response("provider body", { status: 401 }))
@@ -180,8 +212,22 @@ describe("Microsoft 365 subscription usage connector boundary", () => {
   });
 });
 
-function microsoftToken(tenantId: string, roles: string[], audience = "https://graph.microsoft.com") {
+function microsoftToken(
+  tenantId: string,
+  roles: string[],
+  audience = "https://graph.microsoft.com",
+  overrides: Record<string, unknown> = {}
+) {
   const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString("base64url");
-  const payload = Buffer.from(JSON.stringify({ tid: tenantId, roles, aud: audience })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    tid: tenantId,
+    roles,
+    aud: audience,
+    appid: "client-1",
+    iss: `https://sts.windows.net/${tenantId}/`,
+    nbf: 1,
+    exp: 4_102_444_800,
+    ...overrides
+  })).toString("base64url");
   return `${header}.${payload}.test-signature`;
 }

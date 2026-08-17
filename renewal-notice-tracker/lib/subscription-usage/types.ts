@@ -16,7 +16,12 @@ export const SUBSCRIPTION_USAGE_IMPORT_TEMPLATE_HEADERS = [
 
 export type SubscriptionUsageImportHeader = (typeof SUBSCRIPTION_USAGE_IMPORT_TEMPLATE_HEADERS)[number];
 
-export type SubscriptionUsageImportRow = Record<SubscriptionUsageImportHeader, string | number | boolean | Date | null | undefined>;
+export type SubscriptionUsageEvidenceState = "complete" | "partial" | "missing" | "stale" | "unmapped" | "conflicting";
+
+export type SubscriptionUsageImportRow = Record<SubscriptionUsageImportHeader, string | number | boolean | Date | null | undefined> & {
+  warning_codes?: string[];
+  evidence_state?: SubscriptionUsageEvidenceState;
+};
 
 export type SubscriptionUsageValidationStatus = "ready" | "needs_review" | "rejected";
 export type SubscriptionUsageTrustState = "trusted" | "needs_review" | "weak_evidence" | "rejected" | "sample";
@@ -66,6 +71,8 @@ export type NormalizedSubscriptionUsageRow = {
   trustState: SubscriptionUsageTrustState;
   isSample: boolean;
   sourceRowHash: string;
+  warningCodes: string[];
+  evidenceState: SubscriptionUsageEvidenceState;
 };
 
 export type SubscriptionUsageImportAssessmentRow = {
