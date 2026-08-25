@@ -69,6 +69,7 @@ describe("negotiation workflow actions", () => {
       organizationId: "org-1",
       negotiationBriefId: "brief-1",
       actorUserId: "user-1",
+      draftType: "request_renewal_quote",
       channel: "call_script",
       tone: "executive"
     });

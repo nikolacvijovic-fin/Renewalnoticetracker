@@ -19,6 +19,15 @@ export const VENDOR_COMMUNICATION_DRAFT_STATUSES = [
   "archived"
 ] as const;
 
+export const VENDOR_COMMUNICATION_DRAFT_TYPES = [
+  "request_renewal_quote",
+  "request_seat_reduction_pricing",
+  "challenge_price_increase",
+  "request_revised_payment_terms",
+  "notice_of_nonrenewal",
+  "request_additional_time"
+] as const;
+
 export const NEGOTIATION_STRATEGIES = [
   "challenge_price_increase",
   "request_discount",
@@ -38,6 +47,7 @@ export const NEGOTIATION_APPROVAL_STATUSES = ["pending", "approved", "rejected",
 
 export type NegotiationBriefStatus = (typeof NEGOTIATION_BRIEF_STATUSES)[number];
 export type VendorCommunicationDraftStatus = (typeof VENDOR_COMMUNICATION_DRAFT_STATUSES)[number];
+export type VendorCommunicationDraftType = (typeof VENDOR_COMMUNICATION_DRAFT_TYPES)[number];
 export type NegotiationStrategy = (typeof NEGOTIATION_STRATEGIES)[number];
 export type VendorCommunicationChannel = (typeof VENDOR_COMMUNICATION_CHANNELS)[number];
 export type VendorCommunicationTone = (typeof VENDOR_COMMUNICATION_TONES)[number];
@@ -64,6 +74,9 @@ export type NegotiationBrief = {
   warning_codes: string[];
   review_flags: string[];
   confidence_score: number;
+  questions_requiring_confirmation?: Json;
+  evidence_limitations?: Json;
+  brief_version?: number;
   submitted_at: string | null;
   approved_at: string | null;
   rejected_at: string | null;
@@ -97,6 +110,10 @@ export type VendorCommunicationDraft = {
   created_by_user_id: string | null;
   approver_user_id: string | null;
   status: VendorCommunicationDraftStatus;
+  draft_type?: VendorCommunicationDraftType;
+  version_number?: number;
+  human_review_required?: boolean;
+  unsent?: boolean;
   channel: VendorCommunicationChannel;
   tone: VendorCommunicationTone;
   subject: string | null;
@@ -156,9 +173,12 @@ export type NegotiationBriefBuildResult = {
   warningCodes: string[];
   reviewFlags: string[];
   confidenceScore: number;
+  questionsRequiringConfirmation: string[];
+  evidenceLimitations: string[];
 };
 
 export type VendorCommunicationDraftResult = {
+  draftType: VendorCommunicationDraftType;
   channel: VendorCommunicationChannel;
   tone: VendorCommunicationTone;
   subject: string | null;

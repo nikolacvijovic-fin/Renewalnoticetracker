@@ -34,6 +34,14 @@ export async function claimDueSubscriptionUsageConnections(input: {
   return { ...result, data: (result.data ?? []) as ClaimedSubscriptionUsageConnection[] };
 }
 
+export function getScheduledDesignPartnerBetaControl(organizationId: string) {
+  return createAdminSupabaseClient()
+    .from("design_partner_beta_controls")
+    .select("organization_id, status, maximum_contracts, maximum_provider_connections, maximum_user_seats, allowed_providers, expires_at, grace_ends_at, founder_approved_at")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+}
+
 export async function createScheduledSubscriptionUsageSyncRun(input: {
   organizationId: string;
   connectionId: string;

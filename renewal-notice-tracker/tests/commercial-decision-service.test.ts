@@ -19,6 +19,7 @@ const repo = vi.hoisted(() => ({
   listAdminCommercialDecisionSnapshots: vi.fn()
 }));
 const audit = vi.hoisted(() => ({ recordEnterpriseAuditEvent: vi.fn() }));
+const server = vi.hoisted(() => ({ rpc: vi.fn() }));
 const contractQueries = vi.hoisted(() => ({ getContractById: vi.fn() }));
 const extraction = vi.hoisted(() => ({ listContractExtractedFields: vi.fn() }));
 const quote = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ const quote = vi.hoisted(() => ({
 
 vi.mock("@/lib/commercial-decision-workbench/repositories/admin-commercial-decision-repository", () => repo);
 vi.mock("@/lib/enterprise-audit/audit-recorder", () => audit);
+vi.mock("@/lib/supabase/server", () => ({ createServerSupabaseClient: () => server }));
 vi.mock("@/lib/contracts/kernel-queries", () => contractQueries);
 vi.mock("@/lib/contract-intelligence/extraction-runs", () => extraction);
 vi.mock("@/lib/quote-comparison/quote-comparison", () => quote);
@@ -68,6 +70,7 @@ describe("commercial decision service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     audit.recordEnterpriseAuditEvent.mockResolvedValue({ ok: true });
+    server.rpc.mockResolvedValue({ data: "decision-1", error: null });
     repo.listAdminCommercialDecisionApprovalSteps.mockResolvedValue({ data: [], error: null });
     repo.listAdminCommercialDecisionEvidenceLinks.mockResolvedValue({ data: [], error: null });
     repo.listAdminCommercialDecisionSnapshots.mockResolvedValue({ data: [], error: null });
@@ -214,15 +217,13 @@ describe("commercial decision service", () => {
     expect(auditCalls).toContain("reviewerNoteRecorded");
     expect(auditCalls).not.toContain("raw contract text");
     expect(auditCalls).not.toContain("note contents");
-    expect(repo.updateAdminCommercialDecisionApprovalStep).toHaveBeenCalledWith(
+    expect(server.rpc).toHaveBeenCalledWith(
+      "approve_renewal_decision_version",
       expect.objectContaining({
-        organizationId: "org-1",
-        approvalStepId: "step-1",
-        values: expect.objectContaining({
-          status: "approved",
-          acted_by_user_id: "approver-1",
-          reviewer_note: "Reviewer note redacted because it contained sensitive raw content markers."
-        })
+        p_organization_id: "org-1",
+        p_decision_id: "decision-1",
+        p_expected_version: 1,
+        p_reviewer_note: "Reviewer note redacted because it contained sensitive raw content markers."
       })
     );
   });
@@ -360,6 +361,33 @@ describe("commercial decision service", () => {
       approveCommercialDecision({ organizationId: "org-1", decisionId: "decision-1", actorUserId: "admin-1" })
     ).rejects.toMatchObject({ name: "CommercialDecisionTransitionError" });
     expect(repo.updateAdminCommercialDecisionStatus).not.toHaveBeenCalled();
+  });
+
+  it("prevents decision-owner self approval when separation is required", async () => {
+    repo.getAdminCommercialDecisionById.mockResolvedValue({
+      data: decision({
+        decision_status: "in_approval",
+        approver_user_id: "owner-1",
+        decision_owner_user_id: "owner-1",
+        separation_of_duties_required: true,
+        decision_version: 3
+      }),
+      error: null
+    });
+    const { approveCommercialDecision } = await import("@/lib/commercial-decision-workbench/commercial-decision-workbench");
+
+    await expect(approveCommercialDecision({
+      organizationId: "org-1",
+      decisionId: "decision-1",
+      actorUserId: "owner-1"
+    })).rejects.toThrow("separate assigned approver");
+    expect(repo.updateAdminCommercialDecisionStatus).not.toHaveBeenCalled();
+    expect(audit.recordEnterpriseAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "commercial_decision.approval_blocked",
+        metadata: expect.objectContaining({ reasonCode: "separation_of_duties_required" })
+      })
+    );
   });
 
   it("reassigns approver with safe audit metadata", async () => {

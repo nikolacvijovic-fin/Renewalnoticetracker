@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { getBillingSnapshot } from "@/lib/billing/entitlements";
+import { evaluateDesignPartnerBetaMutation, type DesignPartnerBetaControl } from "@/lib/billing/design-partner-beta";
 import { fetchUsageInventorySnapshot } from "@/lib/add-ons/java-enterprise-client";
 import { reconcileUsage, type ReconcileUsageResponse } from "@/lib/add-ons/python-intelligence-client";
 import { getAppConfig } from "@/lib/config";
@@ -26,6 +27,7 @@ import {
   createScheduledSubscriptionUsageBatch,
   createScheduledSubscriptionUsageSyncRun,
   failScheduledSubscriptionUsageSync,
+  getScheduledDesignPartnerBetaControl,
   loadScheduledAnalysisRows,
   loadScheduledContractCandidates,
   persistScheduledAnalysisFindings,
@@ -34,6 +36,7 @@ import {
 } from "@/lib/subscription-usage/repositories/admin-scheduled-sync-repository";
 import { assessSubscriptionUsageRows, normalizeSubscriptionUsageEvidenceState } from "@/lib/subscription-usage/usage-import";
 import { buildStableSubscriptionUsageFindingIdentity } from "@/lib/subscription-usage/finding-identity";
+import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 
 const MAX_ANALYSIS_ROWS = 10_000;
 const PROVIDER_MIN_INTERVAL_MS = 250;
@@ -122,6 +125,33 @@ async function processClaimedConnection(connection: ClaimedSubscriptionUsageConn
         failureCode: "entitlement_denied",
         recoverable: true,
         retryDelayHours: 24,
+        durationMs: Date.now() - startedAt
+      });
+      return "skipped";
+    }
+    const betaControlResult = await getScheduledDesignPartnerBetaControl(connection.organization_id);
+    if (betaControlResult.error) throw betaControlResult.error;
+    const betaRow = betaControlResult.data;
+    const betaControl = betaRow ? {
+      organizationId: betaRow.organization_id,
+      status: betaRow.status,
+      maximumContracts: betaRow.maximum_contracts,
+      maximumProviderConnections: betaRow.maximum_provider_connections,
+      maximumUserSeats: betaRow.maximum_user_seats,
+      allowedProviders: betaRow.allowed_providers,
+      expiresAt: betaRow.expires_at,
+      graceEndsAt: betaRow.grace_ends_at,
+      founderApprovedAt: betaRow.founder_approved_at
+    } as DesignPartnerBetaControl : null;
+    const betaAccess = evaluateDesignPartnerBetaMutation({ control: betaControl, action: "sync_provider" });
+    if (!betaAccess.allowed) {
+      await failScheduledSubscriptionUsageSync({
+        organizationId: connection.organization_id,
+        connectionId: connection.id,
+        claimToken: connection.sync_claim_token,
+        syncRunId,
+        failureCode: betaAccess.reason,
+        recoverable: false,
         durationMs: Date.now() - startedAt
       });
       return "skipped";
@@ -219,6 +249,13 @@ async function processClaimedConnection(connection: ClaimedSubscriptionUsageConn
       retryCount: snapshot.output.retry_count ?? 0,
       durationMs: Date.now() - startedAt
     });
+    const affectedContractIds = [...new Set(findings.flatMap((finding) =>
+      Array.isArray(finding.matched_contract_ids) ? finding.matched_contract_ids : []
+    ))];
+    await Promise.allSettled(affectedContractIds.map((contractId) => recalculateEvidenceReadiness({
+      organizationId: connection.organization_id,
+      contractId
+    })));
     void emitOperationalEvent({
       eventName: "subscription_usage_scheduled_sync_completed",
       severity: "P3",
@@ -387,11 +424,12 @@ function buildFindingPayload(organizationId: string, scope: Scope, output: Recon
       material_evidence_hash: identity.materialEvidenceHash,
       provenance_hash: identity.provenanceHash,
       finding_type: finding.finding_type, reason_code: finding.reason_code, calculation_version: finding.calculation_version,
+      calculation_family: finding.calculation_family ?? null,
       usage_row_ids: finding.source_row_ids, matched_contract_ids: finding.matched_contract_ids,
       utilization: finding.utilization, unused_seats: finding.unused_seats, confidence: finding.confidence,
       warnings: finding.warnings, estimated_savings: finding.estimated_savings, currency: finding.currency,
       recommended_action: finding.recommended_action, capability_category: finding.capability_category ?? null,
-      taxonomy_version: finding.taxonomy_version ?? null, involved_providers: finding.involved_providers ?? [],
+      taxonomy_version: finding.taxonomy_version ?? null, taxonomy_family: finding.taxonomy_family ?? null, involved_providers: finding.involved_providers ?? [],
       involved_products: finding.involved_products ?? [], estimated_savings_min: finding.estimated_savings_min ?? null,
       estimated_savings_max: finding.estimated_savings_max ?? null, evidence: identity.evidence
     };

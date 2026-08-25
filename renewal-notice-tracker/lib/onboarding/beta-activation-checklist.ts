@@ -1,12 +1,20 @@
 import type { OrganizationActivationState } from "@/lib/onboarding/activation-state";
 
 export type BetaActivationChecklistItemId =
+  | "organization_created"
+  | "notification_email_verified"
+  | "workspace_defaults_configured"
   | "upload_first_contract"
+  | "upload_first_real_contract"
   | "review_extracted_deadline"
   | "assign_owner"
   | "enable_internal_reminders"
   | "download_calendar_event"
-  | "record_first_decision";
+  | "record_first_decision"
+  | "connect_subscription_provider"
+  | "complete_first_provider_sync"
+  | "review_first_recommendation"
+  | "complete_founder_onboarding_call";
 
 export type BetaActivationChecklistStatus = "complete" | "available" | "blocked";
 export type BetaActivationScope = "workspace" | "target_contract";
@@ -89,6 +97,16 @@ export function buildBetaActivationChecklist(input: {
   activation: OrganizationActivationState;
   emailConfigured?: boolean | null;
   calendarExportDownloaded?: boolean;
+  designPartnerEvidence?: {
+    organizationCreated: boolean;
+    notificationEmailVerified: boolean;
+    workspaceDefaultsConfigured: boolean;
+    realContractUploaded: boolean;
+    providerConnected: boolean;
+    providerSyncCompleted: boolean;
+    recommendationReviewed: boolean;
+    founderOnboardingCallCompleted: boolean;
+  };
 }): BetaActivationChecklist {
   const activation = input.activation;
   const contractHrefValue = contractHref(activation.recommendedContractId);
@@ -215,6 +233,30 @@ export function buildBetaActivationChecklist(input: {
           targetContractId: null
         })
   ];
+
+  if (input.designPartnerEvidence) {
+    const evidence = input.designPartnerEvidence;
+    items.unshift(
+      item({ id: "organization_created", label: "Organization created", completed: evidence.organizationCreated, href: "/dashboard/settings", shortHelp: "Organization setup is recorded.", scope: "workspace", targetContractId: null }),
+      item({ id: "notification_email_verified", label: "Notification email verified", completed: evidence.notificationEmailVerified, href: "/dashboard/settings", shortHelp: evidence.notificationEmailVerified ? "Notification email verification is recorded." : "Verify the internal notification email.", scope: "workspace", targetContractId: null }),
+      item({ id: "workspace_defaults_configured", label: "Timezone and reminder defaults", completed: evidence.workspaceDefaultsConfigured, href: "/dashboard/settings", shortHelp: evidence.workspaceDefaultsConfigured ? "Workspace defaults are recorded." : "Confirm timezone and reminder defaults.", scope: "workspace", targetContractId: null })
+    );
+    items.splice(4, 0, item({
+      id: "upload_first_real_contract",
+      label: "Upload first real contract",
+      completed: evidence.realContractUploaded,
+      href: "/dashboard/contracts/new",
+      shortHelp: evidence.realContractUploaded ? "A non-sample contract is recorded." : "Upload a real contract; sample data does not count.",
+      scope: "workspace",
+      targetContractId: null
+    }));
+    items.push(
+      item({ id: "connect_subscription_provider", label: "Connect Microsoft or Google", completed: evidence.providerConnected, href: "/dashboard/subscription-optimization", shortHelp: evidence.providerConnected ? "A provider connection is active." : "Connect an approved read-only subscription provider.", scope: "workspace", targetContractId: null }),
+      item({ id: "complete_first_provider_sync", label: "Complete first provider sync", completed: evidence.providerSyncCompleted, href: "/dashboard/subscription-optimization", shortHelp: evidence.providerSyncCompleted ? "A provider snapshot completed." : "Run the first provider synchronization.", scope: "workspace", targetContractId: null }),
+      item({ id: "review_first_recommendation", label: "Review first recommendation", completed: evidence.recommendationReviewed, href: "/dashboard/subscription-optimization", shortHelp: evidence.recommendationReviewed ? "A recommendation review is recorded." : "Accept, reject, defer, or investigate one recommendation.", scope: "workspace", targetContractId: null }),
+      item({ id: "complete_founder_onboarding_call", label: "Founder onboarding call", completed: evidence.founderOnboardingCallCompleted, href: "/dashboard/support", shortHelp: evidence.founderOnboardingCallCompleted ? "Founder onboarding evidence is recorded." : "Ask the founder to record the onboarding call.", scope: "workspace", targetContractId: null })
+    );
+  }
 
   const completedCount = items.filter((checklistItem) => checklistItem.completed).length;
   const setupChecks: BetaSetupHealthCheck[] = [

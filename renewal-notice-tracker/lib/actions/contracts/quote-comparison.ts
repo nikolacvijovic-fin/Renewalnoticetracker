@@ -11,6 +11,7 @@ import {
   updateSavingsOpportunityStatus
 } from "@/lib/quote-comparison/quote-comparison";
 import { runPythonRenewalQuoteComparison } from "@/lib/quote-comparison/python-quote-comparison-runner";
+import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 
 function contractPath(contractId: string) {
   return `/dashboard/contracts/${contractId}`;
@@ -75,6 +76,12 @@ export async function createQuoteComparisonAction(contractId: string, quoteFileI
     source: quoteFileId ? "file_upload" : "manual"
   });
 
+  await recalculateEvidenceReadiness({
+    organizationId: context.organizationId,
+    contractId,
+    actorUserId: context.user.id
+  }).catch(() => null);
+
   revalidatePath(contractPath(contractId));
   return comparison;
 }
@@ -105,6 +112,12 @@ export async function runQuoteComparisonAction(
     quoteText: options?.quoteText ?? null
   });
 
+  await recalculateEvidenceReadiness({
+    organizationId: context.organizationId,
+    contractId: contract.id,
+    actorUserId: context.user.id
+  }).catch(() => null);
+
   revalidatePath(contractPath(contract.id));
   return result;
 }
@@ -124,6 +137,12 @@ export async function createAndRunQuoteComparisonFormAction(contractId: string, 
     quoteText: formString(formData, "quote_text")
   });
 
+  await recalculateEvidenceReadiness({
+    organizationId: context.organizationId,
+    contractId,
+    actorUserId: context.user.id
+  }).catch(() => null);
+
   revalidatePath(contractPath(contractId));
 }
 
@@ -139,6 +158,12 @@ export async function reviewQuoteFindingAction(
     reviewerUserId: context.user.id,
     decision
   });
+
+  await recalculateEvidenceReadiness({
+    organizationId: context.organizationId,
+    contractId: finding.contract_id,
+    actorUserId: context.user.id
+  }).catch(() => null);
 
   revalidatePath(contractPath(finding.contract_id));
   return finding;

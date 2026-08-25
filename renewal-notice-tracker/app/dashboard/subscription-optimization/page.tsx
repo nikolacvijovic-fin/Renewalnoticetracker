@@ -17,8 +17,8 @@ import {
 
 type Provider = "microsoft_365" | "google_workspace";
 type ConnectionRow = { id: string; provider: Provider; provider_tenant_id: string; provider_tenant_name: string | null; status: string; last_successful_sync_at: string | null; last_error_code: string | null; next_scheduled_sync_at: string | null };
-type SyncRunRow = { id: string; provider: Provider; status: string; row_count: number; finding_count: number; duration_ms: number | null; retry_count: number; last_error_code: string | null; created_at: string };
-type FindingRow = { id: string; finding_type: string; provider: Provider | "manual_csv" | null; capability_category: string | null; estimated_savings: number | null; estimated_savings_min: number | null; estimated_savings_max: number | null; currency: string | null; confidence: number; recommended_action: string | null; review_status: string; matched_contract_ids: string[] | null; involved_providers: string[] | null; involved_products: string[] | null; warnings: string[] | null; evidence: Record<string, unknown> | null };
+type SyncRunRow = { id: string; provider: Provider; status: string; row_count: number; finding_count: number; duration_ms: number | null; retry_count: number; attempt_number: number; maximum_attempts: number; current_stage: string; failure_stage: string | null; retry_after: string | null; last_error_code: string | null; created_at: string };
+type FindingRow = { id: string; finding_type: string; provider: Provider | "manual_csv" | null; capability_category: string | null; estimated_savings: number | null; estimated_savings_min: number | null; estimated_savings_max: number | null; currency: string | null; confidence: number; recommended_action: string | null; review_status: string; previous_review_status: string | null; revision_number: number; revision_of_id: string | null; reactivated_from_finding_id: string | null; resolution_reason: string | null; resolved_at: string | null; superseded_at: string | null; matched_contract_ids: string[] | null; involved_providers: string[] | null; involved_products: string[] | null; warnings: string[] | null; evidence: Record<string, unknown> | null };
 type UsageRow = { provider: Provider | "manual_csv" | null; external_product_id: string | null; product_name: string | null; collected_at: string | null; purchased_seats: number | null; assigned_seats: number | null; active_users_30d: number | null };
 type PageSearchParams = { provider?: string; capability?: string; confidence?: string; renewalWindow?: string; reviewState?: string };
 
@@ -28,14 +28,15 @@ async function syncGoogleWorkspaceUsageNowFormAction(formData: FormData) { "use 
 export default async function SubscriptionOptimizationPage({ searchParams }: { searchParams?: PageSearchParams }) {
   const context = await requireOrganization();
   const access = await evaluateSubscriptionUsageOptimizationAccess(await getBillingSnapshot(context.organizationId));
-  const [connections, latestSyncs, findings, usageRows] = access.allowed
+  const [connections, latestSyncs, findings, history, usageRows] = access.allowed
     ? await Promise.all([
         listProviderConnections(context.organizationId),
         listLatestSyncs(context.organizationId),
         listUsageFindings(context.organizationId),
+        listUsageFindingHistory(context.organizationId),
         listLatestUsageRows(context.organizationId)
       ])
-    : [[] as ConnectionRow[], [] as SyncRunRow[], [] as FindingRow[], [] as UsageRow[]];
+    : [[] as ConnectionRow[], [] as SyncRunRow[], [] as FindingRow[], [] as FindingRow[], [] as UsageRow[]];
   const visibleFindings = filterFindings(findings, searchParams ?? {});
   const totals = summarizeUsageRows(usageRows);
   const savingsByCurrency = summarizeSavingsByCurrency(visibleFindings);
@@ -81,6 +82,19 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-950">Executive value summary</h2>
+                <p className="mt-1 text-sm text-slate-600">Active value excludes sample, rejected, resolved, and superseded recommendations. Currency totals remain separate.</p>
+              </div>
+              <div className="flex gap-3">
+                <Link className="rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white" href="/dashboard/subscription-optimization/executive-value-report.pdf">Download PDF</Link>
+                <Link className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800" href="/dashboard/subscription-optimization/executive-value-report.xlsx">Evidence workbook</Link>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div><h2 className="text-lg font-semibold text-slate-950">Reviewable recommendations</h2><p className="mt-1 text-sm text-slate-600">Weak, stale, partial, or ambiguous evidence lowers confidence.</p></div>
               <form className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6" method="get">
@@ -109,6 +123,20 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
           </section>
 
           <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <summary className="cursor-pointer text-lg font-semibold text-slate-950">Recommendation history</summary>
+            <p className="mt-2 text-sm text-slate-600">Resolved and superseded recommendations are read-only and excluded from active counts and savings.</p>
+            <div className="mt-4 divide-y divide-slate-100">
+              {history.length === 0 ? <p className="py-4 text-sm text-slate-500">No historical recommendations.</p> : history.map((finding) => (
+                <article key={finding.id} className="py-4 text-sm text-slate-700">
+                  <p className="font-semibold text-slate-950">{formatFindingType(finding.finding_type)}</p>
+                  <p className="mt-1">Resolved {formatDateTime(finding.resolved_at ?? finding.superseded_at)} · {formatFindingType(finding.resolution_reason ?? "superseded")}</p>
+                  <p className="mt-1 text-xs text-slate-500">Previous review: {formatFindingType(finding.previous_review_status ?? finding.review_status)} · revision {finding.revision_number}</p>
+                </article>
+              ))}
+            </div>
+          </details>
+
+          <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <summary className="cursor-pointer text-lg font-semibold text-slate-950">Advanced import fallback</summary>
             <form action={async (formData) => { "use server"; await commitSubscriptionUsageImportAction(formData); }} className="mt-4">
               <p className="text-sm text-slate-600">Use a bounded CSV/XLSX file only when provider synchronization is unavailable.</p>
@@ -127,14 +155,18 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
 
 function ProviderConnectionCard({ title, connection, latestSync, syncAction, disconnectAction, connectControl, permissionCopy }: { title: string; connection: ConnectionRow | null; latestSync: SyncRunRow | null; syncAction: (formData: FormData) => Promise<void>; disconnectAction: (formData: FormData) => Promise<void>; connectControl: React.ReactNode; permissionCopy: string }) {
   const isProcessing = latestSync?.status === "processing";
-  const canRetry = connection?.status === "connected" && latestSync?.status === "failed" && Boolean(connection.last_error_code);
+  const retryReady = !latestSync?.retry_after || new Date(latestSync.retry_after).getTime() <= Date.now();
+  const canRetry = connection?.status === "connected" && latestSync?.status === "failed" && retryReady && latestSync.attempt_number < latestSync.maximum_attempts;
+  const reconnectRequired = Boolean(connection && ["permission_error", "expired_credential", "revoked_access", "tenant_mismatch"].includes(connection.status));
   return <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-lg font-semibold text-slate-950">{title}</h2>
     {connection && connection.status !== "disconnected" ? <div className="mt-4 space-y-3 text-sm text-slate-700">
       <p><span className="font-medium">Account:</span> {connection.provider_tenant_name ?? connection.provider_tenant_id}</p>
       <p><span className="font-medium">Status:</span> <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold uppercase tracking-wide">{connection.status}</span></p>
       <p><span className="font-medium">Freshness:</span> {formatDateTime(connection.last_successful_sync_at)}</p>
       {connection.last_error_code ? <p className="text-amber-700"><span className="font-medium">Last error:</span> {connection.last_error_code}</p> : null}
-      <div className="flex flex-wrap gap-3 pt-2"><form action={syncAction}><input type="hidden" name="connectionId" value={connection.id} />{canRetry ? <input type="hidden" name="retryFailed" value="true" /> : null}<button disabled={isProcessing || connection.status !== "connected"} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{isProcessing ? "Syncing…" : connection.status !== "connected" ? "Reconnect required" : canRetry ? "Retry sync" : "Sync now"}</button></form><form action={disconnectAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-800">Disconnect</button></form></div>
+      {latestSync ? <p className="text-xs text-slate-500">Stage: {formatFindingType(latestSync.failure_stage ?? latestSync.current_stage)} · attempt {latestSync.attempt_number} of {latestSync.maximum_attempts}</p> : null}
+      {latestSync?.status === "failed" && !retryReady ? <p className="text-xs text-amber-700">Retry available {formatDateTime(latestSync.retry_after)}.</p> : null}
+      <div className="flex flex-wrap gap-3 pt-2"><form action={syncAction}><input type="hidden" name="connectionId" value={connection.id} />{canRetry ? <input type="hidden" name="retryFailed" value="true" /> : null}<button disabled={isProcessing || connection.status !== "connected" || (latestSync?.status === "failed" && !canRetry)} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{isProcessing ? "Syncing…" : reconnectRequired || connection.status !== "connected" ? "Reconnect required" : canRetry ? "Retry sync" : latestSync?.status === "failed" ? "Retry unavailable" : "Sync now"}</button></form><form action={disconnectAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-800">Disconnect</button></form></div>
     </div> : <div className="mt-4">{connectControl}</div>}
     <p className="mt-3 text-xs leading-5 text-slate-500">Permissions: {permissionCopy}. Tokens and raw provider responses are never displayed.</p>
   </div>;
@@ -165,8 +197,10 @@ function MetricCard({ label, value, detail }: { label: string; value: number | s
 function FilterSelect({ name, value, options }: { name: string; value?: string; options: string[] }) { return <select name={name} defaultValue={value ?? "all"} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">{options.map((option) => <option key={option} value={option}>{formatFindingType(option)}</option>)}</select>; }
 
 async function listProviderConnections(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("subscription_usage_provider_connections").select("id, provider, provider_tenant_id, provider_tenant_name, status, last_successful_sync_at, last_error_code, next_scheduled_sync_at").eq("organization_id", organizationId).order("updated_at", { ascending: false }).limit(10); if (error) throw error; return (data ?? []) as ConnectionRow[]; }
-async function listLatestSyncs(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("subscription_usage_sync_runs").select("id, provider, status, row_count, finding_count, duration_ms, retry_count, last_error_code, created_at").eq("organization_id", organizationId).order("created_at", { ascending: false }).limit(10); if (error) throw error; const latest = new Map<Provider, SyncRunRow>(); for (const row of (data ?? []) as SyncRunRow[]) if (!latest.has(row.provider)) latest.set(row.provider, row); return [...latest.values()]; }
-async function listUsageFindings(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("license_waste_opportunities").select("id, finding_type, provider, capability_category, estimated_savings, estimated_savings_min, estimated_savings_max, currency, confidence, recommended_action, review_status, matched_contract_ids, involved_providers, involved_products, warnings, evidence").eq("organization_id", organizationId).is("superseded_at", null).order("created_at", { ascending: false }).limit(200); if (error) throw error; return (data ?? []) as FindingRow[]; }
+async function listLatestSyncs(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("subscription_usage_sync_runs").select("id, provider, status, row_count, finding_count, duration_ms, retry_count, attempt_number, maximum_attempts, current_stage, failure_stage, retry_after, last_error_code, created_at").eq("organization_id", organizationId).order("created_at", { ascending: false }).limit(10); if (error) throw error; const latest = new Map<Provider, SyncRunRow>(); for (const row of (data ?? []) as SyncRunRow[]) if (!latest.has(row.provider)) latest.set(row.provider, row); return [...latest.values()]; }
+const FINDING_SELECT = "id, finding_type, provider, capability_category, estimated_savings, estimated_savings_min, estimated_savings_max, currency, confidence, recommended_action, review_status, previous_review_status, revision_number, revision_of_id, reactivated_from_finding_id, resolution_reason, resolved_at, superseded_at, matched_contract_ids, involved_providers, involved_products, warnings, evidence";
+async function listUsageFindings(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("license_waste_opportunities").select(FINDING_SELECT).eq("organization_id", organizationId).is("superseded_at", null).is("resolved_at", null).order("created_at", { ascending: false }).limit(200); if (error) throw error; return (data ?? []) as FindingRow[]; }
+async function listUsageFindingHistory(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("license_waste_opportunities").select(FINDING_SELECT).eq("organization_id", organizationId).or("resolved_at.not.is.null,superseded_at.not.is.null").order("created_at", { ascending: false }).limit(100); if (error) throw error; return (data ?? []) as FindingRow[]; }
 async function listLatestUsageRows(organizationId: string) { const supabase = createServerSupabaseClient(); const { data, error } = await supabase.from("usage_import_rows").select("provider, external_product_id, product_name, collected_at, purchased_seats, assigned_seats, active_users_30d").eq("organization_id", organizationId).in("provider", ["microsoft_365", "google_workspace"]).order("collected_at", { ascending: false }).limit(1000); if (error) throw error; const latest = new Map<string, UsageRow>(); for (const row of (data ?? []) as UsageRow[]) { const key = `${row.provider}:${row.external_product_id ?? row.product_name ?? "unknown"}`; if (!latest.has(key)) latest.set(key, row); } return [...latest.values()]; }
 
 function filterFindings(findings: FindingRow[], filters: PageSearchParams) { return findings.filter((finding) => { if (filters.provider && filters.provider !== "all" && !finding.involved_providers?.includes(filters.provider) && finding.provider !== filters.provider) return false; if (filters.capability && filters.capability !== "all" && finding.capability_category !== filters.capability) return false; if (filters.confidence === "high" && finding.confidence < 0.75) return false; if (filters.confidence === "medium" && (finding.confidence < 0.5 || finding.confidence >= 0.75)) return false; if (filters.confidence === "low" && finding.confidence >= 0.5) return false; if (filters.reviewState && filters.reviewState !== "all" && finding.review_status !== filters.reviewState) return false; const deadlines = getContractDeadlineEvidence(finding.evidence).map((item) => item.noticeDeadlineDate ?? item.renewalDate).filter(Boolean) as string[]; if (filters.renewalWindow === "no_linked_deadline" && deadlines.length) return false; if (filters.renewalWindow === "30_days" && !deadlines.some((value) => isWithinDays(value, 30))) return false; if (filters.renewalWindow === "90_days" && !deadlines.some((value) => isWithinDays(value, 90))) return false; return true; }); }

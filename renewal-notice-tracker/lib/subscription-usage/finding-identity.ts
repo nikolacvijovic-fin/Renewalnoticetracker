@@ -17,6 +17,7 @@ export function buildStableSubscriptionUsageFindingIdentity(input: {
   providerSet: string[];
   scopeFamilyKey: string;
   syncRunId?: string | null;
+  providerConnectionId?: string | null;
 }) {
   const finding = input.finding;
   const providers = [...(finding.involved_providers ?? input.providerSet)].sort();
@@ -33,8 +34,8 @@ export function buildStableSubscriptionUsageFindingIdentity(input: {
     products,
     capabilityCategory: finding.capability_category ?? null,
     matchedContractIds: contracts,
-    calculationFamily: finding.calculation_version,
-    taxonomyFamily: finding.taxonomy_version ?? null,
+    calculationFamily: finding.calculation_family ?? deriveVersionFamily(finding.calculation_version),
+    taxonomyFamily: finding.taxonomy_family ?? deriveVersionFamily(finding.taxonomy_version),
     stableFingerprint: finding.fingerprint_key ?? null
   };
   const materialEvidence = {
@@ -56,7 +57,8 @@ export function buildStableSubscriptionUsageFindingIdentity(input: {
     analysisScopeId: input.analysisScopeId,
     snapshotBatchIds: [...input.snapshotBatchIds].sort(),
     sourceRowIds: [...finding.source_row_ids].sort(),
-    syncRunId: input.syncRunId ?? null
+    syncRunId: input.syncRunId ?? null,
+    providerConnectionId: input.providerConnectionId ?? null
   };
   const logicalOpportunityKey = stableHash(logicalOpportunity);
   const materialEvidenceHash = stableHash(materialEvidence);
@@ -75,6 +77,12 @@ export function buildStableSubscriptionUsageFindingIdentity(input: {
       recommendedHumanAction: finding.recommended_human_action ?? null
     }
   };
+}
+
+export function deriveVersionFamily(value: string | null | undefined) {
+  if (!value) return null;
+  const normalized = value.trim();
+  return normalized.replace(/(?:[_-]v|@)\d+(?:\.\d+)*(?:[-_][a-z0-9.]+)?$/i, "") || normalized;
 }
 
 function sanitizeSupportingEvidence(value: unknown): Record<string, unknown> {

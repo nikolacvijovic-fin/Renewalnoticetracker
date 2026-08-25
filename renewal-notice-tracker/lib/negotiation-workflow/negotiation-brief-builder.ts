@@ -44,7 +44,7 @@ function pickStrategy(input: {
   if (hasFinding(input.findings, "renewal_term_changed")) return "request_term_change";
   if (hasFinding(input.findings, "usage_mismatch")) return "request_usage_rights_review";
   if (hasFinding(input.findings, "duplicate_vendor_risk")) return "consolidate_vendor";
-  return "ask_for_benchmark";
+  return "defer_decision";
 }
 
 function confidence(input: {
@@ -88,6 +88,21 @@ export function buildNegotiationBrief(input: {
   if (input.decision.commercial_risk_level === "critical") reviewFlags.add("critical_risk_review");
   if (strategy === "escalate_to_legal") reviewFlags.add("legal_review_required");
   if (strategy === "cancel_or_nonrenew") reviewFlags.add("procurement_or_owner_review_required");
+  const questionsRequiringConfirmation: string[] = [];
+  const evidenceLimitations: string[] = ["No external market benchmark is used."];
+  if (!input.quoteComparison || input.quoteComparison.status !== "completed") {
+    questionsRequiringConfirmation.push("Confirm the proposed renewal pricing and terms from a reviewed quote.");
+    evidenceLimitations.push("No completed quote comparison is available.");
+  }
+  if (!input.decision.notice_deadline) {
+    questionsRequiringConfirmation.push("Confirm the contractual notice deadline before external use.");
+    evidenceLimitations.push("The notice deadline is not confirmed.");
+  }
+  if (!fields.length) evidenceLimitations.push("No accepted contract extraction fields are linked.");
+  if (!savings.length) evidenceLimitations.push("No reviewed savings recommendation is linked.");
+  if (strategy === "cancel_or_nonrenew") {
+    questionsRequiringConfirmation.push("Confirm the notice method and non-renewal authority with the customer owner or counsel.");
+  }
 
   const bestSavings = savings.reduce<SavingsOpportunity | null>(
     (best, next) => ((next.estimated_savings_amount ?? 0) > (best?.estimated_savings_amount ?? 0) ? next : best),
@@ -121,7 +136,7 @@ export function buildNegotiationBrief(input: {
               ? "Escalate deadline exposure and ask internal legal/procurement to confirm the safe position before vendor contact."
               : strategy === "cancel_or_nonrenew"
                 ? "Prepare a non-renewal or cancellation position subject to internal approval."
-                : "Ask the vendor for benchmark, terms, and renewal clarification before committing.",
+                : "Defer commitment and request reviewed renewal terms before selecting a negotiation position.",
     fallbackPosition:
       strategy === "cancel_or_nonrenew"
         ? "Fallback: defer external notice until owner and legal/procurement confirm the non-renewal path."
@@ -143,6 +158,8 @@ export function buildNegotiationBrief(input: {
     blockerCodes: Array.from(new Set(blockerCodes)),
     warningCodes,
     reviewFlags: Array.from(reviewFlags),
-    confidenceScore
+    confidenceScore,
+    questionsRequiringConfirmation,
+    evidenceLimitations
   };
 }

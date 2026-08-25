@@ -120,3 +120,30 @@ export async function hasContractCalendarExportAudit(input: {
   if (error) throw error;
   return Boolean(data?.length);
 }
+
+export async function getDesignPartnerActivationEvidence(organizationId: string) {
+  const supabase = createServerSupabaseClient();
+  const [organization, realContract, auditEvidence, connection, sync, reviewedFinding, betaControl] = await Promise.all([
+    supabase.from("organizations").select("id").eq("id", organizationId).maybeSingle(),
+    supabase.from("contracts").select("id").eq("organization_id", organizationId).eq("is_sample", false).limit(1),
+    supabase.from("audit_logs").select("action").eq("organization_id", organizationId).in("action", ["beta.notification_email_verified", "beta.workspace_defaults_configured"]),
+    supabase.from("subscription_usage_provider_connections").select("id").eq("organization_id", organizationId).eq("status", "connected").limit(1),
+    supabase.from("subscription_usage_sync_runs").select("id").eq("organization_id", organizationId).in("status", ["completed", "partial"]).limit(1),
+    supabase.from("license_waste_opportunities").select("id").eq("organization_id", organizationId).not("reviewed_at", "is", null).limit(1),
+    supabase.from("design_partner_beta_controls").select("organization_id, onboarding_call_completed_at").eq("organization_id", organizationId).maybeSingle()
+  ]);
+  const failure = [organization, realContract, auditEvidence, connection, sync, reviewedFinding, betaControl].find((result) => result.error);
+  if (failure?.error) throw failure.error;
+  const actions = new Set((auditEvidence.data ?? []).map((row) => row.action));
+  return {
+    isDesignPartnerBeta: Boolean(betaControl.data?.organization_id),
+    organizationCreated: Boolean(organization.data?.id),
+    notificationEmailVerified: actions.has("beta.notification_email_verified"),
+    workspaceDefaultsConfigured: actions.has("beta.workspace_defaults_configured"),
+    realContractUploaded: Boolean(realContract.data?.length),
+    providerConnected: Boolean(connection.data?.length),
+    providerSyncCompleted: Boolean(sync.data?.length),
+    recommendationReviewed: Boolean(reviewedFinding.data?.length),
+    founderOnboardingCallCompleted: Boolean(betaControl.data?.onboarding_call_completed_at)
+  };
+}

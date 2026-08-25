@@ -150,6 +150,7 @@ export type ReconcileUsageResponse = {
       | "renewal_decision_required";
     reason_code: string;
     calculation_version: string;
+    calculation_family?: string | null;
     source_row_ids: string[];
     matched_contract_ids: string[];
     utilization: number | null;
@@ -170,6 +171,7 @@ export type ReconcileUsageResponse = {
     involved_products?: string[];
     capability_category?: string | null;
     taxonomy_version?: string | null;
+    taxonomy_family?: string | null;
     estimated_savings_min?: number | null;
     estimated_savings_max?: number | null;
     evidence?: Record<string, unknown>;

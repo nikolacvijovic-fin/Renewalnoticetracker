@@ -52,7 +52,7 @@ export function CommercialDecisionWorkbenchPanel({
     playbookItems: NegotiationPlaybookItem[];
   };
 }) {
-  const finalState = ["approved", "rejected", "finalized", "archived"].includes(decision.decision_status);
+  const finalState = ["approved", "rejected", "finalized", "decision_recorded", "outcome_confirmed", "archived"].includes(decision.decision_status);
 
   return (
     <section className="space-y-5">

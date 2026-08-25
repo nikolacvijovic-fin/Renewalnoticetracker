@@ -2,6 +2,7 @@ import type { NegotiationBrief } from "@/lib/negotiation-workflow/negotiation-ty
 import type {
   VendorCommunicationChannel,
   VendorCommunicationDraftResult,
+  VendorCommunicationDraftType,
   VendorCommunicationTone
 } from "@/lib/negotiation-workflow/negotiation-types";
 
@@ -34,19 +35,40 @@ function channelLabel(channel: VendorCommunicationChannel) {
   return "Email";
 }
 
+function draftIntent(type: VendorCommunicationDraftType) {
+  switch (type) {
+    case "request_seat_reduction_pricing":
+      return { subject: "Request for reduced-seat renewal pricing", ask: "Please provide a revised proposal for the customer-confirmed seat requirement." };
+    case "challenge_price_increase":
+      return { subject: "Renewal price review", ask: "Please explain the proposed price change and provide revised commercial terms for review." };
+    case "request_revised_payment_terms":
+      return { subject: "Request for revised renewal payment terms", ask: "Please provide alternative payment terms for customer review." };
+    case "notice_of_nonrenewal":
+      return { subject: "Draft notice of non-renewal", ask: "The customer is considering non-renewal. Confirm the contractual notice method and dates before any manual delivery." };
+    case "request_additional_time":
+      return { subject: "Request for additional renewal review time", ask: "Please confirm whether additional review time is available without changing the customer's contractual position." };
+    default:
+      return { subject: "Request for renewal proposal", ask: "Please provide the proposed renewal pricing, quantities, term, and payment terms for review." };
+  }
+}
+
 export function buildVendorCommunicationDraft(input: {
   brief: NegotiationBrief;
+  draftType?: VendorCommunicationDraftType;
   channel?: VendorCommunicationChannel;
   tone?: VendorCommunicationTone;
 }): VendorCommunicationDraftResult {
   const channel = input.channel ?? "email";
   const tone = input.tone ?? "neutral";
-  const subject = channel === "email" ? `Draft only: renewal commercial review` : null;
+  const draftType = input.draftType ?? "request_renewal_quote";
+  const intent = draftIntent(draftType);
+  const subject = channel === "email" ? `Draft only: ${intent.subject}` : null;
   const missingEvidence = input.brief.blocker_codes.length > 0;
   const body = [
     "[INTERNAL DRAFT ONLY - DO NOT SEND AUTOMATICALLY]",
     `${channelLabel(channel)} tone: ${tone}.`,
     greeting(tone),
+    `Requested action: ${intent.ask}`,
     `Issue: ${clean(input.brief.commercial_risk_summary)}`,
     `Ask: ${clean(input.brief.target_ask)}`,
     `Rationale: ${clean(input.brief.savings_argument ?? "Use only the approved evidence summary and confirm missing evidence before external use.")}`,
@@ -59,6 +81,7 @@ export function buildVendorCommunicationDraft(input: {
   ].join("\n\n");
 
   return {
+    draftType,
     channel,
     tone,
     subject,

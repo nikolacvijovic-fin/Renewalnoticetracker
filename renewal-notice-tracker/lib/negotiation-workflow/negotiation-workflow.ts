@@ -17,6 +17,7 @@ import type {
   NegotiationBriefBuildResult,
   VendorCommunicationChannel,
   VendorCommunicationDraft,
+  VendorCommunicationDraftType,
   VendorCommunicationTone
 } from "@/lib/negotiation-workflow/negotiation-types";
 import {
@@ -74,6 +75,8 @@ function valuesFromBriefBuild(build: NegotiationBriefBuildResult, existing?: Pic
     warning_codes: build.warningCodes,
     review_flags: build.reviewFlags,
     confidence_score: build.confidenceScore,
+    questions_requiring_confirmation: build.questionsRequiringConfirmation,
+    evidence_limitations: build.evidenceLimitations,
     approver_user_id: existing?.approver_user_id ?? null
   };
 }
@@ -374,6 +377,7 @@ export async function createVendorCommunicationDraft(input: {
   organizationId: string;
   negotiationBriefId: string;
   actorUserId?: string | null;
+  draftType?: VendorCommunicationDraftType;
   channel?: VendorCommunicationChannel;
   tone?: VendorCommunicationTone;
 }) {
@@ -384,7 +388,12 @@ export async function createVendorCommunicationDraft(input: {
   if (!["ready_for_review", "in_approval", "approved"].includes(brief.status)) {
     throw new NegotiationWorkflowTransitionError("Vendor draft generation requires a review-ready negotiation brief.");
   }
-  const generated = buildVendorCommunicationDraft({ brief, channel: input.channel, tone: input.tone });
+  const generated = buildVendorCommunicationDraft({
+    brief,
+    draftType: input.draftType,
+    channel: input.channel,
+    tone: input.tone
+  });
   const result = await insertAdminVendorCommunicationDraft({
     organizationId: input.organizationId,
     contractId: brief.contract_id,
@@ -393,6 +402,10 @@ export async function createVendorCommunicationDraft(input: {
     createdByUserId: input.actorUserId ?? null,
     values: {
       status: "draft",
+      draft_type: generated.draftType,
+      version_number: 1,
+      human_review_required: true,
+      unsent: true,
       channel: generated.channel,
       tone: generated.tone,
       subject: generated.subject,
@@ -419,6 +432,7 @@ export async function regenerateVendorCommunicationDraft(input: {
   organizationId: string;
   draftId: string;
   actorUserId?: string | null;
+  draftType?: VendorCommunicationDraftType;
   channel?: VendorCommunicationChannel;
   tone?: VendorCommunicationTone;
 }) {
@@ -427,6 +441,7 @@ export async function regenerateVendorCommunicationDraft(input: {
   const brief = await getRequiredBrief(input.organizationId, draft.negotiation_brief_id);
   const generated = buildVendorCommunicationDraft({
     brief,
+    draftType: input.draftType ?? draft.draft_type ?? "request_renewal_quote",
     channel: input.channel ?? draft.channel,
     tone: input.tone ?? draft.tone
   });
@@ -434,6 +449,10 @@ export async function regenerateVendorCommunicationDraft(input: {
     organizationId: input.organizationId,
     draftId: draft.id,
     values: {
+      draft_type: generated.draftType,
+      version_number: (draft.version_number ?? 1) + 1,
+      human_review_required: true,
+      unsent: true,
       channel: generated.channel,
       tone: generated.tone,
       subject: generated.subject,

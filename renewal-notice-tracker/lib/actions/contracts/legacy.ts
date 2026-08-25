@@ -106,6 +106,8 @@ import {
   getBillingSnapshot,
   getCommercialRedirectCode
 } from "@/lib/billing/entitlements";
+import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
+import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 
 function fallbackMetadata(
   contractTitle: FormDataEntryValue | null,
@@ -706,12 +708,17 @@ export async function createContractAction(formData: FormData) {
   });
 
   const billingSnapshot = await getBillingSnapshot(organizationId);
-  await enforceContractTrackingCapacityOrRedirect({
+  const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
     organizationId,
     actorUserId: user.id,
     billingSnapshot,
     featurePath: "/dashboard/contracts/new",
     context: { source: "upload_contract_action" }
+  });
+  await enforceDesignPartnerBetaMutation({
+    organizationId,
+    action: "upload_contract",
+    currentContracts: trackingCapacity.currentCount
   });
   const parsedRecipients =
     manualRecipients.trim().length > 0
@@ -1079,6 +1086,12 @@ export async function createContractAction(formData: FormData) {
     }
   });
 
+  await recalculateEvidenceReadiness({
+    organizationId,
+    contractId: contract.id,
+    actorUserId: user.id
+  }).catch(() => null);
+
   revalidatePath("/dashboard");
   redirect(`/dashboard/contracts/${contract.id}`);
 }
@@ -1099,12 +1112,17 @@ export async function createManualContractAction(formData: FormData) {
     }
     throw error;
   }
-  await enforceContractTrackingCapacityOrRedirect({
+  const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
     organizationId,
     actorUserId: user.id,
     billingSnapshot,
     featurePath: "/dashboard/contracts/new",
     context: { source: "manual_contract_action" }
+  });
+  await enforceDesignPartnerBetaMutation({
+    organizationId,
+    action: "upload_contract",
+    currentContracts: trackingCapacity.currentCount
   });
 
   const payload = manualContractSchema.parse({
@@ -1379,6 +1397,12 @@ export async function createManualContractAction(formData: FormData) {
       }
     });
   }
+
+  await recalculateEvidenceReadiness({
+    organizationId,
+    contractId: contract.id,
+    actorUserId: user.id
+  }).catch(() => null);
 
   revalidatePath("/dashboard");
   redirect(`/dashboard/contracts/${contract.id}`);
@@ -1709,6 +1733,12 @@ export async function updateContractReviewAction(contractId: string, formData: F
       }
     });
   }
+
+  await recalculateEvidenceReadiness({
+    organizationId,
+    contractId,
+    actorUserId: user.id
+  }).catch(() => null);
 
   revalidatePath(`/dashboard/contracts/${contractId}`);
 }
@@ -2089,13 +2119,18 @@ export async function importContractsAction(formData: FormData) {
     }
   });
 
-  await enforceContractTrackingCapacityOrRedirect({
+  const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
     organizationId,
     actorUserId: user.id,
     billingSnapshot,
     featurePath: "/dashboard/contracts/new",
     context: { source: "import_contracts_action", row_count: parsedRows.length },
     additionalContracts: Math.max(parsedRows.length, 1)
+  });
+  await enforceDesignPartnerBetaMutation({
+    organizationId,
+    action: "upload_contract",
+    currentContracts: trackingCapacity.currentCount + Math.max(parsedRows.length - 1, 0)
   });
   const admin = createPrivilegedSupabaseClient("contract_action_legacy");
   const members = await getOrganizationMembers(organizationId);

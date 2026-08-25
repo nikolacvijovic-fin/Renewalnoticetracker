@@ -44,10 +44,14 @@ jobs:
         run: npm run test:subscription-usage-production
       - name: Run complete Node test suite
         run: npm test
+      - name: Validate paid design-partner reports and beta gates
+        run: npm run test:paid-design-partner-beta
       - name: Run trust and permission gates
         run: npm run test:permission-boundaries
       - name: Run migration and deployment static checks
         run: npm run test:deployment-readiness
+      - name: Build production application
+        run: npm run build
 
   python:
     name: Python reconciliation tests
@@ -127,3 +131,28 @@ jobs:
         run: npm ci
       - name: Validate callback, scheduler, and review fixtures after database disconnect smoke
         run: npm run test:subscription-usage-smoke
+
+  release-gate:
+    name: Paid design-partner release gate
+    if: always()
+    needs:
+      - node-and-schema
+      - python
+      - java
+      - database-integration
+      - fixture-smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every readiness job to pass
+        env:
+          NODE_RESULT: ${{ needs.node-and-schema.result }}
+          PYTHON_RESULT: ${{ needs.python.result }}
+          JAVA_RESULT: ${{ needs.java.result }}
+          DATABASE_RESULT: ${{ needs.database-integration.result }}
+          FIXTURE_RESULT: ${{ needs.fixture-smoke.result }}
+        run: |
+          test "$NODE_RESULT" = "success"
+          test "$PYTHON_RESULT" = "success"
+          test "$JAVA_RESULT" = "success"
+          test "$DATABASE_RESULT" = "success"
+          test "$FIXTURE_RESULT" = "success"

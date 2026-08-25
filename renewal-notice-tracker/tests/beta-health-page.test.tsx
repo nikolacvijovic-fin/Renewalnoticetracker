@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const requireInternalRole = vi.fn();
 const getFounderBetaReliabilityDashboard = vi.fn();
+const getFounderEvidenceReadinessSummary = vi.fn();
 
 vi.mock("@/lib/internal-access", () => ({
   requireInternalRole
@@ -10,6 +11,10 @@ vi.mock("@/lib/internal-access", () => ({
 
 vi.mock("@/lib/internal/repositories/admin-beta-reliability-repository", () => ({
   getFounderBetaReliabilityDashboard
+}));
+
+vi.mock("@/lib/evidence-readiness/evidence-readiness-service", () => ({
+  getFounderEvidenceReadinessSummary
 }));
 
 describe("founder beta health page", () => {
@@ -27,6 +32,15 @@ describe("founder beta health page", () => {
 
   it("renders internal beta health summaries without customer-sensitive content", async () => {
     requireInternalRole.mockResolvedValue({ role: "internal_support" });
+    getFounderEvidenceReadinessSummary.mockResolvedValue({
+      averageReadinessScore: 62,
+      blockedContractCount: 1,
+      commonMissingEvidence: [{ category: "renewal_timing", count: 2 }],
+      staleProviderConnectionCount: 1,
+      unreviewedExtractionBacklogCount: 2,
+      approachingDeadlineWithoutReadyEvidenceCount: 1,
+      averageUploadToDecisionReadyHours: null
+    });
     getFounderBetaReliabilityDashboard.mockResolvedValue({
       generatedAt: "2026-08-09T00:00:00.000Z",
       totals: {
@@ -111,6 +125,8 @@ describe("founder beta health page", () => {
     expect(getFounderBetaReliabilityDashboard).toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Beta Reliability Dashboard" })).toBeInTheDocument();
     expect(screen.getByText("Customer feedback loop")).toBeInTheDocument();
+    expect(screen.getByText("Common evidence gaps")).toBeInTheDocument();
+    expect(screen.getByText("62/100")).toBeInTheDocument();
     expect(screen.getByText("Deadline looks wrong")).toBeInTheDocument();
     expect(screen.getAllByText("Acme Finance").length).toBeGreaterThan(0);
     expect(screen.getByText("Ask the customer to assign an internal owner for the renewal.")).toBeInTheDocument();

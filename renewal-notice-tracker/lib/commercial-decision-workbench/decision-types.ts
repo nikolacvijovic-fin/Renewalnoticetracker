@@ -1,4 +1,5 @@
 import type { Json } from "@/lib/supabase/database.types";
+import type { RenewalDecisionType } from "@/lib/renewal-workspace/types";
 
 export const COMMERCIAL_RECOMMENDED_ACTIONS = [
   "renew",
@@ -12,11 +13,16 @@ export const COMMERCIAL_RECOMMENDED_ACTIONS = [
 export const COMMERCIAL_DECISION_STATUSES = [
   "draft",
   "evidence_pending",
+  "evidence_required",
   "ready_for_review",
   "in_approval",
+  "awaiting_approval",
   "approved",
   "rejected",
+  "returned_for_changes",
   "finalized",
+  "decision_recorded",
+  "outcome_confirmed",
   "archived"
 ] as const;
 
@@ -96,6 +102,19 @@ export type CommercialDecision = {
   decision_summary: string | null;
   blocker_codes: string[];
   warning_codes: string[];
+  decision_type?: RenewalDecisionType;
+  decision_owner_user_id?: string | null;
+  decision_deadline?: string | null;
+  rationale?: string | null;
+  evidence_references?: Json;
+  estimated_financial_effect?: number | null;
+  decision_version?: number;
+  approved_version?: number | null;
+  separation_of_duties_required?: boolean;
+  preferred_scenario_id?: string | null;
+  final_outcome?: string | null;
+  realized_savings_amount?: number | null;
+  outcome_confirmed_at?: string | null;
   finalized_at: string | null;
   approved_at: string | null;
   rejected_at: string | null;
@@ -134,6 +153,8 @@ export type CommercialDecisionApprovalStep = {
   acted_at: string | null;
   created_at: string;
   updated_at: string;
+  decision_version?: number;
+  separation_required?: boolean;
 };
 
 export type CommercialDecisionSnapshot = {
@@ -143,6 +164,8 @@ export type CommercialDecisionSnapshot = {
   decision_id: string;
   created_by_user_id: string | null;
   snapshot_type: string;
+  decision_type?: RenewalDecisionType;
+  decision_version?: number;
   recommended_action: CommercialRecommendedAction;
   decision_status: CommercialDecisionStatus;
   negotiation_posture: NegotiationPosture;

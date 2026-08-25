@@ -8,6 +8,7 @@ const getOrganizationContractCount = vi.fn();
 const enforceFeatureAccess = vi.fn();
 const getAllowedReminderRecipients = vi.fn();
 const getContractTrackingLimitResult = vi.fn();
+const enforceDesignPartnerBetaMutation = vi.fn();
 const createAuditLog = vi.fn();
 const parseImportFile = vi.fn();
 const reminderInserts: Array<unknown> = [];
@@ -38,6 +39,10 @@ vi.mock("@/lib/billing/entitlements", () => ({
   enforceFeatureAccess,
   getAllowedReminderRecipients,
   getContractTrackingLimitResult
+}));
+
+vi.mock("@/lib/billing/design-partner-beta", () => ({
+  enforceDesignPartnerBetaMutation
 }));
 
 vi.mock("@/lib/audit", () => ({
@@ -96,6 +101,7 @@ describe("importContractsAction", () => {
       remaining: 299,
       message: "ok"
     });
+    enforceDesignPartnerBetaMutation.mockResolvedValue({ allowed: true, reason: "not_design_partner_beta" });
 
     parseImportFile.mockReturnValue([
       {

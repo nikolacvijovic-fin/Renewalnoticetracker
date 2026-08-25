@@ -177,6 +177,7 @@ class ReconcileUsageFinding(BaseModel):
     ]
     reason_code: str
     calculation_version: str
+    calculation_family: str
     source_row_ids: list[str]
     matched_contract_ids: list[str]
     utilization: float | None = None
@@ -198,6 +199,7 @@ class ReconcileUsageFinding(BaseModel):
     involved_products: list[str] = Field(default_factory=list)
     capability_category: str | None = None
     taxonomy_version: str | None = None
+    taxonomy_family: str | None = None
     estimated_savings_min: float | None = None
     estimated_savings_max: float | None = None
     evidence: dict[str, Any] = Field(default_factory=dict)

@@ -5,6 +5,7 @@ import { assertCanUseShippedAction, requireOrganization } from "@/lib/auth";
 import { requireScopedContract } from "@/lib/contracts/kernel-queries";
 import type {
   VendorCommunicationChannel,
+  VendorCommunicationDraftType,
   VendorCommunicationTone
 } from "@/lib/negotiation-workflow/negotiation-types";
 import {
@@ -176,6 +177,7 @@ export async function createVendorCommunicationDraftAction(
       organizationId: context.organizationId,
       negotiationBriefId,
       actorUserId: context.user.id,
+      draftType: (formString(formData, "draft_type") as VendorCommunicationDraftType | null) ?? "request_renewal_quote",
       channel: (formString(formData, "channel") as VendorCommunicationChannel | null) ?? "email",
       tone: (formString(formData, "tone") as VendorCommunicationTone | null) ?? "neutral"
     });
@@ -197,6 +199,7 @@ export async function regenerateVendorCommunicationDraftAction(
       organizationId: context.organizationId,
       draftId,
       actorUserId: context.user.id,
+      draftType: (formString(formData, "draft_type") as VendorCommunicationDraftType | null) ?? undefined,
       channel: (formString(formData, "channel") as VendorCommunicationChannel | null) ?? undefined,
       tone: (formString(formData, "tone") as VendorCommunicationTone | null) ?? undefined
     });

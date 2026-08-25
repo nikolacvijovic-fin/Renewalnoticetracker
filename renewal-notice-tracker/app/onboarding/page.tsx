@@ -13,6 +13,7 @@ import {
 } from "@/lib/onboarding/beta-activation-checklist";
 import {
   getEmailConfigurationReadiness,
+  getDesignPartnerActivationEvidence,
   getOrganizationActivationContracts,
   hasContractCalendarExportAudit
 } from "@/lib/onboarding/queries";
@@ -70,10 +71,12 @@ export default async function OnboardingPage() {
     organizationId: context.organizationId,
     contractId: activation.recommendedContractId
   });
+  const designPartnerEvidence = await getDesignPartnerActivationEvidence(context.organizationId);
   const betaChecklist = buildBetaActivationChecklist({
     activation,
     emailConfigured: emailReadiness.configured,
-    calendarExportDownloaded
+    calendarExportDownloaded,
+    designPartnerEvidence: designPartnerEvidence.isDesignPartnerBeta ? designPartnerEvidence : undefined
   });
 
   recordOrganizationActivationMilestonesOnce({

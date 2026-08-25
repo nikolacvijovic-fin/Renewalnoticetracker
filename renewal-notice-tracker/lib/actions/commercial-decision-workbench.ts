@@ -22,6 +22,7 @@ import {
   updateCommercialDecisionNegotiationPosture,
   updateCommercialDecisionRecommendedAction
 } from "@/lib/commercial-decision-workbench/commercial-decision-workbench";
+import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 
 export type CommercialDecisionActionResult =
   | { ok: true; message: string }
@@ -59,6 +60,14 @@ async function requireApproverReassignmentOperator() {
   return context;
 }
 
+async function refreshEvidenceReadiness(input: {
+  organizationId: string;
+  contractId: string;
+  actorUserId: string;
+}) {
+  await recalculateEvidenceReadiness(input).catch(() => null);
+}
+
 export async function createCommercialDecisionAction(contractId: string): Promise<CommercialDecisionActionResult> {
   try {
     const context = await requireDecisionOperator();
@@ -68,6 +77,7 @@ export async function createCommercialDecisionAction(contractId: string): Promis
       contractId,
       actorUserId: context.user.id
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision created." };
   } catch (error) {
@@ -87,6 +97,7 @@ export async function recomputeCommercialDecisionAction(
       decisionId,
       actorUserId: context.user.id
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision recomputed." };
   } catch (error) {
@@ -108,6 +119,7 @@ export async function submitCommercialDecisionForReviewAction(
       actorUserId: context.user.id,
       approverUserId: formData ? formString(formData, "approver_user_id") : null
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision submitted for approval." };
   } catch (error) {
@@ -137,6 +149,7 @@ export async function reassignCommercialDecisionApproverAction(
       actorUserId: context.user.id,
       newApproverUserId
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision approver reassigned." };
   } catch (error) {
@@ -158,6 +171,7 @@ export async function approveCommercialDecisionAction(
       actorUserId: context.user.id,
       reviewerNote: formData ? formString(formData, "reviewer_note") : null
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision approved." };
   } catch (error) {
@@ -179,6 +193,7 @@ export async function rejectCommercialDecisionAction(
       actorUserId: context.user.id,
       reviewerNote: formData ? formString(formData, "reviewer_note") : null
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision rejected." };
   } catch (error) {
@@ -306,6 +321,7 @@ export async function attachCommercialDecisionEvidenceAction(
       evidenceLabel,
       evidenceId: evidenceId ?? null
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Evidence attached." };
   } catch (error) {

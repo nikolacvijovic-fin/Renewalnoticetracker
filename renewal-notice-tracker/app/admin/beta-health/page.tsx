@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getFounderBetaReliabilityDashboard } from "@/lib/internal/repositories/admin-beta-reliability-repository";
+import { getFounderEvidenceReadinessSummary } from "@/lib/evidence-readiness/evidence-readiness-service";
 import { requireInternalRole } from "@/lib/internal-access";
 import type { BetaOrganizationReliabilitySummary } from "@/lib/internal/beta-reliability";
 import { updateCustomerFeedbackStatusFormAction } from "@/lib/actions/customer-feedback";
@@ -147,6 +148,9 @@ export default async function FounderBetaHealthPage({ searchParams }: FounderBet
     search,
     filter: filter && filter in FILTER_LABELS ? (filter as keyof typeof FILTER_LABELS) : undefined
   });
+  const evidenceReadiness = await getFounderEvidenceReadinessSummary({
+    organizationIds: dashboard.organizations.map((organization) => organization.organizationId)
+  });
 
   return (
     <section className="space-y-6">
@@ -212,7 +216,25 @@ export default async function FounderBetaHealthPage({ searchParams }: FounderBet
         <MetricCard label="Open feedback" value={dashboard.feedback.openCount} />
         <MetricCard label="Urgent feedback" value={dashboard.feedback.urgentCount} />
         <MetricCard label="Generated" value={dateLabel(dashboard.generatedAt)} />
+        <MetricCard label="Average evidence readiness" value={evidenceReadiness.averageReadinessScore === null ? "Not calculated" : `${evidenceReadiness.averageReadinessScore}/100`} />
+        <MetricCard label="Evidence-blocked contracts" value={evidenceReadiness.blockedContractCount} />
+        <MetricCard label="Stale provider connections" value={evidenceReadiness.staleProviderConnectionCount} />
+        <MetricCard label="Unreviewed extraction backlog" value={evidenceReadiness.unreviewedExtractionBacklogCount} />
+        <MetricCard label="Deadline approaching without ready evidence" value={evidenceReadiness.approachingDeadlineWithoutReadyEvidenceCount} />
+        <MetricCard label="Upload to decision-ready" value={evidenceReadiness.averageUploadToDecisionReadyHours === null ? "Not enough history" : `${evidenceReadiness.averageUploadToDecisionReadyHours} hours`} />
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-950">Common evidence gaps</h2>
+        <p className="mt-1 text-sm text-slate-500">Bounded, cross-organization counts only. No customer evidence content is exposed.</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {evidenceReadiness.commonMissingEvidence.length ? evidenceReadiness.commonMissingEvidence.map((entry) => (
+            <span key={entry.category} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              {entry.category.replaceAll("_", " ")}: {entry.count}
+            </span>
+          )) : <span className="text-sm text-slate-500">No persisted evidence gaps on this bounded page.</span>}
+        </div>
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">

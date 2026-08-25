@@ -67,4 +67,21 @@ describe("buildVendorCommunicationDraft", () => {
     expect(callScript.draftBody).toContain("Call script tone: executive");
     expect(callScript.evidenceTrace).toMatchObject({ automaticSending: false });
   });
+
+  it("supports each approved draft intent without claiming delivery or contractual validity", () => {
+    for (const draftType of [
+      "request_renewal_quote",
+      "request_seat_reduction_pricing",
+      "challenge_price_increase",
+      "request_revised_payment_terms",
+      "notice_of_nonrenewal",
+      "request_additional_time"
+    ] as const) {
+      const draft = buildVendorCommunicationDraft({ brief: brief(), draftType });
+      expect(draft.draftType).toBe(draftType);
+      expect(draft.subject).toContain("Draft only");
+      expect(draft.draftBody).toContain("DO NOT SEND AUTOMATICALLY");
+      expect(draft.draftBody).not.toMatch(/NoticeControl (sent|delivered|cancelled)/i);
+    }
+  });
 });

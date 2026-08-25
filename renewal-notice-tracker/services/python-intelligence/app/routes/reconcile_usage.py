@@ -7,7 +7,10 @@ from app.subscription_capability_taxonomy import load_subscription_capability_ta
 
 router = APIRouter()
 CALCULATION_VERSION = "subscription_usage_v1"
+CALCULATION_FAMILY = "subscription_usage"
 OVERLAP_CALCULATION_VERSION = "cross_provider_overlap_v1"
+OVERLAP_CALCULATION_FAMILY = "cross_provider_overlap"
+TAXONOMY_FAMILY = "subscription_capability_taxonomy"
 LOW_UTILIZATION_THRESHOLD = 0.35
 STALE_DAYS = 90
 GLOBAL_BLOCKING_ACTIVITY_WARNINGS = {
@@ -234,6 +237,7 @@ def find_duplicate_products(rows: list[UsageInventoryRow], matches: dict[str, li
                 finding_type="duplicate_product_contract",
                 reason_code="same_normalized_product_multiple_rows",
                 calculation_version=CALCULATION_VERSION,
+                calculation_family=CALCULATION_FAMILY,
                 source_row_ids=[row.usage_row_id for row in group_rows],
                 matched_contract_ids=sorted({contract_id for row in group_rows for contract_id in matches.get(row.usage_row_id, [])}),
                 utilization=None,
@@ -356,6 +360,7 @@ def build_overlap_finding(
         finding_type="possible_functional_overlap",
         reason_code=f"cross_provider_{capability}_uneven_adoption",
         calculation_version=OVERLAP_CALCULATION_VERSION,
+        calculation_family=OVERLAP_CALCULATION_FAMILY,
         source_row_ids=[microsoft.usage_row_id, google.usage_row_id],
         matched_contract_ids=contract_ids,
         utilization=round(lower_utilization, 4),
@@ -371,6 +376,7 @@ def build_overlap_finding(
         involved_products=products,
         capability_category=capability,
         taxonomy_version=taxonomy_version,
+        taxonomy_family=TAXONOMY_FAMILY,
         evidence={
             "microsoft_utilization": round(microsoft_utilization, 4),
             "google_utilization": round(google_utilization, 4),
@@ -493,6 +499,7 @@ def finding(
         finding_type=finding_type,
         reason_code=reason_code,
         calculation_version=CALCULATION_VERSION,
+        calculation_family=CALCULATION_FAMILY,
         source_row_ids=[row.usage_row_id],
         matched_contract_ids=matched_contract_ids if len(matched_contract_ids) == 1 else [],
         utilization=utilization,

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { requireOrganization, type MembershipRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { enforceFeatureAccess, getBillingSnapshot } from "@/lib/billing/entitlements";
+import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { reconcileUsage } from "@/lib/add-ons/python-intelligence-client";
 import { fetchUsageInventorySnapshot } from "@/lib/add-ons/java-enterprise-client";
@@ -36,6 +37,7 @@ import {
 import { sanitizeSubscriptionUsageAuditMetadata } from "@/lib/subscription-usage/findings";
 import { prepareSubscriptionUsageFindingReview } from "@/lib/subscription-usage/findings";
 import { buildStableSubscriptionUsageFindingIdentity } from "@/lib/subscription-usage/finding-identity";
+import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 import {
   buildGoogleWorkspaceAuthorizationUrl,
   buildGoogleWorkspaceConnectionRecord,
@@ -117,7 +119,7 @@ type SubscriptionUsageSupabaseClient = {
   from(table: "subscription_usage_sync_runs"): SubscriptionUsageSyncRunTable;
   from(table: "contracts"): SubscriptionUsageContractTable;
   from(table: "license_waste_opportunities"): SubscriptionUsageFindingTable;
-  rpc(name: "create_subscription_usage_batch_with_rows" | "disconnect_subscription_usage_provider" | "begin_manual_subscription_usage_sync_attempt" | "create_subscription_usage_consent_attempt" | "consume_subscription_usage_consent_attempt" | "create_subscription_usage_analysis_scope" | "persist_subscription_usage_analysis_findings", args: Record<string, unknown>): Promise<SubscriptionUsageQueryResult<unknown>>;
+  rpc(name: "create_subscription_usage_batch_with_rows" | "disconnect_subscription_usage_provider" | "begin_manual_subscription_usage_sync_attempt" | "transition_manual_subscription_usage_sync_attempt" | "create_subscription_usage_consent_attempt" | "consume_subscription_usage_consent_attempt" | "create_subscription_usage_analysis_scope" | "persist_subscription_usage_analysis_findings", args: Record<string, unknown>): Promise<SubscriptionUsageQueryResult<unknown>>;
 };
 
 type SubscriptionUsageAnalysisScope = {
@@ -172,7 +174,21 @@ type ManualSyncAttempt = {
   isNew: boolean;
   usageImportBatchId: string | null;
   lastErrorCode: string | null;
+  currentStage: ManualSyncStage;
+  failureStage: ManualSyncStage | null;
+  retryAfter: string | null;
+  maximumAttempts: number;
 };
+
+type ManualSyncStage =
+  | "created"
+  | "authenticating"
+  | "fetching_snapshot"
+  | "snapshot_persisted"
+  | "reconciling"
+  | "findings_persisted"
+  | "completed"
+  | "failed";
 
 type SubscriptionUsageConnectionSelectQuery = {
   eq(column: string, value: string): SubscriptionUsageConnectionSelectQuery;
@@ -258,9 +274,12 @@ type SubscriptionUsageContractTable = {
 
 type SubscriptionUsageFindingRecord = {
   id: string;
+  contract_id?: string | null;
   finding_fingerprint: string | null;
   review_status: string | null;
   provider?: string | null;
+  resolved_at?: string | null;
+  superseded_at?: string | null;
 };
 
 type SubscriptionUsageFindingSelectQuery = {
@@ -296,6 +315,25 @@ function createSubscriptionUsageSupabaseClient() {
   return createServerSupabaseClient() as unknown as SubscriptionUsageSupabaseClient;
 }
 
+async function enforceBetaProviderConnection(input: {
+  organizationId: string;
+  provider: "microsoft_365" | "google_workspace";
+}) {
+  const { data, error } = await createServerSupabaseClient()
+    .from("subscription_usage_provider_connections")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .neq("status", "disconnected")
+    .limit(3);
+  if (error) throw error;
+  await enforceDesignPartnerBetaMutation({
+    organizationId: input.organizationId,
+    action: "connect_provider",
+    provider: input.provider,
+    currentProviderConnections: data?.length ?? 0
+  });
+}
+
 function assertCanManageSubscriptionUsageConnection(role: MembershipRole) {
   if (!canManageSubscriptionUsageConnection(role)) {
     throw new Error("Only organization owners, admins, and operators can manage subscription usage connections.");
@@ -325,6 +363,35 @@ async function beginManualSyncAttempt(input: {
   return attempt as ManualSyncAttempt;
 }
 
+async function transitionManualSyncAttempt(input: {
+  organizationId: string;
+  syncRunId: string;
+  nextStage: ManualSyncStage;
+  usageImportBatchId?: string | null;
+  rowCount?: number | null;
+  findingCount?: number | null;
+  finalStatus?: "completed" | "partial" | null;
+  failureCode?: string | null;
+  retryAfter?: string | null;
+}) {
+  const { data, error } = await createSubscriptionUsageSupabaseClient().rpc(
+    "transition_manual_subscription_usage_sync_attempt",
+    {
+      p_organization_id: input.organizationId,
+      p_sync_run_id: input.syncRunId,
+      p_next_stage: input.nextStage,
+      p_usage_import_batch_id: input.usageImportBatchId ?? null,
+      p_row_count: input.rowCount ?? null,
+      p_finding_count: input.findingCount ?? null,
+      p_final_status: input.finalStatus ?? null,
+      p_failure_code: input.failureCode ?? null,
+      p_retry_after: input.retryAfter ?? null
+    }
+  );
+  if (error) throw error;
+  return data;
+}
+
 function manualRetryAfter(attemptNumber: number) {
   return new Date(Date.now() + Math.min(5 * 60_000, 30_000 * 2 ** Math.max(0, attemptNumber - 1))).toISOString();
 }
@@ -350,6 +417,7 @@ export async function startGoogleWorkspaceConnectionAction(formData: FormData) {
     context: { source: "subscription_usage_google_workspace_connect" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceBetaProviderConnection({ organizationId: context.organizationId, provider: GOOGLE_WORKSPACE_USAGE_PROVIDER });
 
   const result = buildGoogleWorkspaceAuthorizationUrl({
     config: getGoogleWorkspaceOAuthConfig(),
@@ -384,6 +452,7 @@ export async function completeGoogleWorkspaceAuthorization(input: { state: strin
     context: { source: "subscription_usage_google_workspace_callback" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceBetaProviderConnection({ organizationId: context.organizationId, provider: GOOGLE_WORKSPACE_USAGE_PROVIDER });
 
   const token = await exchangeGoogleWorkspaceAuthorizationCode({ code: input.code, config });
   const connection = buildGoogleWorkspaceConnectionRecord({
@@ -477,6 +546,7 @@ export async function getMicrosoft365AdminConsentUrlAction() {
     context: { source: "subscription_usage_microsoft365_connect" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceBetaProviderConnection({ organizationId: context.organizationId, provider: MICROSOFT_365_USAGE_PROVIDER });
 
   const existing = await createSubscriptionUsageSupabaseClient()
     .from("subscription_usage_provider_connections")
@@ -536,6 +606,7 @@ export async function completeMicrosoft365AdminConsent(input: {
   if (!state || state.organizationId !== context.organizationId || state.actorUserId !== context.user.id) {
     throw new Error("Microsoft 365 connection state is invalid for this organization.");
   }
+  await enforceBetaProviderConnection({ organizationId: context.organizationId, provider: MICROSOFT_365_USAGE_PROVIDER });
   const { error: consumeError } = await createSubscriptionUsageSupabaseClient().rpc("consume_subscription_usage_consent_attempt", {
     p_organization_id: context.organizationId,
     p_provider: MICROSOFT_365_USAGE_PROVIDER,
@@ -717,6 +788,7 @@ export async function syncGoogleWorkspaceUsageNowAction(formData: FormData) {
     context: { source: "subscription_usage_google_workspace_sync_now" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "sync_provider" });
   const connectionId = String(formData.get("connectionId") ?? "").trim();
   if (!connectionId) throw new Error("Google Workspace connection is required.");
   const supabase = createSubscriptionUsageSupabaseClient();
@@ -749,6 +821,19 @@ export async function syncGoogleWorkspaceUsageNowAction(formData: FormData) {
   const idempotencyKey = syncRun.idempotencyKey;
 
   try {
+    if (syncRun.usageImportBatchId) {
+      const resumed = await resumeManualSyncFromPersistedSnapshot({
+        organizationId: context.organizationId,
+        actorUserId: context.user.id,
+        connectionId,
+        provider: GOOGLE_WORKSPACE_USAGE_PROVIDER,
+        syncRun,
+        startedAt
+      });
+      revalidatePath("/dashboard/subscription-optimization");
+      return resumed;
+    }
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "authenticating" });
     const credential = await getSubscriptionProviderCredential({
       organizationId: context.organizationId,
       connectionId,
@@ -759,6 +844,7 @@ export async function syncGoogleWorkspaceUsageNowAction(formData: FormData) {
       encryptedRefreshToken: credential.data.encrypted_credential,
       config: getGoogleWorkspaceOAuthConfig()
     });
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "fetching_snapshot" });
     const snapshot = await fetchUsageInventorySnapshot({
       organization_id: context.organizationId,
       connector_type: "subscription_usage",
@@ -816,6 +902,14 @@ export async function syncGoogleWorkspaceUsageNowAction(formData: FormData) {
         syncRunId
       })
     });
+    await transitionManualSyncAttempt({
+      organizationId: context.organizationId,
+      syncRunId,
+      nextStage: "snapshot_persisted",
+      usageImportBatchId: batchId,
+      rowCount: assessment.summary.totalRows
+    });
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "reconciling" });
     const reconciliation = await reconcileAndPersistUsageBatch({
       organizationId: context.organizationId,
       actorUserId: context.user.id,
@@ -828,6 +922,8 @@ export async function syncGoogleWorkspaceUsageNowAction(formData: FormData) {
     const findingCount = reconciliation.ok ? reconciliation.output.findings?.length ?? 0 : 0;
     const finalStatus = assessment.summary.rejectedCount > 0 || snapshot.output.partial || !reconciliation.ok ? "partial" : "completed";
     const durationMs = Date.now() - startedAt;
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "findings_persisted", findingCount });
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "completed", finalStatus });
     await supabase.from("subscription_usage_sync_runs").update({
       status: finalStatus,
       usage_import_batch_id: batchId,
@@ -901,15 +997,19 @@ async function markGoogleWorkspaceSyncFailed(input: {
       : input.errorCode === "expired_credential"
         ? "expired_credential"
         : "connected";
+  await transitionManualSyncAttempt({
+    organizationId: input.organizationId,
+    syncRunId: input.syncRunId,
+    nextStage: "failed",
+    failureCode: input.errorCode,
+    retryAfter: manualRetryAfter(input.attemptNumber)
+  });
   await Promise.all([
     supabase.from("subscription_usage_sync_runs").update({
-      status: "failed",
-      failed_at: new Date().toISOString(),
       duration_ms: Date.now() - input.startedAt,
       retry_count: input.retryCount,
       provider_error_category: input.errorCode,
       last_error_code: input.errorCode,
-      retry_after: manualRetryAfter(input.attemptNumber),
       updated_at: new Date().toISOString()
     }).eq("organization_id", input.organizationId).eq("id", input.syncRunId),
     supabase.from("subscription_usage_provider_connections").update({
@@ -949,6 +1049,7 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     context: { source: "subscription_usage_microsoft365_sync_now" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "sync_provider" });
 
   const connectionId = String(formData.get("connectionId") ?? "").trim();
   if (!connectionId) throw new Error("Microsoft 365 connection is required.");
@@ -982,6 +1083,25 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
   if (!syncRun.isNew) return syncRun;
   const syncRunId = syncRun.id;
   const idempotencyKey = syncRun.idempotencyKey;
+  if (syncRun.usageImportBatchId) {
+    try {
+      const resumed = await resumeManualSyncFromPersistedSnapshot({
+        organizationId: context.organizationId,
+        actorUserId: context.user.id,
+        connectionId,
+        provider: MICROSOFT_365_USAGE_PROVIDER,
+        syncRun,
+        startedAt
+      });
+      revalidatePath("/dashboard/subscription-optimization");
+      return resumed;
+    } catch (error) {
+      const errorCode = normalizeMicrosoft365FailureCode(error);
+      await markMicrosoft365SyncFailed({ organizationId: context.organizationId, connectionId, syncRunId, startedAt, errorCode, retryCount: 0, attemptNumber: syncRun.attemptNumber });
+      throw new Error("Microsoft 365 synchronization could not resume safely.");
+    }
+  }
+  await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "authenticating" });
   const microsoftConfig = getAppConfig().microsoft365;
   let token: Awaited<ReturnType<typeof acquireMicrosoft365ApplicationToken>>;
   try {
@@ -1005,6 +1125,7 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     });
     throw new Error("Microsoft 365 synchronization could not authenticate safely.");
   }
+  await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "fetching_snapshot" });
   const snapshot = await fetchUsageInventorySnapshot({
     organization_id: context.organizationId,
     connector_type: "subscription_usage",
@@ -1030,14 +1151,15 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     return snapshot;
   }
 
-  const rows = mapMicrosoft365SnapshotToImportRows(snapshot.output);
-  const assessment = assessSubscriptionUsageRows(rows, {
+  try {
+    const rows = mapMicrosoft365SnapshotToImportRows(snapshot.output);
+    const assessment = assessSubscriptionUsageRows(rows, {
     sourceLabel: `Microsoft 365 tenant ${connection.provider_tenant_id}`,
     collectedAt: new Date().toISOString(),
     allowMissingPurchasedSeats: true,
     allowMissingCostCurrency: true
   });
-  const batchId = await createUsageBatchWithRows({
+    const batchId = await createUsageBatchWithRows({
     organizationId: context.organizationId,
     source: "microsoft_365",
     status: deriveImportBatchStatus(assessment.summary),
@@ -1062,7 +1184,16 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     })
   });
 
-  const reconciliation = await reconcileAndPersistUsageBatch({
+    await transitionManualSyncAttempt({
+    organizationId: context.organizationId,
+    syncRunId,
+    nextStage: "snapshot_persisted",
+    usageImportBatchId: batchId,
+    rowCount: assessment.summary.totalRows
+  });
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "reconciling" });
+
+    const reconciliation = await reconcileAndPersistUsageBatch({
     organizationId: context.organizationId,
     actorUserId: context.user.id,
     batchId,
@@ -1071,10 +1202,12 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     syncRunId,
     providerWarningCodes: snapshot.output.warnings
   });
-  const findingCount = reconciliation.ok ? reconciliation.output.findings?.length ?? 0 : 0;
-  const finalStatus = assessment.summary.rejectedCount > 0 || snapshot.output.partial || !reconciliation.ok ? "partial" : "completed";
-  const durationMs = Date.now() - startedAt;
-  await supabase
+    const findingCount = reconciliation.ok ? reconciliation.output.findings?.length ?? 0 : 0;
+    const finalStatus = assessment.summary.rejectedCount > 0 || snapshot.output.partial || !reconciliation.ok ? "partial" : "completed";
+    const durationMs = Date.now() - startedAt;
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "findings_persisted", findingCount });
+    await transitionManualSyncAttempt({ organizationId: context.organizationId, syncRunId, nextStage: "completed", finalStatus });
+    await supabase
     .from("subscription_usage_sync_runs")
     .update({
       status: finalStatus,
@@ -1090,7 +1223,7 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     })
     .eq("organization_id", context.organizationId)
     .eq("id", syncRunId);
-  await supabase
+    await supabase
     .from("subscription_usage_provider_connections")
     .update({
       last_successful_sync_at: new Date().toISOString(),
@@ -1101,7 +1234,7 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     .eq("organization_id", context.organizationId)
     .eq("id", connectionId);
 
-  await createAuditLog(
+    await createAuditLog(
     {
       organizationId: context.organizationId,
       actorUserId: context.user.id,
@@ -1124,8 +1257,21 @@ export async function syncMicrosoft365UsageNowAction(formData: FormData) {
     { mode: "best_effort" }
   );
 
-  revalidatePath("/dashboard/subscription-optimization");
-  return { syncRunId, batchId, reconciliation };
+    revalidatePath("/dashboard/subscription-optimization");
+    return { syncRunId, batchId, reconciliation };
+  } catch (error) {
+    const errorCode = normalizeMicrosoft365FailureCode(error);
+    await markMicrosoft365SyncFailed({
+      organizationId: context.organizationId,
+      connectionId,
+      syncRunId,
+      startedAt,
+      errorCode,
+      retryCount: 0,
+      attemptNumber: syncRun.attemptNumber
+    });
+    throw new Error("Microsoft 365 synchronization failed safely.");
+  }
 }
 
 async function markMicrosoft365SyncFailed(input: {
@@ -1148,17 +1294,21 @@ async function markMicrosoft365SyncFailed(input: {
         : input.errorCode === "verification_failed"
           ? "verification_failed"
           : "connected";
+  await transitionManualSyncAttempt({
+    organizationId: input.organizationId,
+    syncRunId: input.syncRunId,
+    nextStage: "failed",
+    failureCode: input.errorCode,
+    retryAfter: manualRetryAfter(input.attemptNumber)
+  });
   await Promise.all([
     supabase
       .from("subscription_usage_sync_runs")
       .update({
-        status: "failed",
-        failed_at: new Date().toISOString(),
         duration_ms: durationMs,
         retry_count: input.retryCount,
         provider_error_category: input.errorCode,
         last_error_code: input.errorCode,
-        retry_after: manualRetryAfter(input.attemptNumber),
         updated_at: new Date().toISOString()
       })
       .eq("organization_id", input.organizationId)
@@ -1192,6 +1342,73 @@ async function markMicrosoft365SyncFailed(input: {
       durationMs
     })
   });
+}
+
+async function resumeManualSyncFromPersistedSnapshot(input: {
+  organizationId: string;
+  actorUserId: string;
+  connectionId: string;
+  provider: "microsoft_365" | "google_workspace";
+  syncRun: ManualSyncAttempt;
+  startedAt: number;
+}) {
+  const batchId = input.syncRun.usageImportBatchId;
+  if (!batchId) throw new Error("subscription_usage_snapshot_missing");
+  let findingCount: number | null = null;
+  let reconciliation: Awaited<ReturnType<typeof reconcileAndPersistUsageBatch>> | null = null;
+
+  if (input.syncRun.currentStage !== "findings_persisted") {
+    await transitionManualSyncAttempt({
+      organizationId: input.organizationId,
+      syncRunId: input.syncRun.id,
+      nextStage: "reconciling",
+      usageImportBatchId: batchId
+    });
+    reconciliation = await reconcileAndPersistUsageBatch({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      batchId,
+      provider: input.provider,
+      providerConnectionId: input.connectionId,
+      syncRunId: input.syncRun.id
+    });
+    if (!reconciliation.ok) throw new Error(reconciliation.errorCode);
+    findingCount = reconciliation.output.findings?.length ?? 0;
+    await transitionManualSyncAttempt({
+      organizationId: input.organizationId,
+      syncRunId: input.syncRun.id,
+      nextStage: "findings_persisted",
+      findingCount
+    });
+  }
+
+  await transitionManualSyncAttempt({
+    organizationId: input.organizationId,
+    syncRunId: input.syncRun.id,
+    nextStage: "completed",
+    finalStatus: "completed"
+  });
+  const completedAt = new Date().toISOString();
+  await createSubscriptionUsageSupabaseClient()
+    .from("subscription_usage_provider_connections")
+    .update({
+      status: "connected",
+      last_successful_sync_at: completedAt,
+      last_error_code: null,
+      next_scheduled_sync_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      updated_at: completedAt
+    })
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.connectionId);
+
+  return {
+    syncRunId: input.syncRun.id,
+    batchId,
+    reconciliation,
+    resumed: true,
+    durationMs: Date.now() - input.startedAt,
+    findingCount
+  };
 }
 
 function normalizeMicrosoft365FailureCode(error: unknown) {
@@ -1304,6 +1521,7 @@ export async function previewSubscriptionUsageImportAction(formData: FormData): 
     context: { source: "subscription_usage_import_preview" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "create_findings" });
 
   const file = formData.get("file");
   const sourceLabel = String(formData.get("sourceLabel") ?? "").trim();
@@ -1613,7 +1831,8 @@ async function persistUsageFindings(input: {
       snapshotBatchIds: input.analysisScope.batchIds,
       providerSet: input.analysisScope.providers,
       scopeFamilyKey: input.analysisScope.scopeFamilyKey,
-      syncRunId: input.syncRunId
+      syncRunId: input.syncRunId,
+      providerConnectionId: input.providerConnectionId
     });
     return {
       contract_id: finding.matched_contract_ids[0] ?? null,
@@ -1625,6 +1844,7 @@ async function persistUsageFindings(input: {
       finding_type: finding.finding_type,
       reason_code: finding.reason_code,
       calculation_version: finding.calculation_version,
+      calculation_family: finding.calculation_family ?? null,
       usage_row_ids: finding.source_row_ids,
       matched_contract_ids: finding.matched_contract_ids,
       utilization: finding.utilization,
@@ -1636,6 +1856,7 @@ async function persistUsageFindings(input: {
       recommended_action: finding.recommended_action,
       capability_category: finding.capability_category ?? null,
       taxonomy_version: finding.taxonomy_version ?? null,
+      taxonomy_family: finding.taxonomy_family ?? null,
       involved_providers: finding.involved_providers ?? [],
       involved_products: finding.involved_products ?? [],
       estimated_savings_min: finding.estimated_savings_min ?? null,
@@ -1653,6 +1874,11 @@ async function persistUsageFindings(input: {
     p_findings: payload
   });
   if (error) throw error;
+  const affectedContractIds = [...new Set(findings.flatMap((finding) => finding.matched_contract_ids))];
+  await Promise.allSettled(affectedContractIds.map((contractId) => recalculateEvidenceReadiness({
+    organizationId: input.organizationId,
+    contractId
+  })));
   return { persisted: Number(data ?? 0) };
 }
 
@@ -1665,6 +1891,7 @@ export async function runSubscriptionUsageReconciliationAction(batchId: string) 
     context: { source: "subscription_usage_reconciliation" }
   });
   await assertSubscriptionUsageOptimizationReady(context.organizationId);
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "create_findings" });
 
   return reconcileAndPersistUsageBatch({
     organizationId: context.organizationId,
@@ -1710,12 +1937,15 @@ export async function reviewSubscriptionUsageFindingAction(formData: FormData) {
   const supabase = createSubscriptionUsageSupabaseClient();
   const { data: finding, error: findingError } = await supabase
     .from("license_waste_opportunities")
-    .select("id, finding_fingerprint, review_status, provider")
+    .select("id, contract_id, finding_fingerprint, review_status, provider, resolved_at, superseded_at")
     .eq("organization_id", context.organizationId)
     .eq("id", findingId)
     .maybeSingle();
   if (findingError) throw findingError;
   if (!finding) throw new Error("Recommendation was not found for this organization.");
+  if (finding.resolved_at || finding.superseded_at) {
+    throw new Error("This recommendation is historical and can no longer be reviewed.");
+  }
 
   const decision = prepareSubscriptionUsageFindingReview({
     findingId,
@@ -1748,5 +1978,12 @@ export async function reviewSubscriptionUsageFindingAction(formData: FormData) {
     entityId: findingId,
     details: sanitizeSubscriptionUsageAuditMetadata(decision.auditMetadata)
   });
+  if (finding.contract_id) {
+    await recalculateEvidenceReadiness({
+      organizationId: context.organizationId,
+      contractId: finding.contract_id,
+      actorUserId: context.user.id
+    }).catch(() => null);
+  }
   revalidatePath("/dashboard/subscription-optimization");
 }

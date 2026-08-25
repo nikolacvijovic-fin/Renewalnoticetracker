@@ -21,11 +21,24 @@ import type {
   VendorCommunicationApprovalStep,
   VendorCommunicationDraft
 } from "@/lib/negotiation-workflow/negotiation-types";
+import { VENDOR_COMMUNICATION_DRAFT_TYPES } from "@/lib/negotiation-workflow/negotiation-types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ServerActionForm } from "@/components/ui/server-action-form";
 
 const NEGOTIATION_ACTIONS = ["renegotiate", "escalate", "cancel", "needs_review"];
+
+function draftTypeLabel(type: (typeof VENDOR_COMMUNICATION_DRAFT_TYPES)[number]) {
+  const labels = {
+    request_renewal_quote: "Renewal quote request",
+    request_seat_reduction_pricing: "Reduced-seat pricing request",
+    challenge_price_increase: "Price increase challenge draft",
+    request_revised_payment_terms: "Revised payment terms request",
+    notice_of_nonrenewal: "Non-renewal notice draft",
+    request_additional_time: "Additional review time request"
+  } as const;
+  return labels[type];
+}
 
 export function NegotiationWorkflowPanel({
   decision,
@@ -114,6 +127,24 @@ export function NegotiationWorkflowPanel({
                   {[...brief.blocker_codes, ...brief.review_flags].join(", ")}
                 </div>
               ) : null}
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Customer confirmation</p>
+                  <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                    {Array.isArray(brief.questions_requiring_confirmation) && brief.questions_requiring_confirmation.length
+                      ? brief.questions_requiring_confirmation.map((question, index) => <li key={index}>{String(question)}</li>)
+                      : <li>No open confirmation question recorded.</li>}
+                  </ul>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Evidence limitations</p>
+                  <ul className="mt-2 space-y-1 text-sm text-slate-700">
+                    {Array.isArray(brief.evidence_limitations) && brief.evidence_limitations.length
+                      ? brief.evidence_limitations.map((limitation, index) => <li key={index}>{String(limitation)}</li>)
+                      : <li>No evidence limitation recorded.</li>}
+                  </ul>
+                </div>
+              </div>
             </div>
 
             {canAct ? (
@@ -224,6 +255,11 @@ function VendorDraftPanel({
           {canCreateDraft ? "Create a draft-only message from the approved evidence." : "Brief must be review-ready before draft generation."}
           {canAct && canCreateDraft ? (
             <ServerActionForm serverAction={createVendorCommunicationDraftFormAction.bind(null, brief.id, decision.contract_id)} className="mt-3 flex flex-wrap gap-2">
+              <select name="draft_type" defaultValue="request_renewal_quote" className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
+                {VENDOR_COMMUNICATION_DRAFT_TYPES.map((type) => (
+                  <option key={type} value={type}>{draftTypeLabel(type)}</option>
+                ))}
+              </select>
               <select name="channel" defaultValue="email" className="rounded-xl border border-slate-200 px-3 py-2 text-sm">
                 <option value="email">Email</option>
                 <option value="internal_note">Internal note</option>
@@ -244,6 +280,7 @@ function VendorDraftPanel({
           <div className="flex flex-wrap gap-2">
             <Badge tone={draft.status === "approved_for_copy" ? "success" : "automation"}>{draft.status.replaceAll("_", " ")}</Badge>
             <Badge tone="warning">{draft.tone}</Badge>
+            <Badge tone="locked">{(draft.draft_type ?? "request_renewal_quote").replaceAll("_", " ")}</Badge>
           </div>
           {draft.subject ? <p className="text-sm font-semibold text-ink">{draft.subject}</p> : null}
           <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-950 p-3 text-xs text-slate-100">{draft.draft_body}</pre>
@@ -257,6 +294,7 @@ function VendorDraftPanel({
             <div className="flex flex-wrap gap-2">
               {!["approved_for_copy", "rejected", "archived"].includes(draft.status) ? (
                 <ServerActionForm serverAction={regenerateVendorCommunicationDraftFormAction.bind(null, draft.id, decision.contract_id)}>
+                  <input type="hidden" name="draft_type" value={draft.draft_type ?? "request_renewal_quote"} />
                   <input type="hidden" name="channel" value={draft.channel} />
                   <input type="hidden" name="tone" value={draft.tone} />
                   <Button type="submit" variant="secondary">Regenerate draft</Button>

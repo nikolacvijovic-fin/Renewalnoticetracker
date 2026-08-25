@@ -7,6 +7,7 @@ import {
   listSavingsOpportunities
 } from "@/lib/quote-comparison/quote-comparison";
 import { sanitizeQuoteEvidence } from "@/lib/quote-comparison/quote-normalization";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { scoreCommercialDecision } from "@/lib/commercial-decision-workbench/decision-scoring";
 import type {
   CommercialDecision,
@@ -382,6 +383,8 @@ export async function createDecisionSnapshot(input: {
     createdByUserId: input.actorUserId ?? null,
     values: {
       snapshot_type: input.snapshotType ?? "scoring",
+      decision_type: decision.decision_type ?? "insufficient_information",
+      decision_version: decision.decision_version ?? 1,
       recommended_action: decision.recommended_action,
       decision_status: decision.decision_status,
       negotiation_posture: decision.negotiation_posture,
@@ -567,7 +570,9 @@ export async function submitCommercialDecisionForReview(input: {
     values: {
       step_order: 1,
       status: "pending",
-      approver_user_id: approverUserId
+      approver_user_id: approverUserId,
+      decision_version: decision.decision_version ?? 1,
+      separation_required: decision.separation_of_duties_required ?? true
     }
   });
   return updated;
@@ -610,29 +615,47 @@ export async function approveCommercialDecision(input: {
     });
     throw new CommercialDecisionTransitionError("Only the assigned approver can approve this commercial decision.");
   }
-  const updated = await transitionDecision({
+  if (
+    (decision.separation_of_duties_required ?? true) &&
+    [decision.created_by_user_id, decision.decision_owner_user_id].filter(Boolean).includes(input.actorUserId)
+  ) {
+    await auditDecision({
+      organizationId: input.organizationId,
+      contractId: decision.contract_id,
+      actorUserId: input.actorUserId,
+      eventType: "commercial_decision.approval_blocked",
+      decision,
+      metadata: {
+        reasonCode: "separation_of_duties_required",
+        approvalAuthorityMode: "separate_assigned_approver"
+      }
+    });
+    throw new CommercialDecisionTransitionError(
+      "A separate assigned approver is required for this commercial decision."
+    );
+  }
+  const { error } = await createServerSupabaseClient().rpc("approve_renewal_decision_version" as never, {
+    p_organization_id: input.organizationId,
+    p_decision_id: input.decisionId,
+    p_expected_version: decision.decision_version ?? 1,
+    p_reviewer_note: sanitizeReviewerNote(input.reviewerNote)
+  } as never);
+  if (error) throw error;
+  const updated = await getRequiredDecision(input.organizationId, input.decisionId);
+  await auditDecision({
     organizationId: input.organizationId,
-    decision,
+    contractId: decision.contract_id,
     actorUserId: input.actorUserId,
     eventType: "commercial_decision.approved",
-    values: {
-      decision_status: "approved",
-      approved_at: new Date().toISOString(),
-      approver_user_id: input.actorUserId
-    },
+    previousStatus: decision.decision_status,
+    decision: updated,
     metadata: {
       reviewerNoteRecorded: Boolean(input.reviewerNote?.trim()),
       assignedApproverUserId: decision.approver_user_id,
       actingApproverUserId: input.actorUserId,
-      approvalAuthorityMode: "assigned_approver"
+      approvalAuthorityMode: "assigned_approver",
+      decisionVersion: decision.decision_version ?? 1
     }
-  });
-  await markPendingApprovalStep({
-    organizationId: input.organizationId,
-    decision,
-    actorUserId: input.actorUserId,
-    status: "approved",
-    reviewerNote: input.reviewerNote
   });
   return updated;
 }
@@ -960,7 +983,10 @@ async function markPendingApprovalStep(input: {
     decisionId: input.decision.id
   });
   if (steps.error) throw steps.error;
-  const pendingStep = (steps.data ?? []).find((step) => step.status === "pending");
+  const decisionVersion = input.decision.decision_version ?? 1;
+  const pendingStep = (steps.data ?? []).find(
+    (step) => step.status === "pending" && (step.decision_version ?? 1) === decisionVersion
+  );
   if (!pendingStep) return null;
   const updated = await updateAdminCommercialDecisionApprovalStep({
     organizationId: input.organizationId,
@@ -984,7 +1010,9 @@ async function getRequiredDecision(organizationId: string, decisionId: string) {
 }
 
 function assertEditable(decision: CommercialDecision) {
-  if (["finalized", "archived"].includes(decision.decision_status)) {
-    throw new CommercialDecisionTransitionError("Finalized or archived commercial decisions cannot be edited.");
+  if (["finalized", "decision_recorded", "outcome_confirmed", "archived"].includes(decision.decision_status)) {
+    throw new CommercialDecisionTransitionError(
+      "Recorded, outcome-confirmed, finalized, or archived commercial decisions cannot be edited."
+    );
   }
 }

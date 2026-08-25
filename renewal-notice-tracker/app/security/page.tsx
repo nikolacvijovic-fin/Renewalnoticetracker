@@ -1,0 +1,13 @@
+import Link from "next/link";
+
+export default function SecurityAndDataUsePage() {
+  return <main className="mx-auto max-w-4xl space-y-8 px-6 py-12 text-slate-700">
+    <header><p className="text-sm font-semibold uppercase tracking-[0.18em] text-teal-700">Verified product behavior</p><h1 className="mt-2 text-4xl font-semibold text-slate-950">Security and data use</h1><p className="mt-3">This page describes current NoticeControl behavior. It is not a certification or legal opinion.</p></header>
+    <section><h2 className="text-xl font-semibold text-slate-950">Provider access</h2><p className="mt-2">Microsoft 365 uses application permissions for license assignment and usage reports. Google Workspace requests licensing and reports scopes; the licensing scope is read/write by provider definition, while NoticeControl connector code permits GET requests only. Provider credentials are server-side and are not shown in customer pages, logs, exports, or audit metadata.</p></section>
+    <section><h2 className="text-xl font-semibold text-slate-950">Stored data</h2><p className="mt-2">NoticeControl stores organization-scoped contract metadata, bounded evidence, provider connection references, normalized subscription snapshots, recommendation evidence, reviews, and operational status. It does not intentionally store provider response bodies in audit or monitoring events.</p></section>
+    <section><h2 className="text-xl font-semibold text-slate-950">Disconnect, retention, and deletion</h2><p className="mt-2">Disconnect deletes the stored provider credential and resolves recommendations tied to that connection. Historical normalized evidence and review lineage remain until the workspace deletion or retention processes remove them. Export artifacts expire under the documented export policy.</p></section>
+    <section><h2 className="text-xl font-semibold text-slate-950">Exports and requests</h2><p className="mt-2">Organization admins and operators can request bounded exports. Workspace deletion uses the guarded privacy workflow. Contact the incident or privacy address configured by the operator for access, deletion, or security requests.</p></section>
+    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5"><h2 className="font-semibold text-amber-950">No certification claim</h2><p className="mt-2 text-amber-900">NoticeControl does not claim SOC 2, ISO 27001, GDPR certification, completed penetration testing, Microsoft publisher verification, or Google OAuth verification unless separate current evidence is provided.</p></section>
+    <Link className="font-semibold text-teal-700" href="/">Return to NoticeControl</Link>
+  </main>;
+}
