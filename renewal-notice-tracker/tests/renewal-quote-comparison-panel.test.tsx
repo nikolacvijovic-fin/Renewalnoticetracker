@@ -4,6 +4,8 @@ import { RenewalQuoteComparisonPanel } from "@/components/contracts/renewal-quot
 
 vi.mock("@/lib/actions/contracts", () => ({
   createAndRunQuoteComparisonFormAction: vi.fn(),
+  createReviewedCommercialBaselineFormAction: vi.fn(),
+  uploadAndRunCommercialProposalFormAction: vi.fn(),
   createSavingsOpportunityFormAction: vi.fn(),
   dismissSavingsOpportunityFormAction: vi.fn(),
   reviewQuoteFindingFormAction: vi.fn()

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const createAdminSupabaseClient = vi.fn();
 const getOcrProvider = vi.fn();
 const extractContractMetadata = vi.fn();
+const runFullDocumentContractExtraction = vi.fn();
+const mapExtractionEvidenceToLegacyMetadata = vi.fn();
 const recordProcessingError = vi.fn();
 const logServerWarn = vi.fn();
 const emitOperationalEvent = vi.fn();
@@ -17,6 +19,14 @@ vi.mock("@/lib/ocr/provider", () => ({
 
 vi.mock("@/lib/ai/extract-contract", () => ({
   extractContractMetadata
+}));
+
+vi.mock("@/lib/contract-intelligence/python-extraction-runner", () => ({
+  runFullDocumentContractExtraction
+}));
+
+vi.mock("@/lib/contract-intelligence/legacy-metadata-adapter", () => ({
+  mapExtractionEvidenceToLegacyMetadata
 }));
 
 vi.mock("@/lib/contracts/processing-errors", () => ({
@@ -269,6 +279,39 @@ describe("OCR jobs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     emitOperationalEvent.mockResolvedValue({});
+    runFullDocumentContractExtraction.mockResolvedValue({
+      ok: true,
+      run: { id: "run-1", status: "completed" },
+      fields: []
+    });
+    mapExtractionEvidenceToLegacyMetadata.mockReturnValue({
+      contract_title: "MSA",
+      counterparty_name: "Acme",
+      contract_type: "MSA",
+      effective_date: "2030-01-01",
+      expiration_date: "2030-12-31",
+      auto_renewal: true,
+      renewal_term: "12 months",
+      notice_period_value: 30,
+      notice_period_unit: "days",
+      renewal_date: "2030-12-31",
+      notice_deadline_date: "2030-11-30",
+      termination_window: null,
+      governing_law: null,
+      payment_terms: "Net 30",
+      contract_value_amount: null,
+      contract_value_currency: null,
+      contract_value_period: null,
+      price_change_trigger: null,
+      payment_trigger: null,
+      financial_data_trust_status: "low",
+      extracted_clauses: [],
+      field_confidence: { expiration_date: 0.9 },
+      field_source_snippets: { expiration_date: "Scanned clause" },
+      reminder_recommendations: [],
+      reviewer_notes: null,
+      needs_review: true
+    });
   });
 
   it("enqueues an OCR job", async () => {
@@ -338,11 +381,12 @@ describe("OCR jobs", () => {
         (entry) => entry.table === "contracts" && entry.payload.status === "needs_review"
       )
     ).toBe(true);
-    expect(
-      mock.inserts.some(
-        (entry) => entry.table === "cost_usage_logs"
-      )
-    ).toBe(true);
+    expect(runFullDocumentContractExtraction).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: "org-1",
+      contractId: "contract-1",
+      contractFileId: "file-1",
+      forceReprocess: true
+    }));
     expect(emitOperationalEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         eventName: "ocr_job_claimed",
@@ -377,9 +421,7 @@ describe("OCR jobs", () => {
       ]
     });
     createAdminSupabaseClient.mockReturnValue(mock.client);
-    getOcrProvider.mockReturnValue({
-      performOcr: vi.fn().mockRejectedValue(new Error("stop after rescue"))
-    });
+    runFullDocumentContractExtraction.mockRejectedValue(new Error("stop after rescue"));
 
     const { processPendingOcrJobs } = await import("@/lib/ocr/jobs");
     await processPendingOcrJobs(1);
@@ -412,11 +454,9 @@ describe("OCR jobs", () => {
   it("records OCR failures without leaking raw OCR or contract text into errors/log metadata", async () => {
     const mock = createAdminMock();
     createAdminSupabaseClient.mockReturnValue(mock.client);
-    getOcrProvider.mockReturnValue({
-      performOcr: vi.fn().mockRejectedValue(
-        new Error("Raw OCR text: confidential renewal clause should never be logged")
-      )
-    });
+    runFullDocumentContractExtraction.mockRejectedValue(
+      new Error("Raw OCR text: confidential renewal clause should never be logged")
+    );
 
     const { processPendingOcrJobs } = await import("@/lib/ocr/jobs");
     const results = await processPendingOcrJobs(1);

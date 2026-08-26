@@ -54,8 +54,11 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `contract_extraction.failed`
 - `contract_extracted_field.accepted`
 - `contract_extracted_field.rejected`
+- `contract_extracted_field.overridden`
 - `contract_extracted_fields.applied_to_metadata`
+- `contract_commercial_analysis.generated`
 - `renewal_quote_comparison.created`
+- `commercial_baseline.version_created`
 - `renewal_quote_comparison.completed`
 - `renewal_quote_comparison.failed`
 - `renewal_quote_finding.reviewed`

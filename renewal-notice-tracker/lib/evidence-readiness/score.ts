@@ -42,7 +42,8 @@ function canonicalHash(profile: EvidenceDecisionProfile, items: EvidenceReadines
       source: item.evidenceSource,
       sourceRecordId: item.sourceRecordId,
       verifiedAt: item.verifiedAt,
-      freshnessDate: item.freshnessDate
+      freshnessDate: item.freshnessDate,
+      provenance: item.provenance
     }))
   })).digest("hex");
 }
@@ -73,6 +74,7 @@ export function calculateEvidenceReadiness(input: {
       verifiedBy: source?.verifiedBy ?? null,
       verifiedAt: source?.verifiedAt ?? null,
       freshnessDate: source?.freshnessDate ?? null,
+      provenance: source?.provenance ?? null,
       explanation: safeText(observation?.explanation, state === "not_applicable" ? "Not required for this decision profile." : `${definition.label} is ${state.replaceAll("_", " ")}.`),
       recommendedAction: safeText(observation?.recommendedAction, definition.defaultAction),
       calculationVersion: EVIDENCE_READINESS_CALCULATION_VERSION
@@ -124,6 +126,10 @@ export function calculateEvidenceReadiness(input: {
     verifiedEvidence: applicable.filter((item) => item.state === "verified"),
     nextRecommendedAction: actionItem?.recommendedAction ?? "Evidence is ready for a responsible human decision.",
     evidenceHash: canonicalHash(input.decisionProfile, items),
+    materialEvidenceHash: canonicalHash(
+      input.decisionProfile,
+      items.filter((item) => item.category !== "decision_approval")
+    ),
     calculatedAt,
     calculationVersion: EVIDENCE_READINESS_CALCULATION_VERSION
   };

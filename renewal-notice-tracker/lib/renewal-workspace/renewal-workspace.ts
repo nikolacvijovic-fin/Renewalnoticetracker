@@ -136,6 +136,22 @@ export function assertRenewalTaskTransition(from: RenewalTaskStatus, to: Renewal
   return { allowed: true as const, from, to };
 }
 
+export function assertRenewalTaskActorScope(input: {
+  actorRole: string;
+  actorUserId: string;
+  taskOwnerUserId?: string | null;
+  operation: "create" | "transition";
+}) {
+  if (input.actorRole !== "reviewer") return { allowed: true as const };
+  if (input.operation === "create") {
+    throw new Error("reviewer_cannot_create_renewal_tasks");
+  }
+  if (!input.taskOwnerUserId || input.taskOwnerUserId !== input.actorUserId) {
+    throw new Error("reviewer_can_only_update_assigned_renewal_tasks");
+  }
+  return { allowed: true as const };
+}
+
 export function evaluateRenewalApprovalPolicy(input: ApprovalPolicyInput) {
   const reasons: string[] = [];
   if ((input.contractValue ?? 0) >= 100_000) reasons.push("high_contract_value");

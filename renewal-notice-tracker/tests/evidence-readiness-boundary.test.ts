@@ -39,6 +39,16 @@ describe("evidence readiness runtime boundary", () => {
     const commercialDecision = read("lib", "actions", "commercial-decision-workbench.ts");
     for (const source of [review, quote, usage, scheduled, decision, commercialDecision]) {
       expect(source).toContain("recalculateEvidenceReadiness");
+      expect(source).toContain("trigger:");
     }
+  });
+
+  it("provides an authenticated freshness invalidation path that skips read-only beta organizations", () => {
+    const route = read("app", "api", "internal", "evidence-freshness", "route.ts");
+    const invalidation = read("lib", "evidence-readiness", "freshness-invalidation.ts");
+    expect(route).toContain('requireInternalRouteAuth("operations")');
+    expect(invalidation).toContain('action: "create_findings"');
+    expect(invalidation).toContain("readOnlySkipped");
+    expect(invalidation).toContain('trigger: "scheduled_freshness_invalidation"');
   });
 });

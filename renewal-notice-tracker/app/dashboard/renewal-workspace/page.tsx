@@ -38,7 +38,8 @@ export default async function RenewalWorkspacePortfolioPage({
     currency: value(searchParams.currency),
     department: value(searchParams.department),
     readinessState: value(searchParams.readinessState),
-    missingEvidenceCategory: value(searchParams.missingEvidenceCategory)
+    missingEvidenceCategory: value(searchParams.missingEvidenceCategory),
+    portfolioState: value(searchParams.portfolioState)
   });
   const totals = (field: "expectedSavings" | "confirmedSavings") => items.reduce<Record<string, number>>((result, item) => {
     if (!item.currency || item[field] === null) return result;
@@ -72,7 +73,7 @@ export default async function RenewalWorkspacePortfolioPage({
         </div>
       </header>
 
-      <form className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-4 xl:grid-cols-9">
+      <form className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-4 xl:grid-cols-10">
         <input name="vendor" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Vendor" defaultValue={value(searchParams.vendor)} />
         <select name="owner" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.owner)}><option value="">All owners</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{memberLabel.get(member.user_id)}</option>)}</select>
         <select name="decisionType" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.decisionType)}><option value="">All decisions</option>{RENEWAL_DECISION_TYPES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
@@ -81,6 +82,7 @@ export default async function RenewalWorkspacePortfolioPage({
         <select name="currency" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.currency)}><option value="">All currencies</option>{currencies.map((entry) => <option key={entry}>{entry}</option>)}</select>
         <select name="readinessState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.readinessState)}><option value="">All readiness states</option>{EVIDENCE_READINESS_STATES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
         <select name="missingEvidenceCategory" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.missingEvidenceCategory)}><option value="">All missing categories</option>{EVIDENCE_CATEGORIES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
+        <select name="portfolioState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.portfolioState)}><option value="">All operating states</option>{["decision_not_started", "deadline_needs_review", "deadline_passed", "evidence_blocked", "approval_blocked", "outcome_confirmed"].map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
         <Button type="submit">Apply filters</Button>
       </form>
 
@@ -90,7 +92,7 @@ export default async function RenewalWorkspacePortfolioPage({
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Contract</th><th className="px-4 py-3">Deadline</th><th className="px-4 py-3">Evidence</th><th className="px-4 py-3">Decision</th><th className="px-4 py-3">Approval</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3">Expected</th><th className="px-4 py-3">Confirmed</th></tr></thead>
             <tbody className="divide-y divide-slate-100">
               {items.map((item) => (
-                <tr key={item.decisionId}>
+                <tr key={item.contractId}>
                   <td className="px-4 py-3"><a className="font-semibold text-blue-700 hover:underline" href={`/dashboard/contracts/${item.contractId}/commercial-decision`}>{item.contractTitle}</a><p className="text-xs text-slate-500">{item.vendor}</p></td>
                   <td className="px-4 py-3"><p className="font-medium text-ink">{formatDate(item.noticeDeadline)}</p><p className={`text-xs ${(item.daysRemaining ?? 999) <= 7 ? "text-red-700" : "text-slate-500"}`}>{item.daysRemaining === null ? "No trusted notice date" : `${item.daysRemaining} days`}</p></td>
                   <td className="px-4 py-3"><p className="font-semibold text-ink">{item.evidenceScore === null ? "Not calculated" : `${item.evidenceScore}/100`}</p><p className="text-xs text-slate-500">{item.evidenceReadinessState ? title(item.evidenceReadinessState) : "Open contract to calculate"}{item.criticalBlockerCount ? ` · ${item.criticalBlockerCount} critical` : ""}</p></td>
@@ -101,7 +103,7 @@ export default async function RenewalWorkspacePortfolioPage({
                   <td className="px-4 py-3">{item.currency ?? ""} {item.confirmedSavings?.toLocaleString() ?? "-"}</td>
                 </tr>
               ))}
-              {!items.length ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-600">No renewal decisions match these filters.</td></tr> : null}
+              {!items.length ? <tr><td colSpan={8} className="px-4 py-10 text-center text-slate-600">No real contracts match these portfolio filters.</td></tr> : null}
             </tbody>
           </table>
         </div>

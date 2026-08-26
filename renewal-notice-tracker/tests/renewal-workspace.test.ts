@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertIsoDate,
   assertRenewalWorkspaceTransition,
+  assertRenewalTaskActorScope,
   assertRenewalTaskTransition,
   calculateRenewalScenario,
   evaluateRenewalApprovalPolicy,
@@ -34,6 +35,26 @@ describe("renewal decision workspace", () => {
     expect(assertRenewalTaskTransition("blocked", "in_progress")).toMatchObject({ allowed: true });
     expect(() => assertRenewalTaskTransition("completed", "open")).toThrow("invalid_renewal_task_transition");
     expect(() => assertRenewalTaskTransition("blocked", "completed")).toThrow("invalid_renewal_task_transition");
+  });
+
+  it("allows reviewers to update only tasks assigned to themselves", () => {
+    expect(assertRenewalTaskActorScope({
+      actorRole: "reviewer",
+      actorUserId: "reviewer-1",
+      taskOwnerUserId: "reviewer-1",
+      operation: "transition"
+    })).toEqual({ allowed: true });
+    expect(() => assertRenewalTaskActorScope({
+      actorRole: "reviewer",
+      actorUserId: "reviewer-1",
+      taskOwnerUserId: "reviewer-2",
+      operation: "transition"
+    })).toThrow("reviewer_can_only_update_assigned_renewal_tasks");
+    expect(() => assertRenewalTaskActorScope({
+      actorRole: "reviewer",
+      actorUserId: "reviewer-1",
+      operation: "create"
+    })).toThrow("reviewer_cannot_create_renewal_tasks");
   });
 
   it("calculates comparable scenarios and keeps estimated value separate", () => {

@@ -5,6 +5,7 @@ import {
   getContractPendingRenewalActionRequestCount,
   getContractRenewalActionRequests,
   getCounterparties,
+  getOrganizationTimezone,
   getOrganizationMembers
 } from "@/lib/contracts/kernel-queries";
 import {
@@ -48,6 +49,7 @@ import { formatDate } from "@/lib/utils";
 import { buildContractDetailViewModel } from "@/lib/contracts/contract-detail-view";
 import { getContractAuditTimeline } from "@/lib/enterprise-audit/audit-queries";
 import {
+  listContractDocumentRelationships,
   listContractExtractedFields,
   listContractExtractionRuns
 } from "@/lib/contract-intelligence/extraction-runs";
@@ -65,10 +67,11 @@ export default async function ContractDetailPage({
 }) {
   const context = await requireOrganization();
   const { organizationId } = context;
-  const [contract, members, counterparties] = await Promise.all([
+  const [contract, members, counterparties, organizationTimezone] = await Promise.all([
     getContractById(params.id, organizationId).catch(() => null),
     getOrganizationMembers(organizationId),
-    getCounterparties(organizationId)
+    getCounterparties(organizationId),
+    getOrganizationTimezone(organizationId)
   ]);
 
   if (!contract || !contract.contract_metadata) notFound();
@@ -78,6 +81,7 @@ export default async function ContractDetailPage({
     enterpriseAuditTimeline,
     extractionRuns,
     extractedFields,
+    documentRelationships,
     quoteComparisons,
     quoteFindings,
     savingsOpportunities,
@@ -102,6 +106,10 @@ export default async function ContractDetailPage({
       limit: 5
     }),
     listContractExtractedFields({
+      organizationId,
+      contractId: contract.id
+    }),
+    listContractDocumentRelationships({
       organizationId,
       contractId: contract.id
     }),
@@ -534,6 +542,8 @@ export default async function ContractDetailPage({
                     fields={extractedFields}
                     canReview={canReviewExtraction}
                     currentRoute={`/dashboard/contracts/${contract.id}`}
+                    organizationTimezone={organizationTimezone}
+                    relationships={documentRelationships}
                   />
                   <RenewalQuoteComparisonPanel
                     contractId={contract.id}

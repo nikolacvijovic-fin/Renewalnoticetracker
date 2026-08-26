@@ -109,7 +109,11 @@ export type CommercialDecision = {
   evidence_references?: Json;
   estimated_financial_effect?: number | null;
   decision_version?: number;
+  profile_selected_at?: string | null;
+  profile_selected_by_user_id?: string | null;
   approved_version?: number | null;
+  approval_evidence_hash?: string | null;
+  approval_evidence_verified_at?: string | null;
   separation_of_duties_required?: boolean;
   preferred_scenario_id?: string | null;
   final_outcome?: string | null;

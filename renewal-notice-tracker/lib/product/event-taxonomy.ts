@@ -677,6 +677,33 @@ export const PRODUCT_EVENT_TAXONOMY = {
     safeMetadataFields: [...commonSafeMetadata, "run_id", "field_id", "field_key", "confidence", "warning_codes", "reviewer_id"],
     owningProductModule: "ocr_import_intelligence"
   }),
+  "contract_extracted_field.overridden": taxonomyEvent({
+    name: "contract_extracted_field.overridden",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/extraction-runs.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [...commonSafeMetadata, "run_id", "field_id", "field_key", "reviewer_id", "override_reason_code"],
+    owningProductModule: "ocr_import_intelligence"
+  }),
+  "contract_commercial_analysis.generated": taxonomyEvent({
+    name: "contract_commercial_analysis.generated",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/contract-intelligence/commercial-analysis-service.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "extraction_run_id",
+      "calculation_count",
+      "finding_count",
+      "finding_reason_codes",
+      "unresolved_conflict_count",
+      "accepted_field_count",
+      "pending_field_count"
+    ],
+    owningProductModule: "contract_intelligence_risk_explanation"
+  }),
   "contract_extracted_fields.applied_to_metadata": taxonomyEvent({
     name: "contract_extracted_fields.applied_to_metadata",
     type: "audit",
@@ -693,6 +720,25 @@ export const PRODUCT_EVENT_TAXONOMY = {
     source: "lib/quote-comparison/quote-comparison.ts",
     privacySensitivity: "high",
     safeMetadataFields: [...commonSafeMetadata, "comparison_id", "quote_file_id", "source"],
+    owningProductModule: "financial_exposure_intelligence"
+  }),
+  "commercial_baseline.version_created": taxonomyEvent({
+    name: "commercial_baseline.version_created",
+    type: "audit",
+    emittedToday: true,
+    source: "lib/quote-comparison/commercial-baseline-service.ts",
+    privacySensitivity: "high",
+    safeMetadataFields: [
+      ...commonSafeMetadata,
+      "baseline_id",
+      "source_extraction_run_id",
+      "evidence_fingerprint",
+      "evidence_field_count",
+      "line_item_count",
+      "completeness_status",
+      "warning_codes",
+      "calculation_version"
+    ],
     owningProductModule: "financial_exposure_intelligence"
   }),
   "renewal_quote_comparison.completed": taxonomyEvent({

@@ -52,6 +52,30 @@ jobs:
         run: npm run test:deployment-readiness
       - name: Build production application
         run: npm run build
+        env:
+          NEXT_PUBLIC_APP_URL: https://ci.noticecontrol.invalid
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-supabase.noticecontrol.invalid
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: not-a-secret-ci-anon-placeholder-000000000000
+          SUPABASE_SERVICE_ROLE_KEY: not-a-secret-ci-service-placeholder-000000000
+          SUPABASE_STORAGE_BUCKET: ci-contract-files
+          SUPABASE_EXPORTS_BUCKET: ci-export-artifacts
+          OPENAI_API_KEY: not-a-secret-ci-openai-placeholder-0000000000
+          OCR_PROVIDER: mock
+          RESEND_API_KEY: not-a-secret-ci-resend-placeholder-0000000000
+          RESEND_FROM_EMAIL: ci@noticecontrol.invalid
+          RESEND_WEBHOOK_SIGNING_SECRET: not-a-secret-ci-resend-webhook-placeholder-0000
+          NOTICECONTROL_EMAIL_ACTION_SECRET: not-a-secret-ci-email-action-placeholder-00000
+          CRON_SHARED_SECRET: not-a-secret-ci-cron-placeholder-000000000000
+          INTERNAL_HEALTH_SECRET: not-a-secret-ci-health-placeholder-0000000000
+          INTERNAL_OCR_JOBS_SECRET: not-a-secret-ci-ocr-placeholder-000000000000
+          INTERNAL_OPERATIONS_SECRET: not-a-secret-ci-ops-placeholder-000000000000
+          INTERNAL_DESTRUCTIVE_OPS_SECRET: not-a-secret-ci-destructive-placeholder-000000
+          INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: not-a-secret-ci-destructive-signing-placeholder
+          PADDLE_ENVIRONMENT: production
+          PADDLE_API_KEY: not-a-secret-ci-paddle-placeholder-0000000000
+          PADDLE_WEBHOOK_SECRET: not-a-secret-ci-paddle-webhook-placeholder-0000
+          PADDLE_STARTER_PRICE_ID: pri_ci_starter
+          PADDLE_GROWTH_PRICE_ID: pri_ci_growth
 
   python:
     name: Python reconciliation tests
@@ -70,7 +94,8 @@ jobs:
         working-directory: renewal-notice-tracker/services/python-intelligence
         run: python -m pip install -e ".[test]"
       - name: Run Python tests
-        run: python -m pytest services/python-intelligence/tests
+        working-directory: renewal-notice-tracker/services/python-intelligence
+        run: python -m pytest tests
 
   java:
     name: Java connector tests

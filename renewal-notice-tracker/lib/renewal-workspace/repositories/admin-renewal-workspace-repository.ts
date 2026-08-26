@@ -78,17 +78,14 @@ export function getAdminRenewalOutcome(input: { organizationId: string; decision
 }
 
 export function listAdminRenewalPortfolio(input: { organizationId: string; limit?: number }) {
-  return admin().from("renewal_commercial_decisions").select(`
-    *,
-    contracts!inner (
-      id,
-      organization_id,
-      owner_user_id,
-      department,
-      contract_metadata (contract_title, counterparty_name, contract_value_amount, contract_value_currency, auto_renewal)
-    )
-  `).eq("organization_id", input.organizationId).neq("decision_status", "archived")
-    .order("notice_deadline", { ascending: true }).limit(input.limit ?? 200) as unknown as Promise<{
+  return admin().from("contracts" as never).select(`
+    id, organization_id, owner_user_id, department, status, cycle_status, is_sample,
+    contract_metadata (contract_title, counterparty_name, contract_value_amount, contract_value_currency, auto_renewal, notice_deadline_date, renewal_date, expiration_date, needs_review, has_weak_evidence, reviewed_at),
+    renewal_commercial_decisions (*),
+    renewal_decision_outcomes (*)
+  ` as never).eq("organization_id" as never, input.organizationId).eq("is_sample" as never, false)
+    .neq("status" as never, "archived")
+    .order("updated_at" as never, { ascending: false }).limit(input.limit ?? 200) as unknown as Promise<{
       data: Array<Record<string, unknown>> | null;
       error: Error | null;
     }>;

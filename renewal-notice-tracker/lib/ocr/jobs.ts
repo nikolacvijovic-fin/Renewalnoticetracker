@@ -1,10 +1,8 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import type { Json } from "@/lib/supabase/database.types";
-import { getOcrProvider } from "@/lib/ocr/provider";
-import { normalizeOcrOutput, applyOcrReviewRequirements } from "@/lib/ocr/normalize-ocr-output";
-import { extractContractMetadata } from "@/lib/ai/extract-contract";
 import { buildEvidenceRows } from "@/lib/contracts/evidence";
-import { preparePdfRenewalExtractionForReview } from "@/lib/contracts/pdf-renewal-control";
+import { runFullDocumentContractExtraction } from "@/lib/contract-intelligence/python-extraction-runner";
+import { mapExtractionEvidenceToLegacyMetadata } from "@/lib/contract-intelligence/legacy-metadata-adapter";
 import { sanitizeSensitiveProcessingError } from "@/lib/errors";
 import { recordProcessingError } from "@/lib/contracts/processing-errors";
 import { getAppConfig } from "@/lib/config";
@@ -244,36 +242,23 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
     if (!claimed) continue;
 
     try {
-      const fileRow = await getScopedOcrContractFileForJob({
+      await getScopedOcrContractFileForJob({
         contractId: claimed.contract_id,
         organizationId: claimed.organization_id,
         contractFileId: claimed.contract_file_id
       });
 
-      const provider = getOcrProvider();
-      const result = await provider.performOcr({
-        buffer: Buffer.from("queued-ocr"),
-        fileName: fileRow.file_name,
-        mimeType: fileRow.mime_type,
-        asynchronousPreferred: false
+      const extraction = await runFullDocumentContractExtraction({
+        organizationId: claimed.organization_id,
+        contractId: claimed.contract_id,
+        contractFileId: claimed.contract_file_id,
+        forceReprocess: true
       });
-
-      if (result.status !== "completed") {
-        throw new Error(result.error);
-      }
-
-      const normalized = normalizeOcrOutput(result);
-      const metadata = preparePdfRenewalExtractionForReview(applyOcrReviewRequirements(
-        await extractContractMetadata(normalized.text),
-        {
-          provider: result.provider,
-          averageConfidence: result.averageConfidence,
-          reason: claimed.detection_reason ?? "native extraction quality was too weak"
-        }
-      ), {
-        extractionSource: "ocr",
-        ocrConfidence: normalized.averageConfidence,
-        parserError: null
+      if (!extraction.ok) throw new Error(extraction.safeMessage);
+      const metadata = mapExtractionEvidenceToLegacyMetadata({
+        fields: extraction.fields,
+        fallbackTitle: "Contract pending review",
+        partial: extraction.run?.status === "partial"
       });
 
       const metadataId = await getScopedMetadataIdForAdmin(claimed.contract_id, claimed.organization_id);
@@ -281,12 +266,10 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
       await admin
         .from("contract_files")
         .update({
-          extracted_text: normalized.text,
           extraction_error: null,
-          extraction_source: "ocr",
-          ocr_provider: result.provider,
-          ocr_status: "completed",
-          ocr_confidence: normalized.averageConfidence,
+          extraction_source: "page_aware",
+          ocr_provider: "configured_page_ocr",
+          ocr_status: extraction.run?.status === "partial" ? "partial" : "completed",
           ocr_detected_needed: true
         })
         .eq("id", claimed.contract_file_id)
@@ -348,30 +331,14 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
         .eq("id", claimed.contract_id)
         .eq("organization_id", claimed.organization_id);
 
-      if (result.estimatedCost !== null) {
-        await admin.from("cost_usage_logs").insert({
-          organization_id: claimed.organization_id,
-          cost_category: "ocr",
-          quantity: 1,
-          unit: "document",
-          estimated_cost: result.estimatedCost,
-          reference_key: claimed.contract_id,
-          details: {
-            provider: result.provider,
-            mode: result.processingMode,
-            source: "ocr_job"
-          }
-        });
-      }
-
       await admin
         .from("ocr_jobs")
         .update({
           status: "completed",
           completed_at: new Date().toISOString(),
           details_json: {
-            provider: result.provider,
-            average_confidence: normalized.averageConfidence
+            extraction_run_id: extraction.run?.id ?? null,
+            extraction_status: extraction.run?.status ?? "completed"
           }
         })
         .eq("id", claimed.id)
@@ -384,8 +351,8 @@ export async function processPendingOcrJobs(limit = OCR_DEFAULT_BATCH_LIMIT) {
         contractId: claimed.contract_id,
         metadata: {
           status: "completed",
-          provider: result.provider,
-          average_confidence: normalized.averageConfidence
+          provider: "configured_page_ocr",
+          extraction_status: extraction.run?.status ?? "completed"
         }
       });
 

@@ -98,7 +98,8 @@ describe("subscription usage production repair", () => {
     expect(workflow).toContain("branches:");
     expect(workflow).toContain("cancel-in-progress: true");
     expect(workflow).toContain("npm ci");
-    expect(workflow).toContain("python -m pytest services/python-intelligence/tests");
+    expect(workflow).toContain("working-directory: renewal-notice-tracker/services/python-intelligence");
+    expect(workflow).toContain("python -m pytest tests");
     expect(workflow).toContain("mvn --batch-mode test");
     expect(workflow).not.toMatch(/uses:\s+[^\s]+@v\d+/);
   });

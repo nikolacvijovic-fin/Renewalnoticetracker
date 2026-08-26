@@ -23,6 +23,7 @@ import {
   submitNegotiationBriefForReview,
   submitVendorCommunicationDraftForApproval
 } from "@/lib/negotiation-workflow/negotiation-workflow";
+import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
 
 export type NegotiationWorkflowActionResult =
   | { ok: true; message: string }
@@ -51,7 +52,8 @@ function formString(formData: FormData | undefined, key: string) {
 
 async function requireNegotiationOperator(contractId: string) {
   const context = await requireOrganization();
-  await assertCanUseShippedAction(context, "review_p0");
+  await assertCanUseShippedAction(context, "manage_negotiation_drafts");
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "update_negotiation_draft" });
   await requireScopedContract(contractId, context.organizationId);
   return context;
 }

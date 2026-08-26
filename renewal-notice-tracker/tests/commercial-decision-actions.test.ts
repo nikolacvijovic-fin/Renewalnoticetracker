@@ -21,11 +21,15 @@ const service = vi.hoisted(() => ({
   updateCommercialDecisionRecommendedAction: vi.fn()
 }));
 const revalidatePath = vi.fn();
+const enforceDesignPartnerBetaMutation = vi.fn();
+const recalculateEvidenceReadiness = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/lib/auth", () => auth);
 vi.mock("@/lib/contracts/kernel-queries", () => queries);
 vi.mock("@/lib/commercial-decision-workbench/commercial-decision-workbench", () => service);
+vi.mock("@/lib/billing/design-partner-beta", () => ({ enforceDesignPartnerBetaMutation }));
+vi.mock("@/lib/evidence-readiness/evidence-readiness-service", () => ({ recalculateEvidenceReadiness }));
 
 describe("commercial decision actions", () => {
   beforeEach(() => {
@@ -36,6 +40,8 @@ describe("commercial decision actions", () => {
       user: { id: "user-1" }
     });
     auth.assertCanUseShippedAction.mockResolvedValue(undefined);
+    enforceDesignPartnerBetaMutation.mockResolvedValue({ allowed: true });
+    recalculateEvidenceReadiness.mockResolvedValue({});
     queries.requireScopedContract.mockResolvedValue({ id: "contract-1", organization_id: "org-1" });
     Object.values(service).forEach((fn) => fn.mockResolvedValue({ id: "decision-1" }));
   });
@@ -48,8 +54,12 @@ describe("commercial decision actions", () => {
     expect(result).toEqual({ ok: true, message: "Commercial decision created." });
     expect(auth.assertCanUseShippedAction).toHaveBeenCalledWith(
       expect.objectContaining({ organizationId: "org-1" }),
-      "review_p0"
+      "manage_renewal_decision"
     );
+    expect(enforceDesignPartnerBetaMutation).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      action: "create_decision"
+    });
     expect(queries.requireScopedContract).toHaveBeenCalledWith("contract-1", "org-1");
     expect(service.createCommercialDecisionForContract).toHaveBeenCalledWith({
       organizationId: "org-1",

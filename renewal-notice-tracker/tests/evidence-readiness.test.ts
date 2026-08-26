@@ -50,6 +50,9 @@ function runtimeContext(overrides: Partial<EvidenceReadinessRuntimeContext> = {}
       owner_user_id: "user-1",
       department: "Finance",
       updated_at: "2026-08-20T00:00:00.000Z",
+      owner_confirmed_at: "2026-08-20T00:00:00.000Z",
+      owner_confirmed_by_user_id: "user-1",
+      department_confirmed_at: "2026-08-20T00:00:00.000Z",
       renewal_decision_status: "undecided",
       contract_metadata: {
         id: "metadata-1",
@@ -75,6 +78,7 @@ function runtimeContext(overrides: Partial<EvidenceReadinessRuntimeContext> = {}
     approvalSteps: [],
     ownerNotificationEmail: "owner@example.test",
     workspaceTimezoneConfigured: true,
+    organizationTimezone: "Europe/Belgrade",
     usage: {
       connectionId: "connection-1",
       connected: true,
@@ -245,6 +249,49 @@ describe("deterministic evidence completeness score", () => {
     expect(facts.approval_evidence_current?.state).toBe("conflicting");
   });
 
+  it("separates material evidence changes from approval-state-only changes", () => {
+    const verified = allVerifiedFacts();
+    const approvalChanged = {
+      ...verified,
+      approval_evidence_current: { state: "conflicting" as const, source: verifiedSource }
+    };
+    const materialChanged = {
+      ...verified,
+      contract_extraction_reviewed: { state: "stale" as const, source: verifiedSource }
+    };
+
+    const baseline = assess("renegotiate", verified);
+    const approvalOnly = assess("renegotiate", approvalChanged);
+    const material = assess("renegotiate", materialChanged);
+
+    expect(approvalOnly.evidenceHash).not.toBe(baseline.evidenceHash);
+    expect(approvalOnly.materialEvidenceHash).toBe(baseline.materialEvidenceHash);
+    expect(material.materialEvidenceHash).not.toBe(baseline.materialEvidenceHash);
+  });
+
+  it("distinguishes an unselected default triage profile from explicit triage selection", () => {
+    const baseDecision = {
+      id: "decision-triage",
+      organization_id: "org-1",
+      contract_id: "contract-1",
+      decision_type: "insufficient_information",
+      decision_version: 1,
+      approved_version: null,
+      approved_at: null
+    } as EvidenceReadinessRuntimeContext["decision"];
+
+    const unselected = buildEvidenceReadinessFacts(runtimeContext({ decision: baseDecision }));
+    const selected = buildEvidenceReadinessFacts(runtimeContext({
+      decision: {
+        ...baseDecision,
+        profile_selected_at: "2026-08-24T00:00:00.000Z"
+      } as EvidenceReadinessRuntimeContext["decision"]
+    }));
+
+    expect(unselected.decision_profile_selected?.state).toBe("present_unreviewed");
+    expect(selected.decision_profile_selected?.state).toBe("verified");
+  });
+
   it("requires recorded human approval for a termination decision", () => {
     const context = runtimeContext({
       decision: {
@@ -254,6 +301,7 @@ describe("deterministic evidence completeness score", () => {
         decision_type: "terminate",
         decision_owner_user_id: "user-1",
         decision_deadline: "2026-11-15",
+        profile_selected_at: "2026-08-20T00:00:00.000Z",
         decision_version: 1,
         approved_version: null,
         approved_at: null,
@@ -303,6 +351,42 @@ describe("deterministic evidence completeness score", () => {
     expect(JSON.stringify(result)).not.toMatch(/raw contract|provider payload|bearer token|private note/i);
   });
 
+  it("persists the exact bounded usage snapshot lineage on usage evidence", () => {
+    const context = runtimeContext({
+      usage: {
+        resolutionState: "verified",
+        provider: "microsoft_365",
+        connectionId: "connection-1",
+        batchId: "batch-1",
+        syncRunId: "sync-1",
+        usageRowId: "row-1",
+        matchId: "match-1",
+        connected: true,
+        snapshotCollectedAt: "2026-08-22T00:00:00.000Z",
+        syncCompletedAt: "2026-08-22T00:05:00.000Z",
+        matchConfidence: 0.95,
+        purchasedQuantityKnown: true,
+        assignedQuantityKnown: true,
+        hasActiveConflict: false,
+        activeMaterialFindingCount: 0,
+        reviewedMaterialFindingCount: 0,
+        materialFindingSourceId: null
+      }
+    });
+    const result = assess("reduce_seats", buildEvidenceReadinessFacts(context));
+    expect(result.items.find((item) => item.requirementKey === "usage_snapshot_fresh")?.provenance).toEqual({
+      provider: "microsoft_365",
+      providerConnectionId: "connection-1",
+      batchId: "batch-1",
+      syncRunId: "sync-1",
+      usageRowId: "row-1",
+      matchId: "match-1",
+      collectedAt: "2026-08-22T00:00:00.000Z",
+      syncCompletedAt: "2026-08-22T00:05:00.000Z",
+      evidenceState: "verified"
+    });
+  });
+
   it("moves a fully reviewed real contract to decision-ready without AI inference", () => {
     const context = runtimeContext({
       decision: {
@@ -312,6 +396,7 @@ describe("deterministic evidence completeness score", () => {
         decision_type: "renew_unchanged",
         decision_owner_user_id: "user-1",
         decision_deadline: "2026-11-15",
+        profile_selected_at: "2026-08-20T00:00:00.000Z",
         decision_version: 1,
         approved_version: null,
         approved_at: null,

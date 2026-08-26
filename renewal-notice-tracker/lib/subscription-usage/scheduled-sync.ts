@@ -254,7 +254,8 @@ async function processClaimedConnection(connection: ClaimedSubscriptionUsageConn
     ))];
     await Promise.allSettled(affectedContractIds.map((contractId) => recalculateEvidenceReadiness({
       organizationId: connection.organization_id,
-      contractId
+      contractId,
+      trigger: "usage_sync_completed"
     })));
     void emitOperationalEvent({
       eventName: "subscription_usage_scheduled_sync_completed",

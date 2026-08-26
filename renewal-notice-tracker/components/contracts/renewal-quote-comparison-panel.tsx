@@ -1,5 +1,7 @@
 import {
   createAndRunQuoteComparisonFormAction,
+  createReviewedCommercialBaselineFormAction,
+  uploadAndRunCommercialProposalFormAction,
   createSavingsOpportunityFormAction,
   dismissSavingsOpportunityFormAction,
   reviewQuoteFindingFormAction
@@ -65,6 +67,12 @@ export function RenewalQuoteComparisonPanel({
           </Badge>
         </div>
 
+        <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600 md:grid-cols-3">
+          <p><span className="font-semibold text-slate-900">Reviewed fact:</span> accepted baseline evidence only</p>
+          <p><span className="font-semibold text-slate-900">Calculation:</span> deterministic cost attribution</p>
+          <p><span className="font-semibold text-slate-900">Opportunity:</span> estimate, never realized savings</p>
+        </div>
+
         {latest ? (
           <div className="mt-4 grid gap-3 md:grid-cols-4">
             <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -107,11 +115,39 @@ export function RenewalQuoteComparisonPanel({
       </div>
 
       {canReview ? (
-        <ServerActionForm
-          serverAction={createAndRunQuoteComparisonFormAction.bind(null, contractId)}
-          className="rounded-2xl border border-slate-200 bg-white p-4"
-        >
-          <h4 className="text-sm font-semibold text-ink">Enter renewal quote evidence</h4>
+        <div className="space-y-4">
+          <ServerActionForm
+            serverAction={createReviewedCommercialBaselineFormAction.bind(null, contractId)}
+            className="rounded-2xl border border-blue-200 bg-blue-50 p-4"
+          >
+            <h4 className="text-sm font-semibold text-blue-950">1. Lock reviewed commercial baseline</h4>
+            <p className="mt-1 text-xs text-blue-800">
+              Creates an immutable version from accepted extraction evidence. Later material changes create a new version.
+            </p>
+            <Button type="submit" className="mt-3">Create reviewed baseline version</Button>
+          </ServerActionForm>
+          <ServerActionForm
+            serverAction={uploadAndRunCommercialProposalFormAction.bind(null, contractId)}
+            className="rounded-2xl border border-slate-200 bg-white p-4"
+          >
+            <h4 className="text-sm font-semibold text-ink">2. Upload renewal offer</h4>
+            <p className="mt-1 text-xs text-slate-500">
+              PDF and DOCX reuse full-document extraction. XLSX line items retain sheet and cell citations. All extracted proposal facts require review.
+            </p>
+            <input
+              type="file"
+              name="proposal_file"
+              required
+              accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.pdf,.docx,.xlsx"
+              className="mt-3 block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+            />
+            <Button type="submit" className="mt-3">Upload and compare proposal</Button>
+          </ServerActionForm>
+          <ServerActionForm
+            serverAction={createAndRunQuoteComparisonFormAction.bind(null, contractId)}
+            className="rounded-2xl border border-slate-200 bg-white p-4"
+          >
+          <h4 className="text-sm font-semibold text-ink">Or enter proposal evidence manually</h4>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="text-sm text-slate-600">
               Proposed total amount
@@ -122,33 +158,56 @@ export function RenewalQuoteComparisonPanel({
               <input name="currency" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="USD" />
             </label>
             <label className="text-sm text-slate-600">
+              Product
+              <input name="product_name" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Platform subscription" />
+            </label>
+            <label className="text-sm text-slate-600">
+              SKU
+              <input name="sku" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Optional reviewed SKU" />
+            </label>
+            <label className="text-sm text-slate-600">
+              Quantity
+              <input name="quantity" inputMode="decimal" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm text-slate-600">
+              Unit price
+              <input name="unit_price" inputMode="decimal" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm text-slate-600">
               Payment terms
               <input name="payment_terms" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="Net 30" />
             </label>
             <label className="text-sm text-slate-600">
-              Renewal term
-              <input name="renewal_term" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="12 months" />
+              Term months
+              <input name="term_months" inputMode="numeric" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="12" />
             </label>
             <label className="text-sm text-slate-600">
-              Discounts
-              <input name="discounts" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="comma-separated" />
+              Billing period
+              <select name="billing_period" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2">
+                <option value="annual">Annual</option>
+                <option value="quarterly">Quarterly</option>
+                <option value="monthly">Monthly</option>
+                <option value="multi_year">Multi-year</option>
+                <option value="partial">Partial period</option>
+              </select>
             </label>
             <label className="text-sm text-slate-600">
-              SKUs
-              <input name="skus" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" placeholder="comma-separated" />
+              Discount amount
+              <input name="discount_amount" inputMode="decimal" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
+            </label>
+            <label className="text-sm text-slate-600">
+              Discount percent
+              <input name="discount_percent" inputMode="decimal" className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2" />
             </label>
           </div>
-          <label className="mt-3 block text-sm text-slate-600">
-            Optional short quote excerpt
-            <textarea name="quote_text" className="mt-1 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2" />
-          </label>
           <p className="mt-2 text-xs text-slate-500">
-            Quote excerpts are sent to the configured deterministic comparison service but are not stored as raw quote text.
+            Manual proposal facts remain proposed evidence until reviewed. No quote terms overwrite the contract baseline.
           </p>
           <Button type="submit" className="mt-4">
             Run quote comparison
           </Button>
-        </ServerActionForm>
+          </ServerActionForm>
+        </div>
       ) : null}
 
       <div className="space-y-3">

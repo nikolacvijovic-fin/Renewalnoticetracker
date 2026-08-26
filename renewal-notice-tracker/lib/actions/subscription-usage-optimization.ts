@@ -1877,7 +1877,8 @@ async function persistUsageFindings(input: {
   const affectedContractIds = [...new Set(findings.flatMap((finding) => finding.matched_contract_ids))];
   await Promise.allSettled(affectedContractIds.map((contractId) => recalculateEvidenceReadiness({
     organizationId: input.organizationId,
-    contractId
+    contractId,
+    trigger: "usage_findings_created"
   })));
   return { persisted: Number(data ?? 0) };
 }
@@ -1982,7 +1983,8 @@ export async function reviewSubscriptionUsageFindingAction(formData: FormData) {
     await recalculateEvidenceReadiness({
       organizationId: context.organizationId,
       contractId: finding.contract_id,
-      actorUserId: context.user.id
+      actorUserId: context.user.id,
+      trigger: "usage_finding_reviewed"
     }).catch(() => null);
   }
   revalidatePath("/dashboard/subscription-optimization");

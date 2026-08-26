@@ -17,7 +17,19 @@ export const SHIPPED_RUNTIME_ACTIONS = [
   "manage_org_settings",
   "submit_feedback",
   "request_deletion",
-  "internal_rescue_actions"
+  "internal_rescue_actions",
+  "view_renewal_workspace",
+  "manage_renewal_decision",
+  "manage_renewal_scenarios",
+  "manage_renewal_tasks",
+  "review_renewal_evidence",
+  "approve_renewal_decision",
+  "confirm_financial_outcome",
+  "manage_negotiation_drafts",
+  "upload_renewal_proposal",
+  "run_commercial_comparison",
+  "approve_negotiation_position",
+  "export_negotiation_pack"
 ] as const;
 
 export type ShippedRuntimeAction = (typeof SHIPPED_RUNTIME_ACTIONS)[number];
@@ -131,6 +143,54 @@ export const SHIPPED_RUNTIME_ACTION_MATRIX: Record<ShippedRuntimeAction, ActionR
     internalRoles: ["internal_support", "internal_admin"],
     orgScope: "explicit_organization",
     rationale: "Internal rescue actions must be unreachable to customer roles and always org-targeted."
+  },
+  view_renewal_workspace: {
+    customerRoles: ["admin", "operator", "reviewer", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Renewal workspace evidence is readable by active customer workflow roles."
+  },
+  manage_renewal_decision: {
+    customerRoles: ["admin", "operator", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Commercial decision truth is controlled by accountable operators and owners."
+  },
+  manage_renewal_scenarios: {
+    customerRoles: ["admin", "operator", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Scenario changes can affect commercial decisions and require operator authority."
+  },
+  manage_renewal_tasks: {
+    customerRoles: ["admin", "operator", "reviewer", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Reviewers may complete assigned evidence tasks; broader task authority is checked contextually."
+  },
+  review_renewal_evidence: {
+    customerRoles: ["admin", "operator", "reviewer", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Evidence review is distinct from changing or approving the commercial decision."
+  },
+  approve_renewal_decision: {
+    customerRoles: ["admin", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Approval requires explicit authority plus assignment and separation-of-duties checks."
+  },
+  confirm_financial_outcome: {
+    customerRoles: ["admin", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Realized financial outcomes require explicit commercial authority."
+  },
+  manage_negotiation_drafts: {
+    customerRoles: ["admin", "operator", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Draft-only negotiation content remains under accountable operator control."
+  },
+  upload_renewal_proposal: {
+    customerRoles: ["admin", "operator"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Commercial proposal intake is distinct from general contract upload and remains operator-controlled."
+  },
+  run_commercial_comparison: {
+    customerRoles: ["admin", "operator", "reviewer"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Reviewed evidence may be compared by commercial reviewers without granting approval authority."
+  },
+  approve_negotiation_position: {
+    customerRoles: ["admin", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Approving a negotiation position is a commercial authority decision, not an evidence-review mutation."
+  },
+  export_negotiation_pack: {
+    customerRoles: ["admin", "operator", "owner"], internalRoles: [], orgScope: "active_organization",
+    rationale: "Negotiation packs expose reviewed commercial evidence and remain explicitly permission-gated."
   }
 } as const;
 

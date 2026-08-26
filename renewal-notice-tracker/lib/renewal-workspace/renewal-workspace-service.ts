@@ -14,6 +14,7 @@ import {
 import {
   assertDecisionType,
   assertIsoDate,
+  assertRenewalTaskActorScope,
   assertRenewalTaskTransition,
   calculateRenewalScenario,
   evaluateRenewalApprovalPolicy,
@@ -109,6 +110,8 @@ export async function updateRenewalDecisionProfile(input: {
       estimated_financial_effect: input.estimatedFinancialEffect,
       currency: input.currency ? normalizeCurrency(input.currency) : null,
       evidence_references: input.evidenceReferences,
+      profile_selected_at: new Date().toISOString(),
+      profile_selected_by_user_id: input.actorUserId,
       separation_of_duties_required: approval.separationRequired,
       decision_status: ["draft", "evidence_pending", "evidence_required", "returned_for_changes"].includes(current.decision_status)
         ? "ready_for_review"
@@ -250,6 +253,7 @@ export async function transitionRenewalTask(input: {
   decisionId: string;
   taskId: string;
   actorUserId: string;
+  actorRole: string;
   status: RenewalTaskStatus;
   completionNote?: string | null;
 }) {
@@ -261,6 +265,12 @@ export async function transitionRenewalTask(input: {
   });
   if (taskResult.error) throw taskResult.error;
   if (!taskResult.data) throw new Error("Renewal task not found in the active organization.");
+  assertRenewalTaskActorScope({
+    actorRole: input.actorRole,
+    actorUserId: input.actorUserId,
+    taskOwnerUserId: taskResult.data.owner_user_id,
+    operation: "transition"
+  });
   assertRenewalTaskTransition(taskResult.data.status, input.status);
   if (input.status === "completed" && taskResult.data.dependency_task_id) {
     const dependency = await getAdminRenewalWorkspaceTask({

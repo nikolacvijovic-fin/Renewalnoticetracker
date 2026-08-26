@@ -8,7 +8,9 @@ describe("renewal workspace runtime boundary", () => {
   it("requires org, product action, and contract scope before workspace mutations", () => {
     const action = read("lib", "actions", "renewal-workspace.ts");
     expect(action).toContain("requireOrganization()");
-    expect(action).toContain('assertCanUseShippedAction(context, "review_p0")');
+    expect(action).toContain('capability: "manage_renewal_decision"');
+    expect(action).toContain('capability: "confirm_financial_outcome"');
+    expect(action).not.toContain('assertCanUseShippedAction(context, "review_p0")');
     expect(action).toContain("requireScopedContract(input.contractId, context.organizationId)");
     expect(action).toContain("workbench.decision.id !== input.decisionId");
     expect(action).toContain("decision_owner_must_be_an_active_organization_member");
@@ -33,4 +35,3 @@ describe("renewal workspace runtime boundary", () => {
     expect(portfolioPage).toContain("Confirmed savings");
   });
 });
-

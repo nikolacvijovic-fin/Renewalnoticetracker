@@ -21,11 +21,13 @@ const service = vi.hoisted(() => ({
   submitVendorCommunicationDraftForApproval: vi.fn()
 }));
 const revalidatePath = vi.fn();
+const enforceDesignPartnerBetaMutation = vi.fn();
 
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/lib/auth", () => auth);
 vi.mock("@/lib/contracts/kernel-queries", () => queries);
 vi.mock("@/lib/negotiation-workflow/negotiation-workflow", () => service);
+vi.mock("@/lib/billing/design-partner-beta", () => ({ enforceDesignPartnerBetaMutation }));
 
 describe("negotiation workflow actions", () => {
   beforeEach(() => {
@@ -36,6 +38,7 @@ describe("negotiation workflow actions", () => {
       user: { id: "user-1" }
     });
     auth.assertCanUseShippedAction.mockResolvedValue(undefined);
+    enforceDesignPartnerBetaMutation.mockResolvedValue({ allowed: true });
     queries.requireScopedContract.mockResolvedValue({ id: "contract-1", organization_id: "org-1" });
     Object.values(service).forEach((fn) => fn.mockResolvedValue({ id: "workflow-1" }));
   });
@@ -46,7 +49,14 @@ describe("negotiation workflow actions", () => {
     const result = await createNegotiationBriefAction("decision-1", "contract-1");
 
     expect(result).toEqual({ ok: true, message: "Negotiation brief created." });
-    expect(auth.assertCanUseShippedAction).toHaveBeenCalledWith(expect.objectContaining({ organizationId: "org-1" }), "review_p0");
+    expect(auth.assertCanUseShippedAction).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: "org-1" }),
+      "manage_negotiation_drafts"
+    );
+    expect(enforceDesignPartnerBetaMutation).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      action: "update_negotiation_draft"
+    });
     expect(queries.requireScopedContract).toHaveBeenCalledWith("contract-1", "org-1");
     expect(service.createNegotiationBriefForDecision).toHaveBeenCalledWith({
       organizationId: "org-1",

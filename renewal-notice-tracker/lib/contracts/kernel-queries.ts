@@ -964,6 +964,17 @@ export async function getTemplates(organizationId: string) {
   return data ?? [];
 }
 
+export async function getOrganizationTimezone(organizationId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("timezone")
+    .eq("id", organizationId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.timezone ?? null;
+}
+
 export async function getContractCalendarEvents(contractId: string, organizationId: string) {
   const contract = await getContractById(contractId, organizationId);
   const metadata = firstMetadata(contract.contract_metadata);

@@ -13,8 +13,13 @@ import {
   transitionRenewalTask,
   updateRenewalDecisionProfile
 } from "@/lib/renewal-workspace/renewal-workspace-service";
-import type { RenewalEvidenceReference } from "@/lib/renewal-workspace/renewal-workspace";
+import {
+  assertRenewalTaskActorScope,
+  type RenewalEvidenceReference
+} from "@/lib/renewal-workspace/renewal-workspace";
 import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
+import { enforceDesignPartnerBetaMutation, type DesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
+import type { ShippedRuntimeAction } from "@/lib/product/action-matrix";
 import {
   RENEWAL_SCENARIO_TYPES,
   RENEWAL_TASK_PRIORITIES,
@@ -78,9 +83,15 @@ function evidenceReferences(links: CommercialDecisionEvidenceLink[]): RenewalEvi
   });
 }
 
-async function requireWorkspace(input: { contractId: string; decisionId: string }) {
+async function requireWorkspace(input: {
+  contractId: string;
+  decisionId: string;
+  capability: ShippedRuntimeAction;
+  betaMutation: DesignPartnerBetaMutation;
+}) {
   const context = await requireOrganization();
-  await assertCanUseShippedAction(context, "review_p0");
+  await assertCanUseShippedAction(context, input.capability);
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: input.betaMutation });
   await requireScopedContract(input.contractId, context.organizationId);
   const workbench = await getCommercialDecisionWorkbench({
     organizationId: context.organizationId,
@@ -103,7 +114,7 @@ export async function updateRenewalDecisionProfileAction(
   formData: FormData
 ): Promise<RenewalWorkspaceActionResult> {
   try {
-    const { context, workbench } = await requireWorkspace({ contractId, decisionId });
+    const { context, workbench } = await requireWorkspace({ contractId, decisionId, capability: "manage_renewal_decision", betaMutation: "update_decision" });
     const decisionOwnerUserId = stringValue(formData, "decision_owner_user_id");
     const decisionType = stringValue(formData, "decision_type");
     const decisionDeadline = stringValue(formData, "decision_deadline");
@@ -131,7 +142,8 @@ export async function updateRenewalDecisionProfileAction(
     await recalculateEvidenceReadiness({
       organizationId: context.organizationId,
       contractId,
-      actorUserId: context.user.id
+      actorUserId: context.user.id,
+      trigger: "decision_profile_updated"
     }).catch(() => null);
     revalidateWorkspace(contractId);
     return { ok: true, message: "Renewal decision profile updated." };
@@ -146,7 +158,7 @@ export async function createRenewalScenarioAction(
   formData: FormData
 ): Promise<RenewalWorkspaceActionResult> {
   try {
-    const { context, workbench } = await requireWorkspace({ contractId, decisionId });
+    const { context, workbench } = await requireWorkspace({ contractId, decisionId, capability: "manage_renewal_scenarios", betaMutation: "create_scenario" });
     const scenarioType = stringValue(formData, "scenario_type") as RenewalScenarioType | null;
     const name = stringValue(formData, "name");
     const currency = stringValue(formData, "currency");
@@ -185,13 +197,19 @@ export async function selectPreferredRenewalScenarioAction(
   scenarioId: string
 ): Promise<RenewalWorkspaceActionResult> {
   try {
-    const { context } = await requireWorkspace({ contractId, decisionId });
+    const { context } = await requireWorkspace({ contractId, decisionId, capability: "manage_renewal_scenarios", betaMutation: "select_scenario" });
     await selectPreferredRenewalScenario({
       organizationId: context.organizationId,
       decisionId,
       scenarioId,
       actorUserId: context.user.id
     });
+    await recalculateEvidenceReadiness({
+      organizationId: context.organizationId,
+      contractId,
+      actorUserId: context.user.id,
+      trigger: "preferred_scenario_selected"
+    }).catch(() => null);
     revalidateWorkspace(contractId);
     return { ok: true, message: "Preferred scenario selected; prior approval no longer applies." };
   } catch {
@@ -205,7 +223,12 @@ export async function createRenewalTaskAction(
   formData: FormData
 ): Promise<RenewalWorkspaceActionResult> {
   try {
-    const { context } = await requireWorkspace({ contractId, decisionId });
+    const { context } = await requireWorkspace({ contractId, decisionId, capability: "manage_renewal_tasks", betaMutation: "create_task" });
+    assertRenewalTaskActorScope({
+      actorRole: context.role,
+      actorUserId: context.user.id,
+      operation: "create"
+    });
     const priority = (stringValue(formData, "priority") ?? "medium") as RenewalTaskPriority;
     if (!RENEWAL_TASK_PRIORITIES.includes(priority)) throw new Error("invalid_task_priority");
     const ownerUserId = stringValue(formData, "owner_user_id");
@@ -240,7 +263,7 @@ export async function transitionRenewalTaskAction(
   formData: FormData
 ): Promise<RenewalWorkspaceActionResult> {
   try {
-    const { context } = await requireWorkspace({ contractId, decisionId });
+    const { context } = await requireWorkspace({ contractId, decisionId, capability: "manage_renewal_tasks", betaMutation: "update_task" });
     const status = stringValue(formData, "status") as RenewalTaskStatus | null;
     if (!status || !RENEWAL_TASK_STATUSES.includes(status)) throw new Error("invalid_task_status");
     await transitionRenewalTask({
@@ -248,6 +271,7 @@ export async function transitionRenewalTaskAction(
       decisionId,
       taskId,
       actorUserId: context.user.id,
+      actorRole: context.role,
       status,
       completionNote: stringValue(formData, "completion_note")
     });
@@ -264,7 +288,7 @@ export async function confirmRenewalOutcomeAction(
   formData: FormData
 ): Promise<RenewalWorkspaceActionResult> {
   try {
-    const { context, workbench } = await requireWorkspace({ contractId, decisionId });
+    const { context, workbench } = await requireWorkspace({ contractId, decisionId, capability: "confirm_financial_outcome", betaMutation: "confirm_outcome" });
     const decisionDate = stringValue(formData, "decision_date");
     const renewalCompletedAt = stringValue(formData, "renewal_completed_at");
     if (!decisionDate || !renewalCompletedAt) throw new Error("outcome_dates_required");
@@ -323,4 +347,27 @@ export async function transitionRenewalTaskFormAction(
 
 export async function confirmRenewalOutcomeFormAction(decisionId: string, contractId: string, formData: FormData) {
   await confirmRenewalOutcomeAction(decisionId, contractId, formData);
+}
+
+export async function refreshEvidenceReadinessAction(contractId: string): Promise<RenewalWorkspaceActionResult> {
+  try {
+    const context = await requireOrganization();
+    await assertCanUseShippedAction(context, "review_renewal_evidence");
+    await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "create_findings" });
+    await requireScopedContract(contractId, context.organizationId);
+    await recalculateEvidenceReadiness({
+      organizationId: context.organizationId,
+      contractId,
+      actorUserId: context.user.id,
+      trigger: "explicit_refresh"
+    });
+    revalidateWorkspace(contractId);
+    return { ok: true, message: "Evidence readiness refreshed." };
+  } catch {
+    return safeFailure();
+  }
+}
+
+export async function refreshEvidenceReadinessFormAction(contractId: string) {
+  await refreshEvidenceReadinessAction(contractId);
 }

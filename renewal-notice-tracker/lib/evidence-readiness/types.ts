@@ -57,6 +57,17 @@ export type EvidenceSourceReference = {
   verifiedBy: string | null;
   verifiedAt: string | null;
   freshnessDate: string | null;
+  provenance?: {
+    provider: string | null;
+    providerConnectionId: string | null;
+    batchId: string | null;
+    syncRunId: string | null;
+    usageRowId: string | null;
+    matchId: string | null;
+    collectedAt: string | null;
+    syncCompletedAt: string | null;
+    evidenceState: "verified" | "insufficient" | "missing";
+  } | null;
 };
 
 export type EvidenceObservation = {
@@ -92,6 +103,7 @@ export type EvidenceReadinessItem = {
   verifiedBy: string | null;
   verifiedAt: string | null;
   freshnessDate: string | null;
+  provenance: EvidenceSourceReference["provenance"];
   explanation: string;
   recommendedAction: string;
   calculationVersion: string;
@@ -120,9 +132,9 @@ export type EvidenceReadinessAssessment = {
   verifiedEvidence: EvidenceReadinessItem[];
   nextRecommendedAction: string;
   evidenceHash: string;
+  materialEvidenceHash: string;
   calculatedAt: string;
   calculationVersion: string;
 };
 
 export type EvidenceReadinessFacts = Partial<Record<string, EvidenceObservation>>;
-

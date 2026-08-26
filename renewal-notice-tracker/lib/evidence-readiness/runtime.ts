@@ -10,6 +10,7 @@ import type {
   CommercialDecisionApprovalStep,
   CommercialDecisionEvidenceLink
 } from "@/lib/commercial-decision-workbench/decision-types";
+import { hasDateOnlyDeadlinePassed, isValidIanaTimezone } from "@/lib/evidence-readiness/deadline-timezone";
 
 type ContractMetadata = {
   id?: string;
@@ -31,6 +32,9 @@ type ContractMetadata = {
   reviewed_at?: string | null;
   reviewed_by?: string | null;
   updated_at?: string | null;
+  financial_terms_reviewed_at?: string | null;
+  deadline_verified_at?: string | null;
+  deadline_timezone?: string | null;
 };
 
 export type EvidenceReadinessRuntimeContext = {
@@ -43,6 +47,9 @@ export type EvidenceReadinessRuntimeContext = {
     owner_user_id?: string | null;
     department?: string | null;
     updated_at?: string | null;
+    owner_confirmed_at?: string | null;
+    owner_confirmed_by_user_id?: string | null;
+    department_confirmed_at?: string | null;
     renewal_decision_status?: string | null;
     contract_metadata?: ContractMetadata | ContractMetadata[] | null;
   };
@@ -51,10 +58,18 @@ export type EvidenceReadinessRuntimeContext = {
   approvalSteps: CommercialDecisionApprovalStep[];
   ownerNotificationEmail: string | null;
   workspaceTimezoneConfigured: boolean;
+  organizationTimezone?: string | null;
   usage: {
+    resolutionState?: "verified" | "missing" | "insufficient";
+    provider?: string | null;
     connectionId: string | null;
+    batchId?: string | null;
+    syncRunId?: string | null;
+    usageRowId?: string | null;
     connected: boolean;
-    lastSuccessfulSyncAt: string | null;
+    lastSuccessfulSyncAt?: string | null;
+    snapshotCollectedAt?: string | null;
+    syncCompletedAt?: string | null;
     matchId: string | null;
     matchConfidence: number | null;
     purchasedQuantityKnown: boolean;
@@ -68,6 +83,7 @@ export type EvidenceReadinessRuntimeContext = {
     comparisonId: string | null;
     uploaded: boolean;
     reviewed: boolean;
+    reviewedAt?: string | null;
     priceVerified: boolean;
     currency: string | null;
     materialChangeCount: number;
@@ -88,7 +104,8 @@ function source(input: Partial<EvidenceSourceReference> & Pick<EvidenceSourceRef
     sourceRecordId: input.sourceRecordId,
     verifiedBy: input.verifiedBy ?? null,
     verifiedAt: input.verifiedAt ?? null,
-    freshnessDate: input.freshnessDate ?? null
+    freshnessDate: input.freshnessDate ?? null,
+    provenance: input.provenance ?? null
   };
 }
 
@@ -163,22 +180,39 @@ export function buildEvidenceReadinessFacts(context: EvidenceReadinessRuntimeCon
     ? observation(criticalReviewedState(noticePresent, reviewed, Boolean(metadata?.has_conflict)), { source: metadataSource })
     : observation("not_applicable", { explanation: "Reviewed metadata confirms this contract does not auto-renew." });
   facts.deadline_conflict_free = observation(metadata?.has_conflict ? "conflicting" : reviewed ? "verified" : metadata ? "present_unreviewed" : "missing", { source: metadataSource });
-  facts.organization_timezone = observation(context.workspaceTimezoneConfigured ? "verified" : "missing", context.workspaceTimezoneConfigured ? {
+  const deadlineTimezone = metadata?.deadline_timezone ?? context.organizationTimezone ?? null;
+  const timezoneValid = isValidIanaTimezone(deadlineTimezone);
+  facts.organization_timezone = observation(timezoneValid ? "verified" : "missing", timezoneValid ? {
     source: source({ sourceType: "customer_confirmation", sourceRecordId: context.contract.organization_id })
   } : undefined);
   const deadline = metadata?.notice_deadline_date;
-  const deadlinePassed = deadline ? new Date(`${deadline}T23:59:59.999Z`) < now : false;
+  const deadlinePassed = deadline ? hasDateOnlyDeadlinePassed({ deadline, timezone: deadlineTimezone, now }) : false;
   const recordedDecision = Boolean(context.contract.renewal_decision_status && !["undecided", "pending", "needs_review"].includes(context.contract.renewal_decision_status));
-  facts.deadline_decision_status = observation(deadlinePassed && !recordedDecision ? "insufficient" : "verified", {
+  facts.deadline_decision_status = observation(deadline && deadlinePassed === null ? "insufficient" : deadlinePassed && !recordedDecision ? "insufficient" : "verified", {
     source: metadataSource,
-    explanation: deadlinePassed && !recordedDecision ? "The notice deadline passed without a recorded decision." : "The deadline has not passed without a recorded decision."
+    explanation: deadline && deadlinePassed === null
+      ? "A valid organization timezone is required to evaluate this date-only deadline."
+      : deadlinePassed && !recordedDecision ? "The notice deadline passed without a recorded decision." : "The deadline has not passed without a recorded decision."
   });
+
+  const usageFreshnessDate = context.usage.snapshotCollectedAt ?? context.usage.lastSuccessfulSyncAt ?? null;
+  const usageProvenance = {
+    provider: context.usage.provider ?? null,
+    providerConnectionId: context.usage.connectionId,
+    batchId: context.usage.batchId ?? null,
+    syncRunId: context.usage.syncRunId ?? null,
+    usageRowId: context.usage.usageRowId ?? null,
+    matchId: context.usage.matchId,
+    collectedAt: context.usage.snapshotCollectedAt ?? null,
+    syncCompletedAt: context.usage.syncCompletedAt ?? null,
+    evidenceState: context.usage.resolutionState ?? (context.usage.matchId ? "verified" : "missing")
+  } as const;
 
   facts.annual_cost_verified = observation(reviewedState(metadata?.contract_value_amount !== null && metadata?.contract_value_amount !== undefined, reviewed), { source: metadataSource });
   facts.currency_verified = observation(reviewedState(Boolean(metadata?.contract_value_currency), reviewed), { source: metadataSource });
   facts.billing_period_known = observation(reviewedState(Boolean(metadata?.contract_value_period || metadata?.renewal_term), reviewed), { source: metadataSource });
   facts.quantity_basis_known = observation(context.usage.purchasedQuantityKnown ? "verified" : "missing", context.usage.matchId ? {
-    source: source({ sourceType: "usage_row", sourceRecordId: context.usage.matchId, freshnessDate: context.usage.lastSuccessfulSyncAt })
+    source: source({ sourceType: "usage_row", sourceRecordId: context.usage.usageRowId ?? context.usage.matchId, freshnessDate: usageFreshnessDate, provenance: usageProvenance })
   } : undefined);
   const crossCurrency = Boolean(metadata?.contract_value_currency && context.quote.currency && metadata.contract_value_currency !== context.quote.currency);
   facts.financial_conflict_free = observation(
@@ -189,43 +223,49 @@ export function buildEvidenceReadinessFacts(context: EvidenceReadinessRuntimeCon
   const connectionSource = context.usage.connectionId ? source({
     sourceType: "provider_usage_snapshot",
     sourceRecordId: context.usage.connectionId,
-    freshnessDate: context.usage.lastSuccessfulSyncAt
+    verifiedAt: context.usage.syncCompletedAt ?? null,
+    freshnessDate: usageFreshnessDate,
+    provenance: usageProvenance
   }) : null;
-  facts.usage_provider_connected = observation(context.usage.connected ? "verified" : "missing", { source: connectionSource });
-  const usageAge = ageInDays(context.usage.lastSuccessfulSyncAt, now);
-  facts.usage_snapshot_fresh = observation(!context.usage.lastSuccessfulSyncAt ? "missing" : usageAge > EVIDENCE_FRESHNESS_DAYS.providerUsageSnapshot ? "stale" : "verified", { source: connectionSource });
-  facts.product_contract_match = observation(context.usage.matchId ? (Number(context.usage.matchConfidence) >= 0.8 ? "verified" : "insufficient") : "missing", context.usage.matchId ? {
-    source: source({ sourceType: "product_contract_match", sourceRecordId: context.usage.matchId, freshnessDate: context.usage.lastSuccessfulSyncAt })
+  const usageResolutionState = context.usage.resolutionState ?? (context.usage.matchId ? "verified" : "missing");
+  facts.usage_provider_connected = observation(context.usage.connected && usageResolutionState === "verified" ? "verified" : usageResolutionState, { source: connectionSource });
+  const usageAge = ageInDays(usageFreshnessDate, now);
+  facts.usage_snapshot_fresh = observation(usageResolutionState === "insufficient" ? "insufficient" : !usageFreshnessDate ? "missing" : usageAge > EVIDENCE_FRESHNESS_DAYS.providerUsageSnapshot ? "stale" : "verified", { source: connectionSource });
+  facts.product_contract_match = observation(usageResolutionState === "insufficient" ? "insufficient" : context.usage.matchId ? (Number(context.usage.matchConfidence) >= 0.8 ? "verified" : "insufficient") : "missing", context.usage.matchId ? {
+    source: source({ sourceType: "product_contract_match", sourceRecordId: context.usage.matchId, freshnessDate: usageFreshnessDate, provenance: usageProvenance })
   } : undefined);
   facts.purchased_assigned_quantities = observation(context.usage.purchasedQuantityKnown && context.usage.assignedQuantityKnown ? "verified" : "missing", context.usage.matchId ? {
-    source: source({ sourceType: "usage_row", sourceRecordId: context.usage.matchId, freshnessDate: context.usage.lastSuccessfulSyncAt })
+    source: source({ sourceType: "usage_row", sourceRecordId: context.usage.usageRowId ?? context.usage.matchId, freshnessDate: usageFreshnessDate, provenance: usageProvenance })
   } : undefined);
   facts.usage_evidence_conflict_free = observation(context.usage.hasActiveConflict ? "conflicting" : context.usage.matchId ? "verified" : "missing", context.usage.matchId ? {
-    source: source({ sourceType: "product_contract_match", sourceRecordId: context.usage.matchId, freshnessDate: context.usage.lastSuccessfulSyncAt })
+    source: source({ sourceType: "product_contract_match", sourceRecordId: context.usage.matchId, freshnessDate: usageFreshnessDate, provenance: usageProvenance })
   } : undefined);
 
-  const ownerFresh = ageInDays(context.contract.updated_at ?? null, now) <= EVIDENCE_FRESHNESS_DAYS.ownerConfirmation;
+  const ownerFresh = ageInDays(context.contract.owner_confirmed_at ?? null, now) <= EVIDENCE_FRESHNESS_DAYS.ownerConfirmation;
   facts.owner_assigned = observation(context.contract.owner_user_id ? (ownerFresh ? "verified" : "stale") : "missing", context.contract.owner_user_id ? {
-    source: source({ sourceType: "customer_confirmation", sourceRecordId: context.contract.id, verifiedBy: context.contract.owner_user_id, freshnessDate: context.contract.updated_at ?? null })
+    source: source({ sourceType: "customer_confirmation", sourceRecordId: context.contract.id, verifiedBy: context.contract.owner_confirmed_by_user_id ?? context.contract.owner_user_id, verifiedAt: context.contract.owner_confirmed_at ?? null, freshnessDate: context.contract.owner_confirmed_at ?? null })
   } : undefined);
   facts.owner_notification_destination = observation(context.contract.owner_user_id ? (context.ownerNotificationEmail ? "verified" : "insufficient") : "missing", context.contract.owner_user_id ? {
     source: source({ sourceType: "customer_confirmation", sourceRecordId: context.contract.owner_user_id, verifiedBy: context.contract.owner_user_id })
   } : undefined);
-  facts.department_known = observation(context.contract.department ? "verified" : "missing", context.contract.department ? {
-    source: source({ sourceType: "customer_confirmation", sourceRecordId: context.contract.id })
+  facts.department_known = observation(context.contract.department ? (context.contract.department_confirmed_at ? "verified" : "present_unreviewed") : "missing", context.contract.department ? {
+    source: source({ sourceType: "customer_confirmation", sourceRecordId: context.contract.id, verifiedAt: context.contract.department_confirmed_at ?? null, freshnessDate: context.contract.department_confirmed_at ?? null })
   } : undefined);
   facts.decision_due_date = observation(context.decision?.decision_deadline ? "verified" : "missing", context.decision?.decision_deadline ? {
     source: source({ sourceType: "customer_confirmation", sourceRecordId: context.decision.id, verifiedBy: context.decision.decision_owner_user_id ?? null })
   } : undefined);
 
-  const quoteSource = context.quote.comparisonId ? source({ sourceType: "quote_file", sourceRecordId: context.quote.comparisonId }) : null;
+  const quoteSource = context.quote.comparisonId ? source({ sourceType: "quote_file", sourceRecordId: context.quote.comparisonId, verifiedAt: context.quote.reviewedAt ?? null, freshnessDate: context.quote.reviewedAt ?? null }) : null;
   facts.renewal_quote_uploaded = observation(context.quote.uploaded ? (context.quote.reviewed ? "verified" : "present_unreviewed") : "missing", { source: quoteSource });
   facts.renewal_quote_reviewed = observation(context.quote.reviewed ? "verified" : context.quote.uploaded ? "present_unreviewed" : "missing", { source: quoteSource });
   facts.proposed_price_currency_verified = observation(context.quote.priceVerified && context.quote.currency ? "verified" : context.quote.uploaded ? "present_unreviewed" : "missing", { source: quoteSource });
   facts.quote_changes_reviewed = observation(!context.quote.materialChangeCount ? "not_applicable" : context.quote.reviewedMaterialChangeCount >= context.quote.materialChangeCount ? "verified" : "present_unreviewed", { source: quoteSource });
 
   const selectedProfile = decisionProfileFromDecision(context.decision);
-  facts.decision_profile_selected = observation(selectedProfile === "renewal_triage" ? "missing" : "verified", context.decision ? {
+  const profileSelectedAt = context.decision && "profile_selected_at" in context.decision
+    ? (context.decision as CommercialDecision & { profile_selected_at?: string | null }).profile_selected_at
+    : null;
+  facts.decision_profile_selected = observation(!context.decision ? "missing" : profileSelectedAt ? "verified" : "present_unreviewed", context.decision ? {
     source: source({ sourceType: "customer_confirmation", sourceRecordId: context.decision.id, verifiedBy: context.decision.decision_owner_user_id ?? null })
   } : undefined);
   const pendingApproval = context.approvalSteps.find((step) => step.status === "pending");

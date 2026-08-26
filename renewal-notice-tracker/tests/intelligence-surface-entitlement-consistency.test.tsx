@@ -7,6 +7,7 @@ const requireOrganization = vi.fn();
 const getContractById = vi.fn();
 const getCounterparties = vi.fn();
 const getOrganizationMembers = vi.fn();
+const getOrganizationTimezone = vi.fn();
 const getContracts = vi.fn();
 const getContractFacets = vi.fn();
 const getContractRenewalActionRequests = vi.fn();
@@ -26,6 +27,7 @@ const getSaasOptOutStatusesForContracts = vi.fn();
 const getContractAuditTimeline = vi.fn();
 const listContractExtractionRuns = vi.fn();
 const listContractExtractedFields = vi.fn();
+const listContractDocumentRelationships = vi.fn();
 const listQuoteComparisons = vi.fn();
 const listQuoteFindings = vi.fn();
 const listSavingsOpportunities = vi.fn();
@@ -71,6 +73,7 @@ vi.mock("@/lib/contracts/kernel-queries", () => ({
   getContractById,
   getCounterparties,
   getOrganizationMembers,
+  getOrganizationTimezone,
   getContracts,
   getContractFacets,
   getContractRenewalActionRequests,
@@ -99,7 +102,8 @@ vi.mock("@/lib/enterprise-audit/audit-queries", () => ({
 
 vi.mock("@/lib/contract-intelligence/extraction-runs", () => ({
   listContractExtractionRuns,
-  listContractExtractedFields
+  listContractExtractedFields,
+  listContractDocumentRelationships
 }));
 
 vi.mock("@/lib/quote-comparison/quote-comparison", () => ({
@@ -599,6 +603,7 @@ beforeEach(() => {
     }
   ]);
   getCounterparties.mockResolvedValue([]);
+  getOrganizationTimezone.mockResolvedValue("UTC");
   getContracts.mockResolvedValue([makeContract()]);
   getContractRenewalActionRequests.mockResolvedValue([]);
   getContractPendingRenewalActionRequestCount.mockResolvedValue(0);
@@ -616,6 +621,7 @@ beforeEach(() => {
   getContractAuditTimeline.mockResolvedValue([]);
   listContractExtractionRuns.mockResolvedValue([]);
   listContractExtractedFields.mockResolvedValue([]);
+  listContractDocumentRelationships.mockResolvedValue([]);
   listQuoteComparisons.mockResolvedValue([]);
   listQuoteFindings.mockResolvedValue([]);
   listSavingsOpportunities.mockResolvedValue([]);

@@ -207,6 +207,11 @@ export function checkPythonIntelligenceHealth(overrides?: Partial<AddOnClientOpt
   return callAddOnJson<never, AddOnHealthResponse>({ ...options(overrides), path: "/health", method: "GET" });
 }
 
+/**
+ * @deprecated Compatibility-only deterministic scaffold. Customer contract
+ * extraction must use runFullDocumentContractExtraction so actual scoped bytes,
+ * page evidence, OCR fallback, and provider validation cannot be bypassed.
+ */
 export function extractContract(request: ExtractContractRequest, overrides?: Partial<AddOnClientOptions>) {
   return callAddOnJson<ExtractContractRequest, ExtractContractResponse>({
     ...options(overrides),

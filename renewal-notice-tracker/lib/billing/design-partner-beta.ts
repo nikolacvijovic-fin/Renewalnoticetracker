@@ -12,7 +12,14 @@ export type DesignPartnerBetaControl = {
   founderApprovedAt: string | null;
 };
 
-export type DesignPartnerBetaMutation = "upload_contract" | "connect_provider" | "sync_provider" | "create_findings";
+export const DESIGN_PARTNER_BETA_MUTATIONS = [
+  "upload_contract", "edit_contract", "review_contract", "connect_provider", "sync_provider", "create_findings",
+  "create_decision", "update_decision", "create_scenario", "select_scenario", "create_task", "update_task",
+  "upload_quote", "review_quote", "create_approval", "approve_decision", "create_negotiation_draft",
+  "update_negotiation_draft", "confirm_outcome", "invite_member", "change_member_role"
+] as const;
+
+export type DesignPartnerBetaMutation = (typeof DESIGN_PARTNER_BETA_MUTATIONS)[number];
 
 export function evaluateDesignPartnerBetaMutation(input: {
   control: DesignPartnerBetaControl | null;
@@ -20,6 +27,7 @@ export function evaluateDesignPartnerBetaMutation(input: {
   now?: Date;
   currentContracts?: number;
   currentProviderConnections?: number;
+  currentUserSeats?: number;
   provider?: "microsoft_365" | "google_workspace";
 }) {
   const control = input.control;
@@ -49,6 +57,9 @@ export function evaluateDesignPartnerBetaMutation(input: {
     if ((input.currentProviderConnections ?? 0) >= control.maximumProviderConnections) {
       return { allowed: false as const, reason: "provider_limit_reached" as const, message: "The Design Partner Beta provider connection limit has been reached." };
     }
+  }
+  if (input.action === "invite_member" && (input.currentUserSeats ?? 0) >= control.maximumUserSeats) {
+    return { allowed: false as const, reason: "user_seat_limit_reached" as const, message: `The Design Partner Beta user-seat limit of ${control.maximumUserSeats} has been reached.` };
   }
   return { allowed: true as const, reason: "allowed" as const, message: "Design Partner Beta access is active." };
 }

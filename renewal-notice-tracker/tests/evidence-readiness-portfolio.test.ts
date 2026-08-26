@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildFounderEvidenceReadinessSummary } from "@/lib/evidence-readiness/founder-summary";
-import { attachEvidenceReadinessToPortfolio, filterRenewalPortfolio, type RenewalPortfolioItem } from "@/lib/renewal-workspace/portfolio";
+import { attachEvidenceReadinessToPortfolio, filterRenewalPortfolio, normalizeRenewalPortfolioRows, type RenewalPortfolioItem } from "@/lib/renewal-workspace/portfolio";
 
 function item(contractId: string, daysRemaining: number): RenewalPortfolioItem {
   return {
@@ -24,7 +24,8 @@ function item(contractId: string, daysRemaining: number): RenewalPortfolioItem {
     evidenceReadinessState: null,
     criticalBlockerCount: 0,
     nextEvidenceAction: null,
-    missingEvidenceCategories: []
+    missingEvidenceCategories: [],
+    portfolioStates: []
   };
 }
 
@@ -39,10 +40,35 @@ describe("evidence readiness portfolio and founder support", () => {
       ]
     );
 
-    expect(result.map((entry) => entry.contractId)).toEqual(["contract-blocked", "contract-ready", "contract-near"]);
-    expect(result[0]?.missingEvidenceCategories).toEqual(["renewal_timing"]);
+    expect(result.map((entry) => entry.contractId)).toEqual(["contract-ready", "contract-near", "contract-blocked"]);
+    expect(result.find((entry) => entry.contractId === "contract-blocked")?.missingEvidenceCategories).toEqual(["renewal_timing"]);
     expect(filterRenewalPortfolio(result, { readinessState: "blocked" })).toHaveLength(1);
     expect(filterRenewalPortfolio(result, { missingEvidenceCategory: "renewal_timing" })).toHaveLength(1);
+  });
+
+  it("includes real contracts without decisions and marks untrusted deadlines for review", () => {
+    const rows = normalizeRenewalPortfolioRows([{
+      id: "contract-no-decision",
+      organization_id: "org-1",
+      is_sample: false,
+      owner_user_id: null,
+      department: null,
+      contract_metadata: [{
+        contract_title: "No decision contract",
+        counterparty_name: "Acme",
+        notice_deadline_date: "2026-09-01",
+        needs_review: true,
+        has_weak_evidence: true,
+        reviewed_at: null
+      }],
+      renewal_commercial_decisions: [],
+      renewal_decision_outcomes: []
+    }], new Date("2026-08-25T00:00:00Z"));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ decisionId: null, approvalState: "decision_not_started", noticeDeadline: null });
+    expect(rows[0]?.portfolioStates).toEqual(expect.arrayContaining(["decision_not_started", "deadline_needs_review"]));
+    expect(filterRenewalPortfolio(rows, { portfolioState: "decision_not_started" })).toHaveLength(1);
   });
 
   it("builds bounded founder readiness health without customer evidence content", () => {

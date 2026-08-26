@@ -23,6 +23,8 @@ import {
   updateCommercialDecisionRecommendedAction
 } from "@/lib/commercial-decision-workbench/commercial-decision-workbench";
 import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
+import { enforceDesignPartnerBetaMutation, type DesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
+import type { ShippedRuntimeAction } from "@/lib/product/action-matrix";
 
 export type CommercialDecisionActionResult =
   | { ok: true; message: string }
@@ -46,14 +48,18 @@ function formString(formData: FormData, key: string) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-async function requireDecisionOperator() {
+async function requireDecisionOperator(
+  capability: ShippedRuntimeAction = "manage_renewal_decision",
+  betaMutation: DesignPartnerBetaMutation = "update_decision"
+) {
   const context = await requireOrganization();
-  await assertCanUseShippedAction(context, "review_p0");
+  await assertCanUseShippedAction(context, capability);
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: betaMutation });
   return context;
 }
 
 async function requireApproverReassignmentOperator() {
-  const context = await requireDecisionOperator();
+  const context = await requireDecisionOperator("manage_renewal_decision", "update_decision");
   if (!hasRequiredRole(context.role, ["admin", "operator"])) {
     throw new Error("Commercial decision approver reassignment requires an admin or operator.");
   }
@@ -64,20 +70,21 @@ async function refreshEvidenceReadiness(input: {
   organizationId: string;
   contractId: string;
   actorUserId: string;
+  trigger: string;
 }) {
   await recalculateEvidenceReadiness(input).catch(() => null);
 }
 
 export async function createCommercialDecisionAction(contractId: string): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "create_decision");
     await requireScopedContract(contractId, context.organizationId);
     await createCommercialDecisionForContract({
       organizationId: context.organizationId,
       contractId,
       actorUserId: context.user.id
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "decision_created" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision created." };
   } catch (error) {
@@ -90,14 +97,14 @@ export async function recomputeCommercialDecisionAction(
   contractId: string
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await recomputeCommercialDecision({
       organizationId: context.organizationId,
       decisionId,
       actorUserId: context.user.id
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "decision_recomputed" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision recomputed." };
   } catch (error) {
@@ -111,7 +118,7 @@ export async function submitCommercialDecisionForReviewAction(
   formData?: FormData
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "create_approval");
     await requireScopedContract(contractId, context.organizationId);
     await submitCommercialDecisionForReview({
       organizationId: context.organizationId,
@@ -119,7 +126,7 @@ export async function submitCommercialDecisionForReviewAction(
       actorUserId: context.user.id,
       approverUserId: formData ? formString(formData, "approver_user_id") : null
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "approval_requested" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision submitted for approval." };
   } catch (error) {
@@ -149,7 +156,7 @@ export async function reassignCommercialDecisionApproverAction(
       actorUserId: context.user.id,
       newApproverUserId
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "approval_assignment_changed" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision approver reassigned." };
   } catch (error) {
@@ -163,7 +170,7 @@ export async function approveCommercialDecisionAction(
   formData?: FormData
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("approve_renewal_decision", "approve_decision");
     await requireScopedContract(contractId, context.organizationId);
     await approveCommercialDecision({
       organizationId: context.organizationId,
@@ -171,7 +178,7 @@ export async function approveCommercialDecisionAction(
       actorUserId: context.user.id,
       reviewerNote: formData ? formString(formData, "reviewer_note") : null
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "approval_completed" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision approved." };
   } catch (error) {
@@ -185,7 +192,7 @@ export async function rejectCommercialDecisionAction(
   formData?: FormData
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("approve_renewal_decision", "approve_decision");
     await requireScopedContract(contractId, context.organizationId);
     await rejectCommercialDecision({
       organizationId: context.organizationId,
@@ -193,7 +200,7 @@ export async function rejectCommercialDecisionAction(
       actorUserId: context.user.id,
       reviewerNote: formData ? formString(formData, "reviewer_note") : null
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "approval_rejected" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision rejected." };
   } catch (error) {
@@ -206,13 +213,14 @@ export async function finalizeCommercialDecisionAction(
   contractId: string
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await finalizeCommercialDecision({
       organizationId: context.organizationId,
       decisionId,
       actorUserId: context.user.id
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "decision_finalized" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision finalized." };
   } catch (error) {
@@ -225,13 +233,14 @@ export async function archiveCommercialDecisionAction(
   contractId: string
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await archiveCommercialDecision({
       organizationId: context.organizationId,
       decisionId,
       actorUserId: context.user.id
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "decision_archived" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Commercial decision archived." };
   } catch (error) {
@@ -245,7 +254,7 @@ export async function changeCommercialDecisionRecommendedActionAction(
   recommendedAction: CommercialRecommendedAction
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await updateCommercialDecisionRecommendedAction({
       organizationId: context.organizationId,
@@ -253,6 +262,7 @@ export async function changeCommercialDecisionRecommendedActionAction(
       actorUserId: context.user.id,
       recommendedAction
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "recommended_action_changed" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Recommended action updated." };
   } catch (error) {
@@ -266,7 +276,7 @@ export async function changeCommercialDecisionNegotiationPostureAction(
   negotiationPosture: NegotiationPosture
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("manage_renewal_decision", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await updateCommercialDecisionNegotiationPosture({
       organizationId: context.organizationId,
@@ -274,6 +284,7 @@ export async function changeCommercialDecisionNegotiationPostureAction(
       actorUserId: context.user.id,
       negotiationPosture
     });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "negotiation_posture_changed" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Negotiation posture updated." };
   } catch (error) {
@@ -311,7 +322,7 @@ export async function attachCommercialDecisionEvidenceAction(
   evidenceId?: string | null
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("review_renewal_evidence", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await attachDecisionEvidence({
       organizationId: context.organizationId,
@@ -321,7 +332,7 @@ export async function attachCommercialDecisionEvidenceAction(
       evidenceLabel,
       evidenceId: evidenceId ?? null
     });
-    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id });
+    await refreshEvidenceReadiness({ organizationId: context.organizationId, contractId, actorUserId: context.user.id, trigger: "decision_evidence_attached" });
     revalidatePath(contractDecisionPath(contractId));
     return { ok: true, message: "Evidence attached." };
   } catch (error) {
@@ -335,7 +346,7 @@ export async function addCommercialDecisionReviewerNoteAction(
   formData: FormData
 ): Promise<CommercialDecisionActionResult> {
   try {
-    const context = await requireDecisionOperator();
+    const context = await requireDecisionOperator("review_renewal_evidence", "update_decision");
     await requireScopedContract(contractId, context.organizationId);
     await createDecisionSnapshot({
       organizationId: context.organizationId,

@@ -1,47 +1,49 @@
-# Contract Intelligence Evidence
+# Full-Document Commercial Contract Intelligence
 
-NoticeControl treats contract extraction as evidence for human review, not as contract truth.
+NoticeControl treats provider-backed extraction as confidential evidence for human review, never as contract truth or legal advice.
 
 ## Lifecycle
 
-1. A review-capable user requests extraction for an organization-scoped contract.
-2. `contract_extraction_runs` records the run, provider, mode, status, requesting user, and safe failure state.
-3. The Python intelligence service returns structured fields with confidence, warning codes, and citations.
-4. `contract_extracted_fields` stores one bounded evidence row per field.
-5. A reviewer accepts or rejects each field.
-6. Accepted fields may be applied to `contract_metadata`, but applied metadata still has `needs_review = true`.
-7. The existing P0 review/trusted-reminder gate remains responsible for trusted workflow activation.
+1. A review-capable user requests extraction for an organization-scoped contract and file.
+2. The scoped admin repository verifies the contract/file relationship and downloads bytes from the configured private bucket. Callers cannot supply a storage URL.
+3. PDF or DOCX signatures, size, corruption, encryption, and empty-document conditions are validated.
+4. Native PDF pages or DOCX paragraphs/tables become page-aware records. Only PDF pages with insufficient native text are sent to the configured OCR provider.
+5. The complete document is processed in bounded, overlapping chunks by the configured OpenAI model. `provider_backed` is recorded only for this real provider call.
+6. Provider output is schema-validated, unknown fields are rejected, and every retained candidate must have an exact bounded source snippet on the cited page.
+7. `contract_extracted_fields` stores candidates, confidence, versions, page/section/clause evidence, warnings, and review state.
+8. A reviewer accepts, rejects, or edits candidates. Overrides require a reason; prior accepted evidence is superseded, not deleted.
+9. Commercial calculations and findings are regenerated from accepted evidence only. Trusted reminders and downstream decisions remain behind existing reviewed-truth gates.
 
 ## Field Model
 
-Supported field keys are:
-
-- `vendor_name`
-- `renewal_date`
-- `notice_deadline_date`
-- `auto_renewal`
-- `contract_value_amount`
-- `contract_value_currency`
-- `renewal_term`
-- `termination_window`
-- `price_change_trigger`
-- `payment_terms`
+The versioned registry in `lib/contract-intelligence/commercial-schema.ts` is the single field-key source. It covers contract identity, term/renewal, financial terms, price-change mechanics, and commercial protections/exposure. Unsupported fields remain absent; they are not inferred into truth.
 
 Each extracted field must carry:
 
 - Confidence from `0` to `1`.
 - Evidence status: `pending_review`, `accepted`, `rejected`, or `superseded`.
 - Citation source metadata where available.
-- A bounded source snippet, capped at 1,000 characters in evidence storage and shortened further when copied into metadata snippets.
+- A bounded, field-specific source snippet and source offsets where available.
+- Source file, page, section/clause, extraction method, OCR confidence, provider/model, prompt version, and schema version.
 - Warning codes when evidence is missing, low-confidence, or deterministic-only.
 
 ## Confidence Rules
 
-Low-confidence extraction does not unlock trusted reminders. Applying accepted evidence keeps metadata in review and preserves `has_weak_evidence` when confidence is below the review threshold or warning codes are present.
+Low-confidence extraction does not unlock trusted reminders. Partial runs remain `partial`; OCR/provider failures cannot be represented as successful empty extraction. Applying accepted evidence keeps metadata in review and preserves weak-evidence warnings until the existing P0 review gate is completed.
 
-## Python Service
+## Runtime Source Of Truth
 
-`services/python-intelligence` currently ships a deterministic scaffold for contract extraction. It can detect simple date, auto-renewal, notice-window, payment-term, and amount/currency patterns from supplied text and returns citations. It does not claim provider-backed AI extraction unless the future `provider_backed` mode is implemented and reviewed.
+`runFullDocumentContractExtraction` is the customer runtime source of extraction truth. The old Python `/extract-contract` regex route and TypeScript add-on client method are explicitly deprecated compatibility scaffolds for existing tests/reference work. They do not retrieve uploaded files, are not called by upload or OCR jobs, and must not be wired into customer extraction.
+
+The legacy `lib/ai/extract-contract.ts` export is retained only as a compatibility adapter. It uses the same complete-document provider and no longer truncates input to 15,000 characters, but new code must use the page-aware runner.
+
+## Commercial Analysis
+
+Calculations use accepted evidence only, retain currencies separately, refuse ambiguous billing-period math, and calculate date urgency in the organization's configured IANA timezone (UTC fallback is explicit). The calculation set covers normalized annual and stated total cost, estimated remaining commitment, effective unit price, estimated renewal-term exposure, quantified termination-cost exposure, deadline distance, and fixed-uplift exposure. Every estimate is labeled and retains source field IDs and warning codes; missing or conflicting inputs produce `insufficient_evidence` or `conflict`, never fabricated values.
+
+When accepted source documents disagree, an accepted, dated `amends` or `supersedes` relationship may select the governing accepted candidate for analysis. Pending relationships, pending fields, incomplete chains, and cycles remain unresolved. Precedence does not overwrite source evidence or trusted contract metadata.
+
+Findings contain evidence IDs, confidence, limitations, versions, and a recommended human action. Findings distinguish a missing reviewed termination right from a claim that no right exists, and estimates are never labeled as realized savings.
 
 ## Audit Events
 
@@ -52,15 +54,21 @@ Extraction writes enterprise audit evidence:
 - `contract_extraction.failed`
 - `contract_extracted_field.accepted`
 - `contract_extracted_field.rejected`
+- `contract_extracted_field.overridden`
 - `contract_extracted_fields.applied_to_metadata`
+- `contract_commercial_analysis.generated`
 
 Audit metadata may include run IDs, field IDs, field keys, confidence values, warning codes, provider, extraction mode, reviewer ID, and failure codes.
 
 Audit metadata must never include raw full contract text, raw OCR output, full notes, provider payloads, storage paths, secrets, tokens, uploaded document contents, or email bodies.
 
-## Current Limits
+## Retention And Operations
 
-- Extraction evidence is durable and reviewable.
-- Deterministic Python extraction is useful for scaffolding and tests, not a full AI provider-backed extractor.
+Page text is confidential temporary processing data. Each row receives a 30-day `retention_expires_at`; the migration supplies a service-role-only purge function that operations must schedule. Durable reviewed evidence stores only bounded snippets, not complete provider responses or prompts. Runs have queued/processing/completed/partial/failed/cancelled states, idempotency keys, leases, attempts, safe errors, page counts, token counts, and model/schema/prompt versions.
+
+## Honest Limits
+
 - Applying evidence prepares metadata for review; it does not complete P0 review.
-- Trusted reminders still depend on the existing reviewed-truth gate.
+- Relationship rows can represent amendments/order forms/quotes, and conflicts are preserved. Ambiguous precedence still requires human confirmation; the system does not automatically prefer a later file without supported relationship/effective-date evidence.
+- Quote comparison and usage evidence remain existing adjacent workflows; this extraction layer does not fabricate quote or usage inputs.
+- Production acceptance still requires the migration, private storage, OpenAI, OCR, and the page-retention purge schedule to be configured and exercised in staging.

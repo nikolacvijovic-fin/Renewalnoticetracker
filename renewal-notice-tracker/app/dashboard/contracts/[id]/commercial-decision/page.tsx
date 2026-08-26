@@ -11,8 +11,9 @@ import { CommercialDecisionWorkbenchPanel } from "@/components/commercial-decisi
 import { RenewalWorkspaceExtensionPanel } from "@/components/renewal-workspace/renewal-workspace-extension-panel";
 import { getRenewalWorkspaceExtension } from "@/lib/renewal-workspace/renewal-workspace-service";
 import { Button } from "@/components/ui/button";
-import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
+import { getLatestEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 import { EvidenceReadinessPanel } from "@/components/renewal-workspace/evidence-readiness-panel";
+import { refreshEvidenceReadinessFormAction } from "@/lib/actions/renewal-workspace";
 
 function memberLabel(
   members: Awaited<ReturnType<typeof getOrganizationMembers>>,
@@ -52,10 +53,9 @@ export default async function CommercialDecisionPage({
         decisionId: workbench.decision.id
       })
     : null;
-  const evidenceReadiness = await recalculateEvidenceReadiness({
+  const evidenceReadiness = await getLatestEvidenceReadiness({
     organizationId: context.organizationId,
-    contractId: params.id,
-    actorUserId: context.user.id
+    contractId: params.id
   });
   const canAct = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const canReassignApprover = hasRequiredRole(context.role, ["admin", "operator"]);
@@ -69,8 +69,15 @@ export default async function CommercialDecisionPage({
         <Button asChild variant="secondary">
           <a href="/dashboard/renewal-workspace">Renewal portfolio</a>
         </Button>
+        <form action={refreshEvidenceReadinessFormAction.bind(null, params.id)}>
+          <Button type="submit" variant="secondary">Refresh evidence</Button>
+        </form>
       </div>
-      <EvidenceReadinessPanel assessment={evidenceReadiness.assessment} />
+      {evidenceReadiness ? <EvidenceReadinessPanel assessment={evidenceReadiness} /> : (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          Evidence readiness has not been calculated yet. Use an authorized workflow action or refresh evidence explicitly.
+        </div>
+      )}
       {workbench.decision ? (
         <>
           <CommercialDecisionWorkbenchPanel

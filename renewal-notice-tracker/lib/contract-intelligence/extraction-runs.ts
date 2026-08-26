@@ -7,9 +7,12 @@ import {
 import {
   insertAdminContractExtractedFields,
   insertAdminContractExtractionRun,
+  getAdminContractExtractionRunByIdempotency,
+  listAdminContractDocumentRelationships,
   listAdminContractExtractedFields,
   listAdminContractExtractionRuns,
   updateAdminContractExtractedFieldReview,
+  supersedeAdminAcceptedExtractedFields,
   updateAdminContractExtractionRun
 } from "@/lib/contract-intelligence/repositories/admin-extraction-repository";
 import type {
@@ -17,6 +20,7 @@ import type {
   ContractExtractionRequest,
   ContractExtractionResult
 } from "@/lib/contract-intelligence/extraction-types";
+import { refreshCommercialAnalysis } from "@/lib/contract-intelligence/commercial-analysis-service";
 
 function safeAuditMetadata(input: Record<string, unknown>) {
   return {
@@ -28,13 +32,31 @@ function safeAuditMetadata(input: Record<string, unknown>) {
 }
 
 export async function requestContractExtraction(input: ContractExtractionRequest) {
+  if (input.idempotencyKey) {
+    const existing = await getAdminContractExtractionRunByIdempotency({
+      organizationId: input.organizationId,
+      idempotencyKey: input.idempotencyKey
+    });
+    if (existing.error) throw existing.error;
+    if (existing.data) return existing.data;
+  }
   const result = await insertAdminContractExtractionRun({
     organizationId: input.organizationId,
     contractId: input.contractId,
     contractFileId: input.contractFileId ?? null,
     requestedByUserId: input.requestedByUserId ?? null,
-    extractionMode: input.extractionMode ?? "deterministic_scaffold"
+    extractionMode: input.extractionMode ?? "provider_backed",
+    idempotencyKey: input.idempotencyKey ?? null,
+    schemaVersion: input.schemaVersion,
+    promptVersion: input.promptVersion ?? null
   });
+  if (result.error && input.idempotencyKey) {
+    const raced = await getAdminContractExtractionRunByIdempotency({
+      organizationId: input.organizationId,
+      idempotencyKey: input.idempotencyKey
+    });
+    if (!raced.error && raced.data) return raced.data;
+  }
   if (result.error) throw result.error;
   if (!result.data) throw new Error("Contract extraction run was not created.");
 
@@ -66,7 +88,13 @@ export async function recordContractExtractionResult(input: {
   result: ContractExtractionResult;
 }) {
   const now = new Date().toISOString();
-  const fields = input.result.fields.map(normalizeExtractionResultField);
+  const candidateCounts = new Map<string, number>();
+  const fields = input.result.fields.map((field) => {
+    const normalized = normalizeExtractionResultField(field);
+    const candidateIndex = candidateCounts.get(field.fieldKey) ?? 0;
+    candidateCounts.set(field.fieldKey, candidateIndex + 1);
+    return { ...normalized, candidate_index: candidateIndex };
+  });
   const inserted = await insertAdminContractExtractedFields({
     organizationId: input.organizationId,
     contractId: input.contractId,
@@ -80,9 +108,16 @@ export async function recordContractExtractionResult(input: {
     organizationId: input.organizationId,
     runId: input.extractionRunId,
     values: {
-      status: "completed",
+      status: input.result.status ?? "completed",
       completed_at: now,
-      safe_error_message: null
+      safe_error_message: null,
+      page_count: input.result.pageCount ?? 0,
+      processed_page_count: input.result.processedPageCount ?? 0,
+      input_character_count: input.result.inputCharacterCount ?? 0,
+      input_token_count: input.result.inputTokenCount ?? null,
+      output_token_count: input.result.outputTokenCount ?? null,
+      model: input.result.model ?? null,
+      warning_codes: input.result.warnings
     }
   });
   if (completed.error) throw completed.error;
@@ -103,7 +138,10 @@ export async function recordContractExtractionResult(input: {
       confidenceValues: input.result.fields.map((field) => field.confidence),
       overallConfidence: input.result.overallConfidence,
       computedEvidenceConfidence: confidence,
-      warningCodes: input.result.warnings
+      warningCodes: input.result.warnings,
+      status: input.result.status ?? "completed",
+      pageCount: input.result.pageCount ?? 0,
+      processedPageCount: input.result.processedPageCount ?? 0
     }),
     mode: "best_effort"
   });
@@ -174,6 +212,15 @@ export async function listContractExtractedFields(input: {
   return result.data ?? [];
 }
 
+export async function listContractDocumentRelationships(input: {
+  organizationId: string;
+  contractId: string;
+}) {
+  const result = await listAdminContractDocumentRelationships(input);
+  if (result.error) throw result.error;
+  return result.data ?? [];
+}
+
 export async function reviewExtractedField(input: {
   organizationId: string;
   contractId: string;
@@ -183,6 +230,7 @@ export async function reviewExtractedField(input: {
   const reviewedAt = new Date().toISOString();
   const result = await updateAdminContractExtractedFieldReview({
     organizationId: input.organizationId,
+    contractId: input.contractId,
     fieldId: input.fieldId,
     values: {
       evidence_status: "accepted",
@@ -195,7 +243,22 @@ export async function reviewExtractedField(input: {
   if (result.error) throw result.error;
   if (!result.data) throw new Error("Extracted field was not found.");
 
+  const superseded = await supersedeAdminAcceptedExtractedFields({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    fieldKey: result.data.field_key,
+    exceptFieldId: result.data.id,
+    supersededByFieldId: result.data.id
+  });
+  if (superseded.error) throw superseded.error;
+
   await auditFieldDecision("contract_extracted_field.accepted", result.data, input.reviewerUserId);
+  await refreshCommercialAnalysis({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    actorUserId: input.reviewerUserId,
+    extractionRunId: result.data.extraction_run_id
+  });
   return result.data;
 }
 
@@ -209,6 +272,7 @@ export async function rejectExtractedField(input: {
   const reviewedAt = new Date().toISOString();
   const result = await updateAdminContractExtractedFieldReview({
     organizationId: input.organizationId,
+    contractId: input.contractId,
     fieldId: input.fieldId,
     values: {
       evidence_status: "rejected",
@@ -222,6 +286,84 @@ export async function rejectExtractedField(input: {
   if (!result.data) throw new Error("Extracted field was not found.");
 
   await auditFieldDecision("contract_extracted_field.rejected", result.data, input.reviewerUserId);
+  await refreshCommercialAnalysis({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    actorUserId: input.reviewerUserId,
+    extractionRunId: result.data.extraction_run_id
+  });
+  return result.data;
+}
+
+function sanitizeOverrideReason(value: unknown) {
+  if (typeof value !== "string") return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  if (/raw\s+(?:contract|ocr|document)|provider payload|storage path|secret|token|private note/i.test(normalized)) {
+    return "Override reason redacted because it contained sensitive-content markers.";
+  }
+  return normalized.slice(0, 600);
+}
+
+export async function editExtractedField(input: {
+  organizationId: string;
+  contractId: string;
+  fieldId: string;
+  reviewerUserId: string;
+  editedValue: string | number | boolean;
+  reason: string;
+}) {
+  const reason = sanitizeOverrideReason(input.reason);
+  if (!reason) throw new Error("A concise override reason is required.");
+  const reviewedAt = new Date().toISOString();
+  const result = await updateAdminContractExtractedFieldReview({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    fieldId: input.fieldId,
+    values: {
+      edited_value: input.editedValue,
+      override_reason: reason,
+      evidence_status: "accepted",
+      reviewed_by_user_id: input.reviewerUserId,
+      reviewed_at: reviewedAt,
+      rejected_at: null,
+      rejection_reason: null
+    }
+  });
+  if (result.error) throw result.error;
+  if (!result.data) throw new Error("Extracted field was not found.");
+  const superseded = await supersedeAdminAcceptedExtractedFields({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    fieldKey: result.data.field_key,
+    exceptFieldId: result.data.id,
+    supersededByFieldId: result.data.id
+  });
+  if (superseded.error) throw superseded.error;
+
+  await recordEnterpriseAuditEvent({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    actorUserId: input.reviewerUserId,
+    eventType: "contract_extracted_field.overridden",
+    eventCategory: "evidence",
+    eventSource: "contract_extraction",
+    severity: "warning",
+    metadata: safeAuditMetadata({
+      runId: result.data.extraction_run_id,
+      fieldId: result.data.id,
+      fieldKey: result.data.field_key,
+      reviewerId: input.reviewerUserId,
+      overrideReasonCode: "human_review_override"
+    }),
+    mode: "best_effort"
+  });
+  await refreshCommercialAnalysis({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    actorUserId: input.reviewerUserId,
+    extractionRunId: result.data.extraction_run_id
+  });
   return result.data;
 }
 

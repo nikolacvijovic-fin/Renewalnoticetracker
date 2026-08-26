@@ -93,7 +93,15 @@ export function normalizeExtractionResultField(field: ContractExtractionResultFi
     source_page: primaryCitation?.page ?? null,
     source_snippet: sanitizeExtractionSourceSnippet(primaryCitation?.snippet),
     source_offsets: (primaryCitation?.offsets ?? null) as Json | null,
-    warning_codes: Array.from(warningCodes)
+    warning_codes: Array.from(warningCodes),
+    field_category: field.category ?? "term_and_renewal",
+    source_section_label: field.sectionLabel ?? null,
+    source_clause_label: field.clauseLabel ?? null,
+    extraction_method: field.extractionMethod ?? null,
+    extraction_provider: field.provider ?? null,
+    extraction_model: field.model ?? null,
+    prompt_version: field.promptVersion ?? null,
+    schema_version: field.schemaVersion ?? "commercial_contract_v2"
   };
 }
 
@@ -135,6 +143,10 @@ export function mapExtractedFieldsToContractMetadataPatch(input: {
 
   for (const field of acceptedFields) {
     if (!(EXTRACTED_FIELD_KEYS as readonly string[]).includes(field.field_key)) continue;
+    if (![
+      "vendor_name", "renewal_date", "notice_deadline_date", "auto_renewal",
+      "contract_value_amount", "contract_value_currency", "renewal_term", "payment_terms"
+    ].includes(field.field_key)) continue;
     const metadataKey = metadataKeyForExtractedField(field.field_key);
     const value = valueForMetadata(field);
 

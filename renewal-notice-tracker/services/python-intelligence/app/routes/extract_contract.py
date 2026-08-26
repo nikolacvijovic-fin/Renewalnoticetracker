@@ -5,6 +5,10 @@ from app.models import ExtractContractCitation, ExtractContractField, ExtractCon
 
 router = APIRouter()
 
+# Compatibility-only deterministic endpoint. Customer upload, OCR, evidence review,
+# and commercial analysis use the Next.js full-document provider-backed pipeline.
+# Do not reconnect this route as a source of contract truth.
+
 DATE_PATTERN = re.compile(r"\b(20\d{2}[-/]\d{2}[-/]\d{2}|\d{1,2}[/-]\d{1,2}[/-]20\d{2})\b")
 AMOUNT_PATTERN = re.compile(r"\b(USD|EUR|GBP|\$|€|£)\s?([0-9][0-9,]*(?:\.\d{2})?)\b", re.IGNORECASE)
 NOTICE_PATTERN = re.compile(r"(?P<days>\d{1,3})\s+days?\s+(?:prior|before|advance notice|notice)", re.IGNORECASE)
@@ -153,7 +157,10 @@ def extract_contract(request: ExtractContractRequest):
     add_amount(fields, request, text)
     add_payment_terms(fields, request, text)
 
-    warnings = ["deterministic_scaffold_no_ai_provider_called"]
+    warnings = [
+        "deterministic_scaffold_no_ai_provider_called",
+        "deprecated_not_runtime_extraction_source",
+    ]
     if not fields:
         warnings.append("no_supported_fields_detected")
     if any(not field.citations for field in fields):

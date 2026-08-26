@@ -17,8 +17,8 @@ import {
 import { createPrivilegedSupabaseClient } from "@/lib/supabase/privileged";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { extractTextFromFile } from "@/lib/extractors/file-text";
-import { extractContractMetadata } from "@/lib/ai/extract-contract";
-import { applyOcrReviewRequirements } from "@/lib/ocr/normalize-ocr-output";
+import { runFullDocumentContractExtraction } from "@/lib/contract-intelligence/python-extraction-runner";
+import { mapExtractionEvidenceToLegacyMetadata } from "@/lib/contract-intelligence/legacy-metadata-adapter";
 import { resolveDocumentTextForExtraction } from "@/lib/ocr/ingestion";
 import { enqueueOcrJob } from "@/lib/ocr/jobs";
 import { generateReminderRecommendations } from "@/lib/contracts/reminders";
@@ -921,14 +921,18 @@ export async function createContractAction(formData: FormData) {
     await transitionContractStatus(admin, contract.id, organizationId, "extracting_fields");
 
     try {
-      metadata = await extractContractMetadata(resolvedText.text);
-      if (resolvedText.source === "ocr") {
-        metadata = applyOcrReviewRequirements(metadata, {
-          provider: resolvedText.ocrProvider ?? "ocr",
-          averageConfidence: resolvedText.ocrConfidence,
-          reason: resolvedText.ocrDecision.reason
-        });
-      }
+      const extraction = await runFullDocumentContractExtraction({
+        organizationId,
+        contractId: contract.id,
+        contractFileId: contractFile.id,
+        requestedByUserId: user.id
+      });
+      if (!extraction.ok) throw new Error(extraction.safeMessage);
+      metadata = mapExtractionEvidenceToLegacyMetadata({
+        fields: extraction.fields,
+        fallbackTitle: String(contractTitle),
+        partial: extraction.run?.status === "partial"
+      });
       const assessedMetadata = preparePdfRenewalExtractionForReview(metadata, {
         extractionSource: resolvedText.source,
         ocrConfidence: resolvedText.ocrConfidence,
@@ -1089,7 +1093,8 @@ export async function createContractAction(formData: FormData) {
   await recalculateEvidenceReadiness({
     organizationId,
     contractId: contract.id,
-    actorUserId: user.id
+    actorUserId: user.id,
+    trigger: "contract_extraction_completed"
   }).catch(() => null);
 
   revalidatePath("/dashboard");
@@ -1401,7 +1406,8 @@ export async function createManualContractAction(formData: FormData) {
   await recalculateEvidenceReadiness({
     organizationId,
     contractId: contract.id,
-    actorUserId: user.id
+    actorUserId: user.id,
+    trigger: "contract_created"
   }).catch(() => null);
 
   revalidatePath("/dashboard");
@@ -1428,6 +1434,7 @@ export async function updateContractReviewAction(contractId: string, formData: F
       await requireScopedContract(contractId, organizationId);
     }
   });
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "review_contract" });
   const { user, organizationId } = context;
   const metadataId = await getScopedContractMetadataId(contractId, organizationId);
   const supabase = createServerSupabaseClient();
@@ -1440,6 +1447,13 @@ export async function updateContractReviewAction(contractId: string, formData: F
     .single();
 
   if (currentMetadataError) throw currentMetadataError;
+  const { data: currentContract, error: currentContractError } = await supabase
+    .from("contracts")
+    .select("owner_user_id, department")
+    .eq("id", contractId)
+    .eq("organization_id", organizationId)
+    .single();
+  if (currentContractError) throw currentContractError;
   const payload = reviewContractSchema.parse({
     contract_title: formData.get("contract_title"),
     counterparty_name: formData.get("counterparty_name"),
@@ -1567,7 +1581,11 @@ export async function updateContractReviewAction(contractId: string, formData: F
         ...reviewAssessment.dirtyFlags,
         contract_template_key: payload.contract_template_key ?? null,
         reviewed_at: new Date().toISOString(),
-        reviewed_by: user.id
+        reviewed_by: user.id,
+        deadline_verified_at: !payload.needs_review && finalNoticeDeadline ? new Date().toISOString() : null,
+        financial_terms_reviewed_at: !payload.needs_review && payload.contract_value_amount !== null && payload.contract_value_currency
+          ? new Date().toISOString()
+          : null
       })
       .eq("id", metadataId),
     supabase
@@ -1575,6 +1593,15 @@ export async function updateContractReviewAction(contractId: string, formData: F
       .update({
         owner_user_id: payload.owner_user_id ?? null,
         department: payload.department ?? null,
+        owner_confirmed_at: currentContract.owner_user_id !== (payload.owner_user_id ?? null) && payload.owner_user_id
+          ? new Date().toISOString()
+          : undefined,
+        owner_confirmed_by_user_id: currentContract.owner_user_id !== (payload.owner_user_id ?? null) && payload.owner_user_id
+          ? user.id
+          : undefined,
+        department_confirmed_at: currentContract.department !== (payload.department ?? null) && payload.department
+          ? new Date().toISOString()
+          : undefined,
         status_tag: payload.status_tag,
         counterparty_id: resolvedCounterpartyId,
         renewal_decision_status: payload.renewal_decision_status,
@@ -1737,7 +1764,8 @@ export async function updateContractReviewAction(contractId: string, formData: F
   await recalculateEvidenceReadiness({
     organizationId,
     contractId,
-    actorUserId: user.id
+    actorUserId: user.id,
+    trigger: "contract_reviewed"
   }).catch(() => null);
 
   revalidatePath(`/dashboard/contracts/${contractId}`);

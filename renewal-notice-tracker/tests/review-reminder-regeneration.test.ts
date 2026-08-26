@@ -8,6 +8,7 @@ const getTemplates = vi.fn();
 const getOrganizationMembers = vi.fn();
 const getBillingSnapshot = vi.fn();
 const getAllowedReminderRecipients = vi.fn();
+const enforceDesignPartnerBetaMutation = vi.fn();
 const createServerSupabaseClient = vi.fn();
 const createAdminSupabaseClient = vi.fn();
 const generateReminderRecommendations = vi.fn();
@@ -53,6 +54,13 @@ vi.mock("@/lib/billing/entitlements", async () => {
   };
 });
 
+vi.mock("@/lib/billing/design-partner-beta", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/billing/design-partner-beta")>(
+    "@/lib/billing/design-partner-beta"
+  );
+  return { ...actual, enforceDesignPartnerBetaMutation };
+});
+
 vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient
 }));
@@ -94,6 +102,7 @@ vi.mock("next/cache", () => ({
 describe("review reminder regeneration", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    enforceDesignPartnerBetaMutation.mockResolvedValue({ allowed: true, reason: "not_design_partner_beta" });
     insertedReminderBatches.length = 0;
     transitionedStatuses.length = 0;
     reminderUpdates.length = 0;
@@ -174,6 +183,16 @@ describe("review reminder regeneration", () => {
 
         if (table === "contracts") {
           return {
+            select: () => ({
+              eq: () => ({
+                eq: () => ({
+                  single: vi.fn().mockResolvedValue({
+                    data: { owner_user_id: null, department: null },
+                    error: null
+                  })
+                })
+              })
+            }),
             update: () => ({
               eq: () => ({
                 eq: vi.fn().mockResolvedValue({ error: null })

@@ -36,3 +36,13 @@ For the exact staging fixture contract, see [P0 E2E staging setup](../docs/P0_E2
 - the main P0 renewal workflow uses manual contract entry so the browser test proves contract creation, P0 review, reminder-backed state, and renewal decision without depending on OCR or extraction fixtures.
 - seeded release/staging accounts for required P0 runs should have manual contract entry available, at least one selectable owner, and permission to record renewal decisions.
 - CI can run the required P0 suite once a staging app URL plus seeded auth cookies and contract paths are supplied as secrets; without those inputs, required mode fails loudly instead of silently skipping release-critical coverage.
+# Full-document contract intelligence acceptance
+
+`npm run e2e:contract-intelligence:required` exercises a real staged upload and the configured OpenAI/OCR pipeline. It requires:
+
+- `E2E_BASE_URL` (or `NEXT_PUBLIC_APP_URL`)
+- `E2E_AUTH_COOKIE_NAME`
+- `E2E_AUTH_COOKIE_VALUE` for a review-capable user in an organization with upload capacity
+- `E2E_CONTRACT_INTELLIGENCE_PDF_PATH` pointing to a synthetic, multi-page SaaS contract fixture
+
+The staging application must have private storage, `OPENAI_API_KEY`, the configured extraction model, and OCR configuration when the fixture includes scanned pages. Required mode fails before Playwright when configuration or the local synthetic fixture is absent. Never use a customer contract as the fixture.

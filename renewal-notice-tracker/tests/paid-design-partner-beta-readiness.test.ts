@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import * as XLSX from "xlsx";
+import { PDFDocument } from "pdf-lib";
 import { describe, expect, it } from "vitest";
 import { evaluateDesignPartnerBetaMutation, type DesignPartnerBetaControl } from "@/lib/billing/design-partner-beta";
 import { buildStableSubscriptionUsageFindingIdentity, deriveVersionFamily } from "@/lib/subscription-usage/finding-identity";
@@ -24,6 +25,7 @@ const activeControl: DesignPartnerBetaControl = {
 function reportInput() {
   return {
     organizationId: "org-1",
+    organizationName: "Northstar Design Partner",
     periodStart: "2026-07-01",
     periodEnd: "2026-09-30",
     generatedAt: "2026-08-24T00:00:00.000Z",
@@ -35,7 +37,7 @@ function reportInput() {
       { id: "active-usd", findingType: "unused_seats", reviewStatus: "accepted", estimatedSavings: 100, realizedSavings: 80, currency: "USD", confidence: 0.9 },
       { id: "active-eur", findingType: "unused_seats", reviewStatus: "open", estimatedSavings: 50, realizedSavings: null, currency: "EUR", confidence: 0.8 },
       { id: "resolved", findingType: "unused_seats", reviewStatus: "accepted", estimatedSavings: 900, realizedSavings: 900, currency: "USD", confidence: 0.9, resolvedAt: "2026-08-20T00:00:00Z" },
-      { id: "rejected", findingType: "unused_seats", reviewStatus: "rejected", estimatedSavings: 700, realizedSavings: null, currency: "USD", confidence: 0.9 },
+      { id: "rejected", findingType: "unused_seats", reviewStatus: "rejected", estimatedSavings: 700, realizedSavings: null, currency: "USD", confidence: 0.9, feedbackClassification: "incorrect" },
       { id: "sample", findingType: "unused_seats", reviewStatus: "open", estimatedSavings: 500, realizedSavings: null, currency: "USD", confidence: 0.9, isSample: true }
     ],
     confirmedOutcomes: [
@@ -107,18 +109,36 @@ describe("paid design-partner beta readiness", () => {
     expect(evaluateDesignPartnerBetaMutation({ control: activeControl, action: "sync_provider", now: new Date("2026-10-02") })).toMatchObject({ allowed: false, reason: "beta_grace_read_only" });
     expect(evaluateDesignPartnerBetaMutation({ control: activeControl, action: "sync_provider", now: new Date("2026-10-08") })).toMatchObject({ allowed: false, reason: "beta_read_only" });
     expect(evaluateDesignPartnerBetaMutation({ control: activeControl, action: "sync_provider", now: new Date("2026-08-24") })).toMatchObject({ allowed: true });
+    expect(evaluateDesignPartnerBetaMutation({ control: activeControl, action: "invite_member", currentUserSeats: 5, now: new Date("2026-08-24") })).toMatchObject({ allowed: false, reason: "user_seat_limit_reached" });
+    for (const action of ["create_decision", "create_scenario", "create_task", "upload_quote", "approve_decision", "create_negotiation_draft", "confirm_outcome"] as const) {
+      expect(evaluateDesignPartnerBetaMutation({ control: { ...activeControl, status: "read_only" }, action, now: new Date("2026-08-24") })).toMatchObject({ allowed: false, reason: "beta_read_only" });
+    }
   });
 
-  it("builds currency-separated PDF/XLSX value evidence and excludes inactive findings", () => {
-    const input = reportInput();
+  it("builds currency-separated PDF/XLSX value evidence and excludes inactive findings", async () => {
+    const input = {
+      ...reportInput(),
+      upcomingActions: Array.from({ length: 8 }, (_, index) => ({
+        contractId: `contract-${index + 1}`,
+        title: `${index === 0 ? "=Formula Vendor" : "Renewal action"} with a deliberately bounded but descriptive executive label ${index + 1}`,
+        deadline: `2026-09-${String(index + 1).padStart(2, "0")}`
+      }))
+    };
     const summary = buildExecutiveValueSummary(input);
     expect(summary.estimatedSavingsByCurrency).toEqual({ USD: 100, EUR: 50 });
     expect(summary.realizedSavingsByCurrency).toEqual({ USD: 80 });
     expect(summary.recommendationsReviewed).toBe(1);
-    const pdf = buildExecutiveValuePdf(input).toString("utf8");
-    expect(pdf).toContain("%PDF-1.4");
-    expect(pdf).toContain("USD 100.00; EUR 50.00");
-    const workbook = XLSX.read(buildExecutiveValueWorkbook(input), { type: "buffer" });
+    const pdfBuffer = await buildExecutiveValuePdf(input);
+    const pdf = await PDFDocument.load(Uint8Array.from(pdfBuffer));
+    expect(pdf.getTitle()).toBe("NoticeControl Executive Value Summary");
+    expect(pdf.getSubject()).toContain("Northstar Design Partner");
+    expect(pdf.getPageCount()).toBeGreaterThanOrEqual(2);
+    for (const page of pdf.getPages()) {
+      expect(page.getWidth()).toBe(612);
+      expect(page.getHeight()).toBe(792);
+    }
+    expect(pdfBuffer.toString("utf8")).not.toMatch(/raw contract|ocr output|provider payload|private note/i);
+    const workbook = XLSX.read(buildExecutiveValueWorkbook(input), { type: "buffer", cellStyles: true, cellNF: true });
     expect(workbook.SheetNames).toEqual(expect.arrayContaining([
       "Executive Summary",
       "Estimated Savings",
@@ -126,13 +146,17 @@ describe("paid design-partner beta readiness", () => {
       "Provider Freshness",
       "Upcoming Actions",
       "Evidence Limitations",
-      "Active Evidence"
+      "Active Evidence",
+      "Historical Evidence",
+      "Confirmed Outcomes"
     ]));
     const evidence = XLSX.utils.sheet_to_json(workbook.Sheets["Active Evidence"]!);
     const upcoming = XLSX.utils.sheet_to_json<{ title: string }>(workbook.Sheets["Upcoming Actions"]!);
     expect(evidence).toHaveLength(2);
     expect(JSON.stringify(evidence)).not.toContain("resolved");
-    expect(upcoming[0]?.title).toBe("'=Formula Vendor");
+    expect(upcoming[0]?.title).toMatch(/^'=Formula Vendor/);
+    expect(workbook.Sheets["Upcoming Actions"]?.["!autofilter"]).toBeDefined();
+    expect(workbook.Sheets["Estimated Savings"]?.B2?.z).toContain("#,##0.00");
   });
 
   it("does not report accepted recommendation estimates as realized customer value", () => {

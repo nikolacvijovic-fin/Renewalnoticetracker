@@ -67,6 +67,19 @@ describe("role checks", () => {
     expect(canUseShippedRuntimeAction("owner", "request_deletion")).toBe(true);
   });
 
+  it("separates renewal evidence, mutation, approval, and financial authority", () => {
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.view_renewal_workspace.customerRoles).toEqual(["admin", "operator", "reviewer", "owner"]);
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.review_renewal_evidence.customerRoles).toContain("reviewer");
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.manage_renewal_decision.customerRoles).not.toContain("reviewer");
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.approve_renewal_decision.customerRoles).toEqual(["admin", "owner"]);
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.confirm_financial_outcome.customerRoles).toEqual(["admin", "owner"]);
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.manage_negotiation_drafts.customerRoles).not.toContain("reviewer");
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.upload_renewal_proposal.customerRoles).toEqual(["admin", "operator"]);
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.run_commercial_comparison.customerRoles).toContain("reviewer");
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.approve_negotiation_position.customerRoles).toEqual(["admin", "owner"]);
+    expect(SHIPPED_RUNTIME_ACTION_MATRIX.export_negotiation_pack.customerRoles).not.toContain("reviewer");
+  });
+
   it("classifies ICS as baseline while CSV/XLSX stay on the paid export path", () => {
     expect(SHIPPED_EXPORT_CLASSIFICATION.csv.baseline).toBe(false);
     expect(SHIPPED_EXPORT_CLASSIFICATION.xlsx.baseline).toBe(false);
