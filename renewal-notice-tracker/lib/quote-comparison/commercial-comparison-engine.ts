@@ -39,6 +39,7 @@ export type CommercialLineItemInput = {
 export type NormalizedCommercialLineItem = CommercialLineItemInput & {
   lineKey: string;
   currency: string;
+  oneTimeAmount: number;
   annualizedAmount: number;
   totalCommitmentAmount: number;
   warnings: string[];
@@ -82,7 +83,9 @@ export type CostBridgeComponent = {
     | "removed_product"
     | "removed_discount"
     | "new_fee"
+    | "one_time_charge_change"
     | "negotiated_credit";
+  costCategory: "recurring" | "one_time";
   lineKey: string;
   amount: number;
   explanation: string;
@@ -95,9 +98,19 @@ export type CostBridge = {
   currency: string | null;
   currentAnnualCost: number | null;
   proposedAnnualCost: number | null;
+  currentOneTimeCost: number | null;
+  proposedOneTimeCost: number | null;
+  currentCommitmentCost: number | null;
+  proposedCommitmentCost: number | null;
   components: CostBridgeComponent[];
   attributedDelta: number | null;
   residualAmount: number | null;
+  recurringDelta: number | null;
+  oneTimeDelta: number | null;
+  attributedRecurringDelta: number | null;
+  attributedOneTimeDelta: number | null;
+  residualRecurringAmount: number | null;
+  residualOneTimeAmount: number | null;
   explanation: string;
   limitations: string[];
 };
@@ -241,7 +254,8 @@ export function normalizeCommercialLineItem(
     0,
     gross - (input.discountAmount ?? 0) - (gross * (input.discountPercent ?? 0)) / 100
   );
-  const annualizedAmount = roundMoney(discounted * factor);
+  const oneTimeAmount = input.chargeType === "one_time" ? roundMoney(discounted) : 0;
+  const annualizedAmount = input.chargeType === "recurring" ? roundMoney(discounted * factor) : 0;
   const commitmentMonths = input.termMonths ?? 12;
   const totalCommitmentAmount = roundMoney(
     input.chargeType === "one_time" ? discounted : annualizedAmount * (commitmentMonths / 12)
@@ -253,6 +267,7 @@ export function normalizeCommercialLineItem(
     ...input,
     lineKey,
     currency,
+    oneTimeAmount,
     annualizedAmount,
     totalCommitmentAmount,
     warnings: []
@@ -267,11 +282,20 @@ export function normalizeCommercialTerms(
   const currencies = new Set(lineItems.map((item) => item.currency));
   if (input.currency) currencies.add(input.currency.trim().toUpperCase());
   if (currencies.size > 1) throw new Error("multi_currency_requires_reviewed_exchange_rate");
+  assertFiniteNonNegative(input.statedAnnualTotal, "stated_annual_total");
+  assertFiniteNonNegative(input.statedCommitmentTotal, "stated_commitment_total");
+  if (input.statedCommitmentTotal != null && (!input.renewalTermMonths || input.renewalTermMonths <= 0)) {
+    throw new Error("commitment_term_required_for_stated_commitment_total");
+  }
+  const calculatedAnnualTotal = roundMoney(lineItems.reduce((sum, item) => sum + item.annualizedAmount, 0));
+  const calculatedOneTimeTotal = roundMoney(lineItems.reduce((sum, item) => sum + item.oneTimeAmount, 0));
   return {
     ...input,
     currency: [...currencies][0] ?? null,
     lineItems,
-    calculatedAnnualTotal: roundMoney(lineItems.reduce((sum, item) => sum + item.annualizedAmount, 0)),
+    calculatedAnnualTotal,
+    calculatedOneTimeTotal,
+    calculatedFirstYearTotal: roundMoney(calculatedAnnualTotal + calculatedOneTimeTotal),
     calculatedCommitmentTotal: roundMoney(lineItems.reduce((sum, item) => sum + item.totalCommitmentAmount, 0))
   };
 }
@@ -302,7 +326,12 @@ function buildCostBridge(
   if (!current.currency || current.currency !== proposed.currency) {
     return {
       status: "insufficient_evidence", currency: null, currentAnnualCost: null, proposedAnnualCost: null,
+      currentOneTimeCost: null, proposedOneTimeCost: null,
+      currentCommitmentCost: null, proposedCommitmentCost: null,
       components: [], attributedDelta: null, residualAmount: null,
+      recurringDelta: null, oneTimeDelta: null,
+      attributedRecurringDelta: null, attributedOneTimeDelta: null,
+      residualRecurringAmount: null, residualOneTimeAmount: null,
       explanation: "The commercial terms cannot be compared without one reviewed currency.",
       limitations: ["multi_currency_requires_reviewed_exchange_rate"]
     };
@@ -315,28 +344,46 @@ function buildCostBridge(
     const before = currentByKey.get(lineKey);
     const after = proposedByKey.get(lineKey);
     if (!before && after) {
+      const oneTime = after.chargeType === "one_time";
       components.push({
-        type: after.chargeType === "one_time" ? "new_fee" : "new_product",
-        lineKey, amount: after.annualizedAmount,
-        explanation: `${after.productName} adds ${after.currency} ${after.annualizedAmount.toFixed(2)} annually.`,
+        type: oneTime ? "new_fee" : "new_product",
+        costCategory: oneTime ? "one_time" : "recurring",
+        lineKey, amount: oneTime ? after.oneTimeAmount : after.annualizedAmount,
+        explanation: oneTime
+          ? `${after.productName} adds a one-time ${after.currency} ${after.oneTimeAmount.toFixed(2)} charge.`
+          : `${after.productName} adds ${after.currency} ${after.annualizedAmount.toFixed(2)} annually.`,
         currentEvidenceIds: [], proposedEvidenceIds: evidenceIds(after.evidence)
       });
       continue;
     }
     if (before && !after) {
+      const oneTime = before.chargeType === "one_time";
       components.push({
-        type: "removed_product", lineKey, amount: -before.annualizedAmount,
-        explanation: `${before.productName} removes ${before.currency} ${before.annualizedAmount.toFixed(2)} annually.`,
+        type: oneTime ? "one_time_charge_change" : "removed_product",
+        costCategory: oneTime ? "one_time" : "recurring",
+        lineKey, amount: -(oneTime ? before.oneTimeAmount : before.annualizedAmount),
+        explanation: oneTime
+          ? `${before.productName} removes a one-time ${before.currency} ${before.oneTimeAmount.toFixed(2)} charge.`
+          : `${before.productName} removes ${before.currency} ${before.annualizedAmount.toFixed(2)} annually.`,
         currentEvidenceIds: acceptedEvidenceIds(before.evidence), proposedEvidenceIds: []
       });
       continue;
     }
     if (!before || !after) continue;
+    if (before.chargeType === "one_time" || after.chargeType === "one_time") {
+      const amount = roundMoney(after.oneTimeAmount - before.oneTimeAmount);
+      if (amount) components.push({
+        type: "one_time_charge_change", costCategory: "one_time", lineKey, amount,
+        explanation: `${after.productName} changes one-time cost by ${after.currency} ${amount.toFixed(2)}.`,
+        currentEvidenceIds: acceptedEvidenceIds(before.evidence), proposedEvidenceIds: evidenceIds(after.evidence)
+      });
+      continue;
+    }
     const factor = annualFactor(after);
     if (before.unitPrice != null && after.unitPrice != null && before.quantity != null) {
       const rate = roundMoney((after.unitPrice - before.unitPrice) * before.quantity * factor);
       if (rate) components.push({
-        type: "unit_price_change", lineKey, amount: rate,
+        type: "unit_price_change", costCategory: "recurring", lineKey, amount: rate,
         explanation: `${after.productName} unit pricing changes annual cost by ${after.currency} ${rate.toFixed(2)}.`,
         currentEvidenceIds: acceptedEvidenceIds(before.evidence), proposedEvidenceIds: evidenceIds(after.evidence)
       });
@@ -344,7 +391,7 @@ function buildCostBridge(
     if (before.quantity != null && after.quantity != null && after.unitPrice != null) {
       const quantity = roundMoney((after.quantity - before.quantity) * after.unitPrice * factor);
       if (quantity) components.push({
-        type: "quantity_change", lineKey, amount: quantity,
+        type: "quantity_change", costCategory: "recurring", lineKey, amount: quantity,
         explanation: `${after.productName} quantity changes annual cost by ${after.currency} ${quantity.toFixed(2)}.`,
         currentEvidenceIds: acceptedEvidenceIds(before.evidence), proposedEvidenceIds: evidenceIds(after.evidence)
       });
@@ -353,23 +400,41 @@ function buildCostBridge(
 
   const currentAnnualCost = current.statedAnnualTotal ?? current.calculatedAnnualTotal;
   const proposedAnnualCost = proposed.statedAnnualTotal ?? proposed.calculatedAnnualTotal;
-  const expectedDelta = roundMoney(proposedAnnualCost - currentAnnualCost);
-  let attributedDelta = roundMoney(components.reduce((sum, component) => sum + component.amount, 0));
-  let residualAmount = roundMoney(expectedDelta - attributedDelta);
+  const currentOneTimeCost = current.calculatedOneTimeTotal;
+  const proposedOneTimeCost = proposed.calculatedOneTimeTotal;
+  const currentCommitmentCost = current.statedCommitmentTotal ?? current.calculatedCommitmentTotal;
+  const proposedCommitmentCost = proposed.statedCommitmentTotal ?? proposed.calculatedCommitmentTotal;
+  const recurringDelta = roundMoney(proposedAnnualCost - currentAnnualCost);
+  const oneTimeDelta = roundMoney(proposedOneTimeCost - currentOneTimeCost);
+  let attributedRecurringDelta = roundMoney(components
+    .filter((component) => component.costCategory === "recurring")
+    .reduce((sum, component) => sum + component.amount, 0));
+  const attributedOneTimeDelta = roundMoney(components
+    .filter((component) => component.costCategory === "one_time")
+    .reduce((sum, component) => sum + component.amount, 0));
+  let residualRecurringAmount = roundMoney(recurringDelta - attributedRecurringDelta);
+  const residualOneTimeAmount = roundMoney(oneTimeDelta - attributedOneTimeDelta);
   const currentDiscount = current.lineItems.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0);
   const proposedDiscount = proposed.lineItems.reduce((sum, item) => sum + (item.discountAmount ?? 0), 0);
-  if (residualAmount > 0 && currentDiscount > proposedDiscount) {
+  if (residualRecurringAmount > 0 && currentDiscount > proposedDiscount) {
     components.push({
-      type: "removed_discount", lineKey: "commercial-total", amount: residualAmount,
-      explanation: `Removed or reduced discounts add ${current.currency} ${residualAmount.toFixed(2)} annually.`,
+      type: "removed_discount", costCategory: "recurring", lineKey: "commercial-total", amount: residualRecurringAmount,
+      explanation: `Removed or reduced discounts add ${current.currency} ${residualRecurringAmount.toFixed(2)} annually.`,
       currentEvidenceIds: current.lineItems.flatMap((item) => acceptedEvidenceIds(item.evidence)),
       proposedEvidenceIds: proposed.lineItems.flatMap((item) => evidenceIds(item.evidence))
     });
-    attributedDelta = roundMoney(attributedDelta + residualAmount);
-    residualAmount = 0;
+    attributedRecurringDelta = roundMoney(attributedRecurringDelta + residualRecurringAmount);
+    residualRecurringAmount = 0;
   }
-  const reconciled = Math.abs(residualAmount) <= 0.01;
-  const positive = expectedDelta >= 0 ? "higher" : "lower";
+  const attributedDelta = roundMoney(attributedRecurringDelta + attributedOneTimeDelta);
+  const residualAmount = roundMoney(residualRecurringAmount + residualOneTimeAmount);
+  const commitmentResidual = roundMoney(
+    proposedCommitmentCost - currentCommitmentCost -
+    (proposed.calculatedCommitmentTotal - current.calculatedCommitmentTotal)
+  );
+  const reconciled = Math.abs(residualRecurringAmount) <= 0.01 &&
+    Math.abs(residualOneTimeAmount) <= 0.01 && Math.abs(commitmentResidual) <= 0.01;
+  const positive = recurringDelta >= 0 ? "higher" : "lower";
   const drivers = components
     .filter((item) => Math.abs(item.amount) > 0.01)
     .map((item) => `${current.currency} ${Math.abs(item.amount).toFixed(2)} from ${item.type.replaceAll("_", " ")}`)
@@ -379,11 +444,25 @@ function buildCostBridge(
     currency: current.currency,
     currentAnnualCost,
     proposedAnnualCost,
+    currentOneTimeCost,
+    proposedOneTimeCost,
+    currentCommitmentCost,
+    proposedCommitmentCost,
     components,
     attributedDelta,
     residualAmount,
-    explanation: `The proposal is ${current.currency} ${Math.abs(expectedDelta).toFixed(2)} ${positive} annually${drivers ? `. The bridge attributes ${drivers}.` : "."}`,
-    limitations: reconciled ? [] : ["quote_total_not_fully_reconciled"]
+    recurringDelta,
+    oneTimeDelta,
+    attributedRecurringDelta,
+    attributedOneTimeDelta,
+    residualRecurringAmount,
+    residualOneTimeAmount,
+    explanation: `The proposal recurring cost is ${current.currency} ${Math.abs(recurringDelta).toFixed(2)} ${positive} annually and one-time cost changes by ${current.currency} ${oneTimeDelta.toFixed(2)}${drivers ? `. The bridge attributes ${drivers}.` : "."}`,
+    limitations: reconciled ? [] : [
+      ...(Math.abs(residualRecurringAmount) > 0.01 || Math.abs(residualOneTimeAmount) > 0.01
+        ? ["quote_total_not_fully_reconciled"] : []),
+      ...(Math.abs(commitmentResidual) > 0.01 ? ["stated_commitment_total_not_reconciled"] : [])
+    ]
   };
 }
 
@@ -441,7 +520,14 @@ function detectFindings(
       findings.push(finding({ findingType: component.type, reasonCode: component.type === "new_fee" ? "new_fee_added" : "new_product_added", severity: "medium", confidence: 1,
         title: component.type === "new_fee" ? "New fee added" : "New product added", description: component.explanation,
         currentValue: null, proposedValue: component.lineKey, absoluteDelta: component.amount, percentageDelta: null,
-        annualizedImpact: component.amount, totalCommitmentImpact: component.amount,
+        annualizedImpact: component.costCategory === "recurring" ? component.amount : null,
+        totalCommitmentImpact: component.costCategory === "one_time" ? component.amount : null,
+        currentEvidenceIds: component.currentEvidenceIds, proposedEvidenceIds: component.proposedEvidenceIds, limitations: [] }));
+    } else if (component.type === "one_time_charge_change" && component.amount > 0) {
+      findings.push(finding({ findingType: "one_time_charge_increase", reasonCode: "one_time_charge_increased", severity: "medium", confidence: 1,
+        title: "One-time charges increased", description: component.explanation,
+        currentValue: null, proposedValue: component.lineKey, absoluteDelta: component.amount, percentageDelta: null,
+        annualizedImpact: null, totalCommitmentImpact: component.amount,
         currentEvidenceIds: component.currentEvidenceIds, proposedEvidenceIds: component.proposedEvidenceIds, limitations: [] }));
     }
   }
@@ -507,23 +593,56 @@ function buildScenarios(input: {
   opportunities: NegotiationOpportunity[];
   fingerprint: string;
 }) {
-  const current = input.current.statedAnnualTotal ?? input.current.calculatedAnnualTotal;
-  const proposed = input.proposed.statedAnnualTotal ?? input.proposed.calculatedAnnualTotal;
+  const currentRecurring = input.current.statedAnnualTotal ?? input.current.calculatedAnnualTotal;
+  const proposedRecurring = input.proposed.statedAnnualTotal ?? input.proposed.calculatedAnnualTotal;
+  const currentOneTime = input.current.calculatedOneTimeTotal;
+  const proposedOneTime = input.proposed.calculatedOneTimeTotal;
   const commitmentYears = Math.max(1, (input.proposed.renewalTermMonths ?? 12) / 12);
   const usageLow = input.opportunities.reduce((sum, item) => sum + (item.lowSavingsAmount ?? 0), 0);
   const usageHigh = input.opportunities.reduce((sum, item) => sum + (item.highSavingsAmount ?? 0), 0);
-  const make = (type: CommercialScenario["type"], annualCost: number | null, low: number | null, high: number | null, risks: string[]): CommercialScenario => ({
-    type, annualCost, firstYearEffect: annualCost == null ? null : roundMoney(annualCost - current),
-    multiYearCommitment: annualCost == null ? null : roundMoney(annualCost * commitmentYears), transitionCost: 0,
-    estimatedSavingsLow: low, estimatedSavingsHigh: high, majorRisks: risks,
+  const currentFirstYearCost = roundMoney(currentRecurring + currentOneTime);
+  const make = (inputScenario: {
+    type: CommercialScenario["type"];
+    annualCost: number | null;
+    transitionCost: number;
+    low: number | null;
+    high: number | null;
+    risks: string[];
+    statedCommitmentTotal?: number | null;
+  }): CommercialScenario => ({
+    type: inputScenario.type,
+    annualCost: inputScenario.annualCost,
+    firstYearEffect: inputScenario.annualCost == null
+      ? null
+      : roundMoney(inputScenario.annualCost + inputScenario.transitionCost - currentFirstYearCost),
+    multiYearCommitment: inputScenario.statedCommitmentTotal ?? (inputScenario.annualCost == null
+      ? null
+      : roundMoney(inputScenario.annualCost * commitmentYears + inputScenario.transitionCost)),
+    transitionCost: inputScenario.transitionCost,
+    estimatedSavingsLow: inputScenario.low, estimatedSavingsHigh: inputScenario.high, majorRisks: inputScenario.risks,
     evidenceFingerprint: input.fingerprint, status: "draft"
   });
+  const proposalFirstYearCost = roundMoney(proposedRecurring + proposedOneTime);
+  const currentFirstYearRenewalCost = roundMoney(currentRecurring + currentOneTime);
   return [
-    make("accept_proposal", proposed, 0, 0, ["Accepts all proposed commercial and contractual changes."]),
-    make("renew_unchanged", current, Math.max(0, proposed - current), Math.max(0, proposed - current), ["Requires vendor acceptance of current economics."]),
-    make("renegotiate_price", current, Math.max(0, proposed - current) * 0.5, Math.max(0, proposed - current), ["Savings remain estimated until vendor agreement is reviewed."]),
-    make("reduce_quantity", roundMoney(Math.max(0, proposed - usageHigh)), usageLow, usageHigh, ["Depends on trusted usage and vendor quantity flexibility."]),
-    make("terminate", 0, proposed, proposed, ["Transition, replacement, and termination costs are not included without reviewed evidence."])
+    make({ type: "accept_proposal", annualCost: proposedRecurring, transitionCost: proposedOneTime,
+      statedCommitmentTotal: input.proposed.statedCommitmentTotal, low: 0, high: 0,
+      risks: ["Accepts all proposed commercial and contractual changes."] }),
+    make({ type: "renew_unchanged", annualCost: currentRecurring, transitionCost: currentOneTime,
+      low: Math.max(0, proposalFirstYearCost - currentFirstYearRenewalCost),
+      high: Math.max(0, proposalFirstYearCost - currentFirstYearRenewalCost),
+      risks: ["Requires vendor acceptance of current economics."] }),
+    make({ type: "renegotiate_price", annualCost: currentRecurring, transitionCost: proposedOneTime,
+      low: Math.max(0, proposedRecurring - currentRecurring) * 0.5,
+      high: Math.max(0, proposedRecurring - currentRecurring),
+      risks: ["Savings remain estimated until vendor agreement is reviewed."] }),
+    make({ type: "reduce_quantity", annualCost: roundMoney(Math.max(0, proposedRecurring - usageHigh)), transitionCost: proposedOneTime,
+      low: usageLow, high: usageHigh, risks: ["Depends on trusted usage and vendor quantity flexibility."] }),
+    make({ type: "terminate", annualCost: 0, transitionCost: input.current.terminationCharge ?? 0,
+      low: proposalFirstYearCost, high: proposalFirstYearCost,
+      risks: input.current.terminationCharge == null
+        ? ["Transition, replacement, and termination costs are not included without reviewed evidence."]
+        : ["Reviewed termination charges are included; replacement costs still require evidence."] })
   ];
 }
 
@@ -567,7 +686,11 @@ export function compareCommercialTerms(input: {
   } catch (error) {
     const code = error instanceof Error ? error.message : "commercial_comparison_failed";
     const bridge: CostBridge = { status: "insufficient_evidence", currency: null, currentAnnualCost: null,
-      proposedAnnualCost: null, components: [], attributedDelta: null, residualAmount: null,
+      proposedAnnualCost: null, currentOneTimeCost: null, proposedOneTimeCost: null,
+      currentCommitmentCost: null, proposedCommitmentCost: null,
+      components: [], attributedDelta: null, residualAmount: null,
+      recurringDelta: null, oneTimeDelta: null, attributedRecurringDelta: null, attributedOneTimeDelta: null,
+      residualRecurringAmount: null, residualOneTimeAmount: null,
       explanation: "The commercial terms cannot be compared safely with the available reviewed evidence.", limitations: [code] };
     return { status: "insufficient_evidence", baseline: [], proposal: [], costBridge: bridge, findings: [], opportunities: [],
       scenarios: [], evidenceFingerprint: stableFingerprint({ limitation: code }), warnings: [code] };

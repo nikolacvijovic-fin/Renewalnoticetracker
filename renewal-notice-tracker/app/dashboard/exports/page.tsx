@@ -109,6 +109,18 @@ export default async function CustomerExportCenterPage() {
             <p className="mt-3 text-xs text-slate-500">
               {option.formats.map((format) => `${FORMAT_LABELS[format]}: ${formatDescription(format)}`).join(" / ")}
             </p>
+            {option.formatNotes ? (
+              <ul className="mt-2 space-y-1 text-xs text-slate-500">
+                {option.formats.map((format) =>
+                  option.formatNotes?.[format] ? (
+                    <li key={format}>
+                      <span className="font-medium text-slate-700">{FORMAT_LABELS[format]}:</span>{" "}
+                      {option.formatNotes[format]}
+                    </li>
+                  ) : null
+                )}
+              </ul>
+            ) : null}
           </article>
         ))}
       </div>

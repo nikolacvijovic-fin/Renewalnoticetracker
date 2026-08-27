@@ -53,6 +53,7 @@ jobs:
       - name: Build production application
         run: npm run build
         env:
+          NOTICECONTROL_CONFIG_VALIDATION_MODE: ci_build
           NEXT_PUBLIC_APP_URL: https://ci.noticecontrol.invalid
           NEXT_PUBLIC_SUPABASE_URL: https://ci-supabase.noticecontrol.invalid
           NEXT_PUBLIC_SUPABASE_ANON_KEY: not-a-secret-ci-anon-placeholder-000000000000

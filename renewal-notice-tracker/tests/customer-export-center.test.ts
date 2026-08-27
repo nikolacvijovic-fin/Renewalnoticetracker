@@ -84,6 +84,12 @@ describe("customer export center", () => {
     expect(saasOption?.availabilityNote).toMatch(/Spreadsheet and JSON SaaS opt-out datasets are intentionally deferred/i);
     expect(riskOption?.availability).toBe("partial");
     expect(bundleOption?.availability).toBe("partial");
+    expect(bundleOption?.formatNotes).toMatchObject({
+      xlsx: expect.stringMatching(/complete renewal-control workbook/i),
+      json: expect.stringMatching(/complete renewal-control JSON bundle/i),
+      pdf: expect.stringMatching(/leadership summary only/i),
+      ics: expect.stringMatching(/calendar only/i)
+    });
   });
 
   it("routes multi-dataset workbook links to the customer export workbook route", () => {

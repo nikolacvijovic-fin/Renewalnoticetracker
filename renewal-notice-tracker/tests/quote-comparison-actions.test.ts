@@ -15,7 +15,10 @@ const persisted = vi.hoisted(() => ({
   runPersistedCommercialComparison: vi.fn()
 }));
 const proposalRepository = vi.hoisted(() => ({
+  failAdminRenewalProposalUpload: vi.fn(),
+  getAdminReadyCommercialProposal: vi.fn(),
   getLatestAdminCommercialBaseline: vi.fn(),
+  markAdminRenewalProposalUploadReady: vi.fn(),
   uploadAdminRenewalProposalFile: vi.fn()
 }));
 const proposalIngestion = vi.hoisted(() => ({
@@ -78,9 +81,12 @@ describe("quote comparison actions", () => {
     persisted.runPersistedCommercialComparison.mockResolvedValue({ comparisonId: "comparison-1" });
     proposalRepository.getLatestAdminCommercialBaseline.mockResolvedValue({ data: { id: "baseline-1" }, error: null });
     proposalRepository.uploadAdminRenewalProposalFile.mockResolvedValue({
-      data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10 },
+      data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: false },
       error: null
     });
+    proposalRepository.markAdminRenewalProposalUploadReady.mockResolvedValue({ data: { id: "quote-file-1" }, error: null });
+    proposalRepository.failAdminRenewalProposalUpload.mockResolvedValue({ cleaned: true, error: null });
+    proposalRepository.getAdminReadyCommercialProposal.mockResolvedValue({ data: null, error: null });
     proposalIngestion.parseCommercialProposalSpreadsheet.mockReturnValue({
       documentType: "renewal_quote",
       terms: { lineItems: [{ lineKey: "sku", productName: "Seats", chargeType: "recurring", pricingModel: "per_unit", billingPeriod: "annual", quantity: 10, unitPrice: 100, totalAmount: 1000, currency: "EUR", evidence: [] }], currency: "EUR", evidence: [] },
@@ -149,10 +155,77 @@ describe("quote comparison actions", () => {
     queries.requireScopedContract.mockRejectedValueOnce(new Error("not_found"));
     const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
     const formData = new FormData();
-    formData.set("proposal_file", new File(["xlsx-bytes"], "renewal.xlsx", {
+    const file = new File(["xlsx-bytes"], "renewal.xlsx", {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    }));
+    });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+    formData.set("proposal_file", file);
     await expect(uploadAndRunCommercialProposalFormAction("foreign-contract", formData)).rejects.toThrow("not_found");
     expect(proposalRepository.uploadAdminRenewalProposalFile).not.toHaveBeenCalled();
+  });
+
+  it("cleans up a stored proposal when extraction fails", async () => {
+    proposalIngestion.parseCommercialProposalSpreadsheet.mockImplementationOnce(() => {
+      throw new Error("SENSITIVE_PROVIDER_PAYLOAD");
+    });
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const formData = new FormData();
+    const file = new File(["xlsx-bytes"], "renewal.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+    formData.set("proposal_file", file);
+
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", formData))
+      .rejects.toThrow("Proposal extraction could not complete safely");
+    expect(proposalRepository.failAdminRenewalProposalUpload).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      contractId: "contract-1",
+      quoteFileId: "quote-file-1",
+      failureCode: "proposal_extraction_failed"
+    });
+  });
+
+  it("marks a proposal failed when atomic comparison persistence fails", async () => {
+    persisted.runPersistedCommercialComparison.mockRejectedValueOnce(new Error("SENSITIVE_DATABASE_ERROR"));
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const formData = new FormData();
+    const file = new File(["xlsx-bytes"], "renewal.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+    formData.set("proposal_file", file);
+
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", formData))
+      .rejects.toThrow("Proposal comparison could not complete safely");
+    expect(proposalRepository.failAdminRenewalProposalUpload).toHaveBeenCalledWith(expect.objectContaining({
+      failureCode: "proposal_comparison_failed"
+    }));
+    expect(proposalRepository.markAdminRenewalProposalUploadReady).not.toHaveBeenCalled();
+  });
+
+  it("reuses a ready proposal without repeating extraction", async () => {
+    proposalRepository.uploadAdminRenewalProposalFile.mockResolvedValueOnce({
+      data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "ready", idempotentReplay: true },
+      error: null
+    });
+    proposalRepository.getAdminReadyCommercialProposal.mockResolvedValueOnce({
+      data: { document_type: "renewal_quote", terms_snapshot: { lineItems: [], currency: "EUR", evidence: [] } },
+      error: null
+    });
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const formData = new FormData();
+    const file = new File(["xlsx-bytes"], "renewal.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+    formData.set("proposal_file", file);
+
+    await uploadAndRunCommercialProposalFormAction("contract-1", formData);
+    expect(proposalIngestion.parseCommercialProposalSpreadsheet).not.toHaveBeenCalled();
+    expect(persisted.runPersistedCommercialComparison).toHaveBeenCalledWith(expect.objectContaining({
+      quoteFileId: "quote-file-1",
+      proposalDocumentType: "renewal_quote"
+    }));
   });
 });

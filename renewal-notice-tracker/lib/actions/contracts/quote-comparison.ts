@@ -18,7 +18,7 @@ import { listContractDocumentRelationships, listContractExtractedFields } from "
 import { buildCommercialBaselineFromReviewedEvidence } from "@/lib/quote-comparison/commercial-baseline";
 import { createImmutableCommercialBaseline } from "@/lib/quote-comparison/commercial-baseline-service";
 import { runPersistedCommercialComparison } from "@/lib/quote-comparison/persisted-commercial-comparison";
-import { MAX_CONTRACT_FILE_BYTES, parseContractDocument } from "@/lib/contract-intelligence/document-parser";
+import { MAX_CONTRACT_FILE_BYTES } from "@/lib/contract-intelligence/document-parser";
 import { extractFullCommercialDocument } from "@/lib/contract-intelligence/full-document-extractor";
 import { OpenAiCommercialExtractionProvider } from "@/lib/contract-intelligence/openai-commercial-extractor";
 import {
@@ -27,9 +27,14 @@ import {
   proposalTermsFromCommercialCandidates
 } from "@/lib/quote-comparison/proposal-ingestion";
 import {
+  failAdminRenewalProposalUpload,
+  getAdminReadyCommercialProposal,
   getLatestAdminCommercialBaseline,
+  markAdminRenewalProposalUploadReady,
   uploadAdminRenewalProposalFile
 } from "@/lib/quote-comparison/repositories/admin-quote-comparison-repository";
+import { prepareCommercialProposalDocument } from "@/lib/quote-comparison/proposal-document-preparation";
+import type { CommercialTermsInput } from "@/lib/quote-comparison/commercial-comparison-engine";
 
 function contractPath(contractId: string) {
   return `/dashboard/contracts/${contractId}`;
@@ -70,8 +75,14 @@ export async function createQuoteComparisonAction(contractId: string, quoteFileI
   await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "upload_quote" });
   const contract = await getContractById(contractId, context.organizationId);
   await requireScopedContract(contractId, context.organizationId);
-  if (quoteFileId && !contract.contract_files?.some((file) => file.id === quoteFileId)) {
-    throw new Error("Proposal file was not found for this contract and organization.");
+  if (quoteFileId) {
+    const quoteFile = contract.contract_files?.find((file) => file.id === quoteFileId);
+    if (!quoteFile) {
+      throw new Error("Proposal file was not found for this contract and organization.");
+    }
+    if (quoteFile.extraction_source === "commercial_proposal" && quoteFile.proposal_upload_status !== "ready") {
+      throw new Error("Commercial proposal evidence is not ready for use.");
+    }
   }
 
   const comparison = await createRenewalQuoteComparison({
@@ -248,37 +259,107 @@ export async function uploadAndRunCommercialProposalFormAction(contractId: strin
   });
   if (stored.error || !stored.data) throw new Error("The proposal file could not be stored safely.");
 
+  if (stored.data.proposal_upload_status === "ready") {
+    const existing = await getAdminReadyCommercialProposal({
+      organizationId: context.organizationId,
+      contractId,
+      quoteFileId: stored.data.id
+    });
+    if (existing.error || !existing.data) {
+      throw new Error("The completed proposal evidence could not be loaded safely.");
+    }
+    const replay = await runPersistedCommercialComparison({
+      organizationId: context.organizationId,
+      contractId,
+      actorUserId: context.user.id,
+      proposalTerms: existing.data.terms_snapshot as CommercialTermsInput,
+      proposalDocumentType: existing.data.document_type as Parameters<typeof runPersistedCommercialComparison>[0]["proposalDocumentType"],
+      quoteFileId: stored.data.id,
+      actionDeadline: null
+    });
+    revalidatePath(contractPath(contractId));
+    return replay;
+  }
+
   const extractionRunLabel = randomUUID();
   let ingestion: ReturnType<typeof parseCommercialProposalSpreadsheet>;
   try {
-    ingestion = file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      ? parseCommercialProposalSpreadsheet({
-          fileId: stored.data.id, buffer, fileName: file.name, extractionRunId: extractionRunLabel
-        })
-      : proposalTermsFromCommercialCandidates({
+    if (file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+      ingestion = parseCommercialProposalSpreadsheet({
+        fileId: stored.data.id, buffer, fileName: file.name, extractionRunId: extractionRunLabel
+      });
+    } else {
+      const prepared = await prepareCommercialProposalDocument({
+        fileId: stored.data.id,
+        fileName: file.name,
+        mimeType: file.type,
+        buffer
+      });
+      const extraction = await extractFullCommercialDocument({
+        document: prepared.document,
+        provider: new OpenAiCommercialExtractionProvider()
+      });
+      const proposedTerms = proposalTermsFromCommercialCandidates({
           fileId: stored.data.id,
           extractionRunLabel,
           fileName: file.name,
-          fields: (await extractFullCommercialDocument({
-            document: await parseContractDocument({ fileId: stored.data.id, buffer, mimeType: file.type }),
-            provider: new OpenAiCommercialExtractionProvider()
-          })).fields
-        });
+          fields: extraction.fields
+      });
+      ingestion = {
+        ...proposedTerms,
+        warnings: Array.from(new Set([
+          ...proposedTerms.warnings,
+          ...prepared.document.warnings,
+          ...extraction.warnings,
+          ...(prepared.requiresReview ? ["ocr_review_required"] : [])
+        ])),
+        requiresReview: true
+      };
+    }
   } catch {
+    await failAdminRenewalProposalUpload({
+      organizationId: context.organizationId,
+      contractId,
+      quoteFileId: stored.data.id,
+      failureCode: "proposal_extraction_failed"
+    }).catch(() => null);
     throw new Error("Proposal extraction could not complete safely. Review the file and retry.");
   }
   if (ingestion.terms.lineItems.length === 0) {
+    await failAdminRenewalProposalUpload({
+      organizationId: context.organizationId,
+      contractId,
+      quoteFileId: stored.data.id,
+      failureCode: "proposal_no_comparable_terms"
+    }).catch(() => null);
     throw new Error("The proposal needs manual review because no comparable commercial line was extracted.");
   }
-  const comparison = await runPersistedCommercialComparison({
+  let comparison: Awaited<ReturnType<typeof runPersistedCommercialComparison>>;
+  try {
+    comparison = await runPersistedCommercialComparison({
+      organizationId: context.organizationId,
+      contractId,
+      actorUserId: context.user.id,
+      proposalTerms: ingestion.terms,
+      proposalDocumentType: ingestion.documentType,
+      quoteFileId: stored.data.id,
+      actionDeadline: null
+    });
+  } catch {
+    await failAdminRenewalProposalUpload({
+      organizationId: context.organizationId,
+      contractId,
+      quoteFileId: stored.data.id,
+      failureCode: "proposal_comparison_failed"
+    }).catch(() => null);
+    throw new Error("Proposal comparison could not complete safely. Review the file and retry.");
+  }
+  const ready = await markAdminRenewalProposalUploadReady({
     organizationId: context.organizationId,
     contractId,
-    actorUserId: context.user.id,
-    proposalTerms: ingestion.terms,
-    proposalDocumentType: ingestion.documentType,
-    quoteFileId: stored.data.id,
-    actionDeadline: null
+    quoteFileId: stored.data.id
   });
+  if (ready.error) throw new Error("Proposal comparison completed, but the upload could not be finalized safely.");
   revalidatePath(contractPath(contractId));
   return comparison;
 }

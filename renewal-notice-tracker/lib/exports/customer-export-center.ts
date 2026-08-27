@@ -26,6 +26,7 @@ export type CustomerExportOption = {
   availability: "available" | "partial";
   availabilityNote?: string;
   formats: CustomerExportFormat[];
+  formatNotes?: Partial<Record<CustomerExportFormat, string>>;
   requiresAdminOrOperator: boolean;
   hrefs: Partial<Record<CustomerExportFormat, string>>;
 };
@@ -144,6 +145,12 @@ export const CUSTOMER_EXPORT_CENTER_OPTIONS: CustomerExportOption[] = [
     availability: "partial",
     availabilityNote: "The bundle is complete for renewal-control datasets. SaaS opt-out spreadsheet/JSON packaging remains deferred; use the dedicated calendar export for opt-out dates.",
     formats: ["xlsx", "pdf", "json", "ics"],
+    formatNotes: {
+      xlsx: "Complete renewal-control workbook with dataset notes.",
+      json: "Complete renewal-control JSON bundle.",
+      pdf: "Leadership summary only: headline counts and up to eight urgent rows, not the full dataset bundle.",
+      ics: "Trusted upcoming deadline calendar only, not the full dataset bundle."
+    },
     requiresAdminOrOperator: true,
     hrefs: {
       xlsx: "/dashboard/exports/customer-data.xlsx",

@@ -183,7 +183,7 @@ export function parseCommercialProposalSpreadsheet(input: {
     const evidence: CommercialEvidenceReference[] = [product, currency, sku, quantity, unitPrice, total]
       .filter((item) => item.cell)
       .map((item) => ({
-        evidenceId: `${input.fileId}:${item.cell}`,
+        evidenceId: evidenceUuid(`${input.fileId}:${item.cell}`),
         sourceFileId: input.fileId,
         extractionRunId: input.extractionRunId,
         state: "proposed",
