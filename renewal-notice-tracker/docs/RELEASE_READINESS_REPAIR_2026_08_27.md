@@ -56,7 +56,7 @@ Local results on Windows:
 - Immediate `npm audit` and `npm audit --omit=dev` runs both reported zero vulnerabilities. This conflicts with the clean-install summary and must be rechecked in the Linux workflow before release.
 - `npm run lint`: passed with no warnings or errors.
 - `npm run typecheck`: passed.
-- `npm test`: 298 files and 1,564 tests passed.
+- `npm test`: 298 files and 1,574 tests passed.
 - `npm run test:scope-freeze`: 44 files and 256 tests passed.
 - `npm run test:deployment-readiness`: 4 files and 44 tests passed.
 - `npm run test:release-critical`: passed.

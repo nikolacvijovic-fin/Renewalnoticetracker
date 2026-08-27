@@ -181,7 +181,6 @@ export async function createAndRunQuoteComparisonFormAction(contractId: string, 
           label: "User-entered proposal evidence"
         }]
       }],
-      statedAnnualTotal: totalAmount,
       currency,
       paymentTerms: formString(formData, "payment_terms"),
       renewalTermMonths: formNumber(formData, "term_months"),
@@ -281,6 +280,10 @@ export async function uploadAndRunCommercialProposalFormAction(contractId: strin
     return replay;
   }
 
+  if (stored.data.proposal_upload_status === "pending" && stored.data.idempotentReplay) {
+    throw new Error("This proposal is already being processed. Wait for it to finish before retrying.");
+  }
+
   const extractionRunLabel = randomUUID();
   let ingestion: ReturnType<typeof parseCommercialProposalSpreadsheet>;
   try {
@@ -359,7 +362,9 @@ export async function uploadAndRunCommercialProposalFormAction(contractId: strin
     contractId,
     quoteFileId: stored.data.id
   });
-  if (ready.error) throw new Error("Proposal comparison completed, but the upload could not be finalized safely.");
+  if (ready.error || !ready.data || ready.data.proposal_upload_status !== "ready") {
+    throw new Error("Proposal comparison completed, but the upload state changed before finalization. Refresh and retry.");
+  }
   revalidatePath(contractPath(contractId));
   return comparison;
 }

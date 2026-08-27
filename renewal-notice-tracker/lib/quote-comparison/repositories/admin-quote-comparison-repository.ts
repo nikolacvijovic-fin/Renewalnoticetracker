@@ -150,15 +150,30 @@ export async function markAdminRenewalProposalUploadReady(input: {
   contractId: string;
   quoteFileId: string;
 }) {
-  const scoped = await admin().from("contracts").select("id")
+  const client = admin();
+  const scoped = await client.from("contracts").select("id")
     .eq("organization_id", input.organizationId).eq("id", input.contractId).maybeSingle();
   if (scoped.error || !scoped.data) return { data: null, error: scoped.error as Error | null };
-  return admin().from("contract_files").update({
+  const transition = await client.from("contract_files").update({
     proposal_upload_status: "ready",
     proposal_failure_code: null,
     proposal_processed_at: new Date().toISOString()
   } as never).eq("contract_id", input.contractId).eq("id", input.quoteFileId)
-    .eq("proposal_upload_status", "pending").select("id").maybeSingle();
+    .eq("proposal_upload_status", "pending")
+    .is("storage_deleted_at", null)
+    .select("id, proposal_upload_status")
+    .maybeSingle() as unknown as {
+      data: { id: string; proposal_upload_status: "ready" } | null;
+      error: Error | null;
+    };
+  if (transition.error) return { data: null, error: transition.error };
+  if (!transition.data || transition.data.proposal_upload_status !== "ready") {
+    return {
+      data: null,
+      error: new Error("Proposal upload state transition was not allowed.")
+    };
+  }
+  return { data: transition.data, error: null };
 }
 
 export async function failAdminRenewalProposalUpload(input: {

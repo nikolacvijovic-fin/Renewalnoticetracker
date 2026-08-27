@@ -203,6 +203,25 @@ describe("commercial comparison engine", () => {
     expect(normalized.calculatedCommitmentTotal).toBe(46_000);
   });
 
+  it("counts a one-time fee exactly once beside three years of recurring pricing", () => {
+    const normalized = normalizeCommercialTerms({
+      renewalTermMonths: 36,
+      currency: "EUR",
+      lineItems: [
+        { productName: "Subscription", chargeType: "recurring", pricingModel: "flat", billingPeriod: "annual",
+          totalAmount: 100, currency: "EUR", termMonths: 36, evidence: [proposed("three-year-recurring")] },
+        { productName: "Setup", chargeType: "one_time", pricingModel: "flat", billingPeriod: "annual",
+          totalAmount: 100, currency: "EUR", termMonths: 36, evidence: [proposed("one-time-setup")] }
+      ],
+      evidence: []
+    }, { requireAcceptedEvidence: false });
+
+    expect(normalized.calculatedAnnualTotal).toBe(100);
+    expect(normalized.calculatedOneTimeTotal).toBe(100);
+    expect(normalized.calculatedFirstYearTotal).toBe(200);
+    expect(normalized.calculatedCommitmentTotal).toBe(400);
+  });
+
   it("requires an explicit term before treating a stated total as a commitment total", () => {
     expect(() => normalizeCommercialTerms({
       statedCommitmentTotal: 30_000,

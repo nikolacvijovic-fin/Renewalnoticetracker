@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { normalizeCommercialTerms } from "@/lib/quote-comparison/commercial-comparison-engine";
 
 const auth = vi.hoisted(() => ({
   requireOrganization: vi.fn(),
@@ -84,7 +85,10 @@ describe("quote comparison actions", () => {
       data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: false },
       error: null
     });
-    proposalRepository.markAdminRenewalProposalUploadReady.mockResolvedValue({ data: { id: "quote-file-1" }, error: null });
+    proposalRepository.markAdminRenewalProposalUploadReady.mockResolvedValue({
+      data: { id: "quote-file-1", proposal_upload_status: "ready" },
+      error: null
+    });
     proposalRepository.failAdminRenewalProposalUpload.mockResolvedValue({ cleaned: true, error: null });
     proposalRepository.getAdminReadyCommercialProposal.mockResolvedValue({ data: null, error: null });
     proposalIngestion.parseCommercialProposalSpreadsheet.mockReturnValue({
@@ -120,15 +124,45 @@ describe("quote comparison actions", () => {
         contractId: "contract-1",
         actorUserId: "user-1",
         proposalTerms: expect.objectContaining({
-          statedAnnualTotal: 12500,
           currency: "USD",
           lineItems: [expect.objectContaining({ productName: "Platform subscription", totalAmount: 12500 })]
         })
       })
     );
+    expect(persisted.runPersistedCommercialComparison.mock.calls[0]?.[0].proposalTerms)
+      .not.toHaveProperty("statedAnnualTotal");
     expect(runner.runPythonRenewalQuoteComparison).not.toHaveBeenCalled();
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard/contracts/contract-1");
   });
+
+  it.each([
+    { billingPeriod: "monthly", chargeType: "recurring", annual: 1_200, oneTime: 0, commitment: 1_200 },
+    { billingPeriod: "quarterly", chargeType: "recurring", annual: 400, oneTime: 0, commitment: 400 },
+    { billingPeriod: "annual", chargeType: "recurring", annual: 100, oneTime: 0, commitment: 100 },
+    { billingPeriod: "annual", chargeType: "one_time", annual: 0, oneTime: 100, commitment: 100 }
+  ] as const)(
+    "lets the engine calculate $billingPeriod $chargeType manual pricing",
+    async ({ billingPeriod, chargeType, annual, oneTime, commitment }) => {
+      const { createAndRunQuoteComparisonFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+      const formData = new FormData();
+      formData.set("proposed_total_amount", "100");
+      formData.set("currency", "EUR");
+      formData.set("product_name", "Manual proposal line");
+      formData.set("billing_period", billingPeriod);
+      formData.set("charge_type", chargeType);
+      formData.set("term_months", "12");
+
+      await createAndRunQuoteComparisonFormAction("contract-1", formData);
+
+      const proposalTerms = persisted.runPersistedCommercialComparison.mock.calls[0]?.[0]
+        .proposalTerms;
+      expect(proposalTerms).not.toHaveProperty("statedAnnualTotal");
+      const normalized = normalizeCommercialTerms(proposalTerms, { requireAcceptedEvidence: false });
+      expect(normalized.calculatedAnnualTotal).toBe(annual);
+      expect(normalized.calculatedOneTimeTotal).toBe(oneTime);
+      expect(normalized.calculatedCommitmentTotal).toBe(commitment);
+    }
+  );
 
   it("stores and compares an organization-scoped XLSX proposal without applying it to contract truth", async () => {
     const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
@@ -223,9 +257,61 @@ describe("quote comparison actions", () => {
 
     await uploadAndRunCommercialProposalFormAction("contract-1", formData);
     expect(proposalIngestion.parseCommercialProposalSpreadsheet).not.toHaveBeenCalled();
+    expect(proposalRepository.markAdminRenewalProposalUploadReady).not.toHaveBeenCalled();
     expect(persisted.runPersistedCommercialComparison).toHaveBeenCalledWith(expect.objectContaining({
       quoteFileId: "quote-file-1",
       proposalDocumentType: "renewal_quote"
     }));
+  });
+
+  it("allows only one identical pending upload to execute extraction and comparison", async () => {
+    proposalRepository.uploadAdminRenewalProposalFile
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: false },
+        error: null
+      })
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: true },
+        error: null
+      });
+    let finishComparison!: (value: { comparisonId: string }) => void;
+    persisted.runPersistedCommercialComparison.mockImplementationOnce(() => new Promise((resolve) => {
+      finishComparison = resolve;
+    }));
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const makeFormData = () => {
+      const formData = new FormData();
+      const file = new File(["identical-xlsx-bytes"], "renewal.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("identical-xlsx-bytes") });
+      formData.set("proposal_file", file);
+      return formData;
+    };
+
+    const first = uploadAndRunCommercialProposalFormAction("contract-1", makeFormData());
+    await vi.waitFor(() => expect(persisted.runPersistedCommercialComparison).toHaveBeenCalledTimes(1));
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", makeFormData()))
+      .rejects.toThrow("already being processed");
+    finishComparison({ comparisonId: "comparison-1" });
+    await expect(first).resolves.toEqual({ comparisonId: "comparison-1" });
+
+    expect(proposalIngestion.parseCommercialProposalSpreadsheet).toHaveBeenCalledTimes(1);
+    expect(persisted.runPersistedCommercialComparison).toHaveBeenCalledTimes(1);
+    expect(proposalRepository.markAdminRenewalProposalUploadReady).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when finalization returns no transitioned upload row", async () => {
+    proposalRepository.markAdminRenewalProposalUploadReady.mockResolvedValueOnce({ data: null, error: null });
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const formData = new FormData();
+    const file = new File(["xlsx-bytes"], "renewal.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+    formData.set("proposal_file", file);
+
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", formData))
+      .rejects.toThrow("upload state changed before finalization");
   });
 });
