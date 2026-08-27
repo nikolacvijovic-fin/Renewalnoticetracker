@@ -17,6 +17,7 @@ const persisted = vi.hoisted(() => ({
 }));
 const proposalRepository = vi.hoisted(() => ({
   failAdminRenewalProposalUpload: vi.fn(),
+  getAdminRecoverablePendingCommercialProposal: vi.fn(),
   getAdminReadyCommercialProposal: vi.fn(),
   getLatestAdminCommercialBaseline: vi.fn(),
   markAdminRenewalProposalUploadReady: vi.fn(),
@@ -90,6 +91,7 @@ describe("quote comparison actions", () => {
       error: null
     });
     proposalRepository.failAdminRenewalProposalUpload.mockResolvedValue({ cleaned: true, error: null });
+    proposalRepository.getAdminRecoverablePendingCommercialProposal.mockResolvedValue({ data: null, error: null });
     proposalRepository.getAdminReadyCommercialProposal.mockResolvedValue({ data: null, error: null });
     proposalIngestion.parseCommercialProposalSpreadsheet.mockReturnValue({
       documentType: "renewal_quote",
@@ -238,13 +240,17 @@ describe("quote comparison actions", () => {
     expect(proposalRepository.markAdminRenewalProposalUploadReady).not.toHaveBeenCalled();
   });
 
-  it("reuses a ready proposal without repeating extraction", async () => {
+  it("reuses a ready proposal without repeating extraction or comparison persistence", async () => {
     proposalRepository.uploadAdminRenewalProposalFile.mockResolvedValueOnce({
       data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "ready", idempotentReplay: true },
       error: null
     });
     proposalRepository.getAdminReadyCommercialProposal.mockResolvedValueOnce({
-      data: { document_type: "renewal_quote", terms_snapshot: { lineItems: [], currency: "EUR", evidence: [] } },
+      data: {
+        comparisonId: "comparison-1",
+        proposalVersionId: "proposal-version-1",
+        proposal_upload_status: "ready"
+      },
       error: null
     });
     const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
@@ -255,13 +261,129 @@ describe("quote comparison actions", () => {
     Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
     formData.set("proposal_file", file);
 
-    await uploadAndRunCommercialProposalFormAction("contract-1", formData);
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", formData)).resolves.toEqual({
+      comparisonId: "comparison-1",
+      proposalVersionId: "proposal-version-1",
+      isNew: false
+    });
     expect(proposalIngestion.parseCommercialProposalSpreadsheet).not.toHaveBeenCalled();
     expect(proposalRepository.markAdminRenewalProposalUploadReady).not.toHaveBeenCalled();
-    expect(persisted.runPersistedCommercialComparison).toHaveBeenCalledWith(expect.objectContaining({
-      quoteFileId: "quote-file-1",
-      proposalDocumentType: "renewal_quote"
-    }));
+    expect(persisted.runPersistedCommercialComparison).not.toHaveBeenCalled();
+  });
+
+  it("recovers a persisted pending proposal after its initial finalization fails", async () => {
+    proposalRepository.uploadAdminRenewalProposalFile
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: false },
+        error: null
+      })
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: true },
+        error: null
+      });
+    proposalRepository.markAdminRenewalProposalUploadReady
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", proposal_upload_status: "ready", idempotentReplay: false },
+        error: null
+      });
+    proposalRepository.getAdminRecoverablePendingCommercialProposal.mockResolvedValueOnce({
+      data: {
+        comparisonId: "comparison-1",
+        proposalVersionId: "proposal-version-1",
+        proposal_upload_status: "pending"
+      },
+      error: null
+    });
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const makeFormData = () => {
+      const formData = new FormData();
+      const file = new File(["xlsx-bytes"], "renewal.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+      formData.set("proposal_file", file);
+      return formData;
+    };
+
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", makeFormData()))
+      .rejects.toThrow("upload state changed before finalization");
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", makeFormData())).resolves.toEqual({
+      comparisonId: "comparison-1",
+      proposalVersionId: "proposal-version-1",
+      isNew: false
+    });
+
+    expect(proposalIngestion.parseCommercialProposalSpreadsheet).toHaveBeenCalledTimes(1);
+    expect(persisted.runPersistedCommercialComparison).toHaveBeenCalledTimes(1);
+    expect(proposalRepository.failAdminRenewalProposalUpload).not.toHaveBeenCalled();
+  });
+
+  it("keeps an incomplete pending proposal blocked as already processing", async () => {
+    proposalRepository.uploadAdminRenewalProposalFile.mockResolvedValueOnce({
+      data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: true },
+      error: null
+    });
+    proposalRepository.getAdminRecoverablePendingCommercialProposal.mockResolvedValueOnce({ data: null, error: null });
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const formData = new FormData();
+    const file = new File(["xlsx-bytes"], "renewal.xlsx", {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("xlsx-bytes") });
+    formData.set("proposal_file", file);
+
+    await expect(uploadAndRunCommercialProposalFormAction("contract-1", formData))
+      .rejects.toThrow("already being processed");
+    expect(proposalRepository.markAdminRenewalProposalUploadReady).not.toHaveBeenCalled();
+    expect(persisted.runPersistedCommercialComparison).not.toHaveBeenCalled();
+  });
+
+  it("lets concurrent recovery attempts share one completed graph without new artifacts", async () => {
+    proposalRepository.uploadAdminRenewalProposalFile.mockResolvedValue({
+      data: { id: "quote-file-1", file_name: "renewal.xlsx", mime_type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", size_bytes: 10, proposal_upload_status: "pending", idempotentReplay: true },
+      error: null
+    });
+    proposalRepository.getAdminRecoverablePendingCommercialProposal.mockResolvedValue({
+      data: {
+        comparisonId: "comparison-1",
+        proposalVersionId: "proposal-version-1",
+        proposal_upload_status: "pending"
+      },
+      error: null
+    });
+    proposalRepository.markAdminRenewalProposalUploadReady
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", proposal_upload_status: "ready", idempotentReplay: false },
+        error: null
+      })
+      .mockResolvedValueOnce({
+        data: { id: "quote-file-1", proposal_upload_status: "ready", idempotentReplay: true },
+        error: null
+      });
+    const { uploadAndRunCommercialProposalFormAction } = await import("@/lib/actions/contracts/quote-comparison");
+    const makeFormData = () => {
+      const formData = new FormData();
+      const file = new File(["identical-xlsx-bytes"], "renewal.xlsx", {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      });
+      Object.defineProperty(file, "arrayBuffer", { value: async () => Buffer.from("identical-xlsx-bytes") });
+      formData.set("proposal_file", file);
+      return formData;
+    };
+
+    const results = await Promise.all([
+      uploadAndRunCommercialProposalFormAction("contract-1", makeFormData()),
+      uploadAndRunCommercialProposalFormAction("contract-1", makeFormData())
+    ]);
+
+    expect(results).toEqual([
+      { comparisonId: "comparison-1", proposalVersionId: "proposal-version-1", isNew: false },
+      { comparisonId: "comparison-1", proposalVersionId: "proposal-version-1", isNew: false }
+    ]);
+    expect(proposalIngestion.parseCommercialProposalSpreadsheet).not.toHaveBeenCalled();
+    expect(persisted.runPersistedCommercialComparison).not.toHaveBeenCalled();
+    expect(proposalRepository.markAdminRenewalProposalUploadReady).toHaveBeenCalledTimes(2);
   });
 
   it("allows only one identical pending upload to execute extraction and comparison", async () => {

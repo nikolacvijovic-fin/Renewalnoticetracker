@@ -28,13 +28,13 @@ import {
 } from "@/lib/quote-comparison/proposal-ingestion";
 import {
   failAdminRenewalProposalUpload,
+  getAdminRecoverablePendingCommercialProposal,
   getAdminReadyCommercialProposal,
   getLatestAdminCommercialBaseline,
   markAdminRenewalProposalUploadReady,
   uploadAdminRenewalProposalFile
 } from "@/lib/quote-comparison/repositories/admin-quote-comparison-repository";
 import { prepareCommercialProposalDocument } from "@/lib/quote-comparison/proposal-document-preparation";
-import type { CommercialTermsInput } from "@/lib/quote-comparison/commercial-comparison-engine";
 
 function contractPath(contractId: string) {
   return `/dashboard/contracts/${contractId}`;
@@ -267,21 +267,40 @@ export async function uploadAndRunCommercialProposalFormAction(contractId: strin
     if (existing.error || !existing.data) {
       throw new Error("The completed proposal evidence could not be loaded safely.");
     }
-    const replay = await runPersistedCommercialComparison({
-      organizationId: context.organizationId,
-      contractId,
-      actorUserId: context.user.id,
-      proposalTerms: existing.data.terms_snapshot as CommercialTermsInput,
-      proposalDocumentType: existing.data.document_type as Parameters<typeof runPersistedCommercialComparison>[0]["proposalDocumentType"],
-      quoteFileId: stored.data.id,
-      actionDeadline: null
-    });
     revalidatePath(contractPath(contractId));
-    return replay;
+    return {
+      comparisonId: existing.data.comparisonId,
+      proposalVersionId: existing.data.proposalVersionId,
+      isNew: false
+    };
   }
 
   if (stored.data.proposal_upload_status === "pending" && stored.data.idempotentReplay) {
-    throw new Error("This proposal is already being processed. Wait for it to finish before retrying.");
+    const recoverable = await getAdminRecoverablePendingCommercialProposal({
+      organizationId: context.organizationId,
+      contractId,
+      quoteFileId: stored.data.id
+    });
+    if (recoverable.error) {
+      throw new Error("The existing proposal processing state could not be verified safely.");
+    }
+    if (!recoverable.data) {
+      throw new Error("This proposal is already being processed. Wait for it to finish before retrying.");
+    }
+    const recovered = await markAdminRenewalProposalUploadReady({
+      organizationId: context.organizationId,
+      contractId,
+      quoteFileId: stored.data.id
+    });
+    if (recovered.error || !recovered.data || recovered.data.proposal_upload_status !== "ready") {
+      throw new Error("Proposal comparison completed, but the upload state changed before finalization. Refresh and retry.");
+    }
+    revalidatePath(contractPath(contractId));
+    return {
+      comparisonId: recoverable.data.comparisonId,
+      proposalVersionId: recoverable.data.proposalVersionId,
+      isNew: false
+    };
   }
 
   const extractionRunLabel = randomUUID();

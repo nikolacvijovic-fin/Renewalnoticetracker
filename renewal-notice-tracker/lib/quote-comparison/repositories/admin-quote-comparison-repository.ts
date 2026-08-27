@@ -119,30 +119,129 @@ export async function uploadAdminRenewalProposalFile(input: {
   };
 }
 
-export async function getAdminReadyCommercialProposal(input: {
+type CompleteCommercialProposalGraph = {
+  comparisonId: string;
+  proposalVersionId: string;
+  proposal_upload_status: "pending" | "ready";
+};
+
+async function getAdminCompleteCommercialProposalGraph(input: {
   organizationId: string;
   contractId: string;
   quoteFileId: string;
-}) {
-  const scoped = await admin().from("contracts").select("id")
+  requiredUploadStatus: "pending" | "ready";
+}): Promise<{ data: CompleteCommercialProposalGraph | null; error: Error | null }> {
+  const client = admin();
+  const scoped = await client.from("contracts").select("id")
     .eq("organization_id", input.organizationId).eq("id", input.contractId).maybeSingle();
-  if (scoped.error || !scoped.data) return { data: null, error: scoped.error as Error | null };
-  const file = await admin().from("contract_files").select("proposal_upload_status")
-    .eq("contract_id", input.contractId).eq("id", input.quoteFileId).maybeSingle();
-  if (file.error || file.data?.proposal_upload_status !== "ready") {
-    return { data: null, error: file.error as Error | null };
+  if (scoped.error) return { data: null, error: scoped.error as Error };
+  if (!scoped.data) return { data: null, error: null };
+
+  const file = await client.from("contract_files")
+    .select("id, proposal_upload_status, storage_deleted_at")
+    .eq("contract_id", input.contractId)
+    .eq("id", input.quoteFileId)
+    .eq("extraction_source", "commercial_proposal")
+    .maybeSingle();
+  if (file.error) return { data: null, error: file.error as Error };
+  if (
+    !file.data
+    || file.data.proposal_upload_status !== input.requiredUploadStatus
+    || file.data.storage_deleted_at !== null
+  ) {
+    return { data: null, error: null };
   }
-  return admin().from("renewal_quote_proposal_versions")
-    .select("document_type, terms_snapshot")
+
+  const proposal = await client.from("renewal_quote_proposal_versions")
+    .select("id, comparison_id, quote_file_id")
     .eq("organization_id", input.organizationId)
     .eq("contract_id", input.contractId)
     .eq("quote_file_id", input.quoteFileId)
     .order("created_at", { ascending: false })
     .limit(1)
-    .maybeSingle() as unknown as Promise<{
-      data: { document_type: string; terms_snapshot: Record<string, unknown> } | null;
+    .maybeSingle();
+  if (proposal.error) return { data: null, error: proposal.error as Error };
+  if (!proposal.data || proposal.data.quote_file_id !== input.quoteFileId) {
+    return { data: null, error: null };
+  }
+
+  const comparison = await client.from("renewal_quote_comparisons")
+    .select("id, proposal_version_id, quote_file_id, status")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("id", proposal.data.comparison_id)
+    .eq("proposal_version_id", proposal.data.id)
+    .eq("quote_file_id", input.quoteFileId)
+    .eq("status", "completed")
+    .maybeSingle() as unknown as {
+      data: {
+        id: string;
+        proposal_version_id: string;
+        quote_file_id: string | null;
+        status: "completed";
+      } | null;
       error: Error | null;
-    }>;
+    };
+  if (comparison.error) return { data: null, error: comparison.error as Error };
+  if (
+    !comparison.data
+    || comparison.data.proposal_version_id !== proposal.data.id
+    || comparison.data.quote_file_id !== input.quoteFileId
+  ) {
+    return { data: null, error: null };
+  }
+
+  const proposalLine = await client.from("renewal_quote_proposal_line_items")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("proposal_version_id", proposal.data.id)
+    .limit(1)
+    .maybeSingle();
+  if (proposalLine.error) return { data: null, error: proposalLine.error as Error };
+  if (!proposalLine.data) return { data: null, error: null };
+
+  const costBridge = await client.from("renewal_quote_cost_bridges")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("comparison_id", comparison.data.id)
+    .eq("proposal_version_id", proposal.data.id)
+    .limit(1)
+    .maybeSingle();
+  if (costBridge.error) return { data: null, error: costBridge.error as Error };
+  if (!costBridge.data) return { data: null, error: null };
+
+  return {
+    data: {
+      comparisonId: comparison.data.id,
+      proposalVersionId: proposal.data.id,
+      proposal_upload_status: input.requiredUploadStatus
+    },
+    error: null
+  };
+}
+
+export async function getAdminRecoverablePendingCommercialProposal(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+}) {
+  return getAdminCompleteCommercialProposalGraph({
+    ...input,
+    requiredUploadStatus: "pending"
+  });
+}
+
+export async function getAdminReadyCommercialProposal(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+}) {
+  return getAdminCompleteCommercialProposalGraph({
+    ...input,
+    requiredUploadStatus: "ready"
+  });
 }
 
 export async function markAdminRenewalProposalUploadReady(input: {
@@ -168,12 +267,27 @@ export async function markAdminRenewalProposalUploadReady(input: {
     };
   if (transition.error) return { data: null, error: transition.error };
   if (!transition.data || transition.data.proposal_upload_status !== "ready") {
+    const alreadyReady = await client.from("contract_files")
+      .select("id, proposal_upload_status")
+      .eq("contract_id", input.contractId)
+      .eq("id", input.quoteFileId)
+      .eq("extraction_source", "commercial_proposal")
+      .eq("proposal_upload_status", "ready")
+      .is("storage_deleted_at", null)
+      .maybeSingle() as unknown as {
+        data: { id: string; proposal_upload_status: "ready" } | null;
+        error: Error | null;
+      };
+    if (alreadyReady.error) return { data: null, error: alreadyReady.error };
+    if (alreadyReady.data?.proposal_upload_status === "ready") {
+      return { data: { ...alreadyReady.data, idempotentReplay: true }, error: null };
+    }
     return {
       data: null,
       error: new Error("Proposal upload state transition was not allowed.")
     };
   }
-  return { data: transition.data, error: null };
+  return { data: { ...transition.data, idempotentReplay: false }, error: null };
 }
 
 export async function failAdminRenewalProposalUpload(input: {
