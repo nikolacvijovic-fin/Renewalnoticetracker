@@ -8,7 +8,11 @@ export default defineConfig({
     environment: "jsdom",
     setupFiles: "./tests/vitest.setup.ts",
     include: ["tests/**/*.{test,spec}.{ts,tsx}"],
-    exclude: ["e2e/**", "node_modules/**"]
+    exclude: ["e2e/**", "node_modules/**"],
+    // Keep the full release suite deterministic on constrained CI and Windows hosts.
+    // Excessive worker fan-out can leave timed-out async mocks running into later cases.
+    maxWorkers: 4,
+    minWorkers: 1
   },
   resolve: {
     alias: {

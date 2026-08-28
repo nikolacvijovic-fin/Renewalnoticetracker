@@ -77,6 +77,161 @@ function requiredScenario() {
 }
 
 describe("commercial comparison engine", () => {
+  it.each([
+    { name: "monthly", billingPeriod: "monthly", totalAmount: 100, termMonths: 12, expectedAnnual: 1_200, expectedCommitment: 1_200 },
+    { name: "quarterly", billingPeriod: "quarterly", totalAmount: 300, termMonths: 12, expectedAnnual: 1_200, expectedCommitment: 1_200 },
+    { name: "annual", billingPeriod: "annual", totalAmount: 1_200, termMonths: 12, expectedAnnual: 1_200, expectedCommitment: 1_200 },
+    { name: "multi-year", billingPeriod: "multi_year", totalAmount: 2_400, termMonths: 24, expectedAnnual: 1_200, expectedCommitment: 2_400 },
+    { name: "partial service period", billingPeriod: "partial", totalAmount: 600, termMonths: 12, servicePeriodMonths: 6, expectedAnnual: 1_200, expectedCommitment: 1_200 }
+  ] as const)("normalizes $name recurring pricing without transition cost", (testCase) => {
+    const terms = normalizeCommercialTerms({
+      renewalTermMonths: testCase.termMonths,
+      currency: "EUR",
+      lineItems: [{
+        productName: "Subscription",
+        chargeType: "recurring",
+        pricingModel: "flat",
+        billingPeriod: testCase.billingPeriod,
+        totalAmount: testCase.totalAmount,
+        currency: "EUR",
+        termMonths: testCase.termMonths,
+        servicePeriodMonths: "servicePeriodMonths" in testCase ? testCase.servicePeriodMonths : undefined,
+        evidence: [accepted(`baseline-${testCase.name}`)]
+      }],
+      evidence: []
+    }, { requireAcceptedEvidence: true });
+
+    expect(terms.calculatedAnnualTotal).toBe(testCase.expectedAnnual);
+    expect(terms.calculatedOneTimeTotal).toBe(0);
+    expect(terms.calculatedCommitmentTotal).toBe(testCase.expectedCommitment);
+  });
+
+  it("counts a discounted one-time fee exactly once on a three-year agreement", () => {
+    const terms = normalizeCommercialTerms({
+      renewalTermMonths: 36,
+      currency: "EUR",
+      lineItems: [{
+        productName: "Implementation fee",
+        chargeType: "one_time",
+        pricingModel: "flat",
+        billingPeriod: "annual",
+        totalAmount: 12_500,
+        discountAmount: 1_500,
+        discountPercent: 8,
+        currency: "EUR",
+        termMonths: 36,
+        evidence: [proposed("implementation-fee")]
+      }],
+      evidence: []
+    }, { requireAcceptedEvidence: false });
+
+    expect(terms.calculatedAnnualTotal).toBe(0);
+    expect(terms.calculatedOneTimeTotal).toBe(10_000);
+    expect(terms.calculatedFirstYearTotal).toBe(10_000);
+    expect(terms.calculatedCommitmentTotal).toBe(10_000);
+    expect(terms.lineItems[0]).toMatchObject({ annualizedAmount: 0, oneTimeAmount: 10_000, totalCommitmentAmount: 10_000 });
+  });
+
+  it("separates recurring and one-time bridge deltas and scenario totals", () => {
+    const baseline: CommercialTermsInput = {
+      renewalTermMonths: 36,
+      currency: "EUR",
+      lineItems: [{
+        lineKey: "subscription", productName: "Subscription", chargeType: "recurring", pricingModel: "flat",
+        billingPeriod: "annual", totalAmount: 10_000, currency: "EUR", termMonths: 36,
+        evidence: [accepted("baseline-subscription")]
+      }],
+      evidence: []
+    };
+    const proposal: CommercialTermsInput = {
+      renewalTermMonths: 36,
+      currency: "EUR",
+      lineItems: [
+        { lineKey: "subscription", productName: "Subscription", chargeType: "recurring", pricingModel: "flat",
+          billingPeriod: "annual", totalAmount: 12_000, currency: "EUR", termMonths: 36,
+          evidence: [proposed("proposal-subscription")] },
+        { lineKey: "implementation", productName: "Implementation", chargeType: "one_time", pricingModel: "flat",
+          billingPeriod: "annual", totalAmount: 10_000, currency: "EUR", termMonths: 36,
+          evidence: [proposed("proposal-implementation")] }
+      ],
+      evidence: []
+    };
+
+    const result = compareCommercialTerms({ contractId: "contract-1", baseline, proposal });
+    expect(result.costBridge).toMatchObject({
+      currentAnnualCost: 10_000,
+      proposedAnnualCost: 12_000,
+      currentOneTimeCost: 0,
+      proposedOneTimeCost: 10_000,
+      recurringDelta: 2_000,
+      oneTimeDelta: 10_000
+    });
+    expect(result.costBridge.components).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "new_fee", costCategory: "one_time", amount: 10_000 })
+    ]));
+    expect(result.scenarios.find((item) => item.type === "accept_proposal")).toMatchObject({
+      annualCost: 12_000,
+      transitionCost: 10_000,
+      firstYearEffect: 12_000,
+      multiYearCommitment: 46_000
+    });
+    expect(result.scenarios.find((item) => item.type === "renegotiate_price")).toMatchObject({
+      transitionCost: 10_000,
+      multiYearCommitment: 40_000
+    });
+    expect(result.scenarios.find((item) => item.type === "reduce_quantity")?.transitionCost).toBe(10_000);
+  });
+
+  it("keeps stated annual and stated commitment totals in their explicit semantic lanes", () => {
+    const normalized = normalizeCommercialTerms({
+      statedAnnualTotal: 12_000,
+      statedCommitmentTotal: 44_000,
+      renewalTermMonths: 36,
+      currency: "EUR",
+      lineItems: [
+        { productName: "Subscription", chargeType: "recurring", pricingModel: "flat", billingPeriod: "annual",
+          totalAmount: 12_000, currency: "EUR", termMonths: 36, evidence: [proposed("stated-recurring")] },
+        { productName: "Setup", chargeType: "one_time", pricingModel: "flat", billingPeriod: "annual",
+          totalAmount: 10_000, currency: "EUR", termMonths: 36, evidence: [proposed("stated-setup")] }
+      ],
+      evidence: []
+    }, { requireAcceptedEvidence: false });
+
+    expect(normalized.statedAnnualTotal).toBe(12_000);
+    expect(normalized.calculatedAnnualTotal).toBe(12_000);
+    expect(normalized.statedCommitmentTotal).toBe(44_000);
+    expect(normalized.calculatedCommitmentTotal).toBe(46_000);
+  });
+
+  it("counts a one-time fee exactly once beside three years of recurring pricing", () => {
+    const normalized = normalizeCommercialTerms({
+      renewalTermMonths: 36,
+      currency: "EUR",
+      lineItems: [
+        { productName: "Subscription", chargeType: "recurring", pricingModel: "flat", billingPeriod: "annual",
+          totalAmount: 100, currency: "EUR", termMonths: 36, evidence: [proposed("three-year-recurring")] },
+        { productName: "Setup", chargeType: "one_time", pricingModel: "flat", billingPeriod: "annual",
+          totalAmount: 100, currency: "EUR", termMonths: 36, evidence: [proposed("one-time-setup")] }
+      ],
+      evidence: []
+    }, { requireAcceptedEvidence: false });
+
+    expect(normalized.calculatedAnnualTotal).toBe(100);
+    expect(normalized.calculatedOneTimeTotal).toBe(100);
+    expect(normalized.calculatedFirstYearTotal).toBe(200);
+    expect(normalized.calculatedCommitmentTotal).toBe(400);
+  });
+
+  it("requires an explicit term before treating a stated total as a commitment total", () => {
+    expect(() => normalizeCommercialTerms({
+      statedCommitmentTotal: 30_000,
+      currency: "EUR",
+      lineItems: [{ productName: "Subscription", chargeType: "recurring", pricingModel: "flat",
+        billingPeriod: "annual", totalAmount: 10_000, currency: "EUR", evidence: [proposed("ambiguous-total")] }],
+      evidence: []
+    }, { requireAcceptedEvidence: false })).toThrow("commitment_term_required_for_stated_commitment_total");
+  });
+
   it("reconciles the required EUR 120k to EUR 150k scenario and separates rate, quantity, and discount", () => {
     const { baseline, proposal } = requiredScenario();
     const result = compareCommercialTerms({

@@ -17,7 +17,7 @@ on conflict (id) do nothing;
 insert into public.memberships (organization_id, user_id, role)
 values
   ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'owner'),
-  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000002', 'member')
+  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000002', 'reviewer')
 on conflict do nothing;
 
 insert into public.subscription_usage_provider_connections (
@@ -37,7 +37,7 @@ select throws_ok(
     'microsoft_365', 'interval-a', false
   )$$,
   '42501', 'Insufficient organization role',
-  'ordinary members cannot create privileged manual sync attempts'
+  'reviewers cannot create privileged manual sync attempts'
 );
 
 select throws_ok(

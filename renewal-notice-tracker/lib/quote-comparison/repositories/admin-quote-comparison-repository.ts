@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { getAppConfig } from "@/lib/config";
 import type {
@@ -11,6 +11,29 @@ type UntypedSupabaseClient = ReturnType<typeof createAdminSupabaseClient>;
 
 function admin() {
   return createAdminSupabaseClient() as UntypedSupabaseClient;
+}
+
+export async function persistAdminCommercialComparisonTransaction(input: {
+  organizationId: string;
+  contractId: string;
+  actorUserId: string;
+  baselineId: string;
+  quoteFileId?: string | null;
+  idempotencyKey: string;
+  payload: Record<string, unknown>;
+}) {
+  return admin().rpc("persist_commercial_comparison_transaction", {
+    p_organization_id: input.organizationId,
+    p_contract_id: input.contractId,
+    p_actor_user_id: input.actorUserId,
+    p_baseline_id: input.baselineId,
+    p_quote_file_id: input.quoteFileId ?? null,
+    p_idempotency_key: input.idempotencyKey,
+    p_payload: input.payload as never
+  }) as unknown as Promise<{
+    data: { comparisonId: string; proposalVersionId: string; isNew: boolean } | null;
+    error: Error | null;
+  }>;
 }
 
 export async function uploadAdminRenewalProposalFile(input: {
@@ -33,6 +56,26 @@ export async function uploadAdminRenewalProposalFile(input: {
   };
   const extension = extensionByMime[input.mimeType];
   if (!extension) return { data: null, error: new Error("Unsupported proposal file type.") };
+  const contentHash = createHash("sha256").update(input.buffer).digest("hex");
+  const existing = await client.from("contract_files")
+    .select("id, file_name, mime_type, size_bytes, proposal_upload_status")
+    .eq("contract_id", input.contractId)
+    .eq("extraction_source", "commercial_proposal")
+    .eq("proposal_content_hash", contentHash)
+    .in("proposal_upload_status", ["pending", "ready"])
+    .order("uploaded_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing.error) return { data: null, error: existing.error as Error };
+  if (existing.data) {
+    return {
+      data: {
+        ...(existing.data as { id: string; file_name: string; mime_type: string; size_bytes: number; proposal_upload_status: "pending" | "ready" }),
+        idempotentReplay: true
+      },
+      error: null
+    };
+  }
   const storagePath = `${input.organizationId}/${input.contractId}/commercial-proposals/${randomUUID()}.${extension}`;
   const uploaded = await client.storage.from(getAppConfig().supabase.storageBucket).upload(storagePath, input.buffer, {
     contentType: input.mimeType,
@@ -48,13 +91,241 @@ export async function uploadAdminRenewalProposalFile(input: {
     extracted_text: null,
     extraction_error: null,
     extraction_source: "commercial_proposal",
+    proposal_upload_status: "pending",
+    proposal_content_hash: contentHash,
+    proposal_failure_code: null,
     uploaded_by: input.actorUserId
-  } as never).select("id, file_name, mime_type, size_bytes").single();
+  } as never).select("id, file_name, mime_type, size_bytes, proposal_upload_status").single();
   if (row.error) {
     await client.storage.from(getAppConfig().supabase.storageBucket).remove([storagePath]);
+    const raced = await client.from("contract_files")
+      .select("id, file_name, mime_type, size_bytes, proposal_upload_status")
+      .eq("contract_id", input.contractId)
+      .eq("extraction_source", "commercial_proposal")
+      .eq("proposal_content_hash", contentHash)
+      .in("proposal_upload_status", ["pending", "ready"])
+      .order("uploaded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (raced.data) return { data: { ...raced.data, idempotentReplay: true }, error: null };
     return { data: null, error: row.error as Error };
   }
-  return { data: row.data as { id: string; file_name: string; mime_type: string; size_bytes: number }, error: null };
+  return {
+    data: {
+      ...(row.data as { id: string; file_name: string; mime_type: string; size_bytes: number; proposal_upload_status: "pending" }),
+      idempotentReplay: false
+    },
+    error: null
+  };
+}
+
+type CompleteCommercialProposalGraph = {
+  comparisonId: string;
+  proposalVersionId: string;
+  proposal_upload_status: "pending" | "ready";
+};
+
+async function getAdminCompleteCommercialProposalGraph(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+  requiredUploadStatus: "pending" | "ready";
+}): Promise<{ data: CompleteCommercialProposalGraph | null; error: Error | null }> {
+  const client = admin();
+  const scoped = await client.from("contracts").select("id")
+    .eq("organization_id", input.organizationId).eq("id", input.contractId).maybeSingle();
+  if (scoped.error) return { data: null, error: scoped.error as Error };
+  if (!scoped.data) return { data: null, error: null };
+
+  const file = await client.from("contract_files")
+    .select("id, proposal_upload_status, storage_deleted_at")
+    .eq("contract_id", input.contractId)
+    .eq("id", input.quoteFileId)
+    .eq("extraction_source", "commercial_proposal")
+    .maybeSingle();
+  if (file.error) return { data: null, error: file.error as Error };
+  if (
+    !file.data
+    || file.data.proposal_upload_status !== input.requiredUploadStatus
+    || file.data.storage_deleted_at !== null
+  ) {
+    return { data: null, error: null };
+  }
+
+  const proposal = await client.from("renewal_quote_proposal_versions")
+    .select("id, comparison_id, quote_file_id")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("quote_file_id", input.quoteFileId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (proposal.error) return { data: null, error: proposal.error as Error };
+  if (!proposal.data || proposal.data.quote_file_id !== input.quoteFileId) {
+    return { data: null, error: null };
+  }
+
+  const comparison = await client.from("renewal_quote_comparisons")
+    .select("id, proposal_version_id, quote_file_id, status")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("id", proposal.data.comparison_id)
+    .eq("proposal_version_id", proposal.data.id)
+    .eq("quote_file_id", input.quoteFileId)
+    .eq("status", "completed")
+    .maybeSingle() as unknown as {
+      data: {
+        id: string;
+        proposal_version_id: string;
+        quote_file_id: string | null;
+        status: "completed";
+      } | null;
+      error: Error | null;
+    };
+  if (comparison.error) return { data: null, error: comparison.error as Error };
+  if (
+    !comparison.data
+    || comparison.data.proposal_version_id !== proposal.data.id
+    || comparison.data.quote_file_id !== input.quoteFileId
+  ) {
+    return { data: null, error: null };
+  }
+
+  const proposalLine = await client.from("renewal_quote_proposal_line_items")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("proposal_version_id", proposal.data.id)
+    .limit(1)
+    .maybeSingle();
+  if (proposalLine.error) return { data: null, error: proposalLine.error as Error };
+  if (!proposalLine.data) return { data: null, error: null };
+
+  const costBridge = await client.from("renewal_quote_cost_bridges")
+    .select("id")
+    .eq("organization_id", input.organizationId)
+    .eq("contract_id", input.contractId)
+    .eq("comparison_id", comparison.data.id)
+    .eq("proposal_version_id", proposal.data.id)
+    .limit(1)
+    .maybeSingle();
+  if (costBridge.error) return { data: null, error: costBridge.error as Error };
+  if (!costBridge.data) return { data: null, error: null };
+
+  return {
+    data: {
+      comparisonId: comparison.data.id,
+      proposalVersionId: proposal.data.id,
+      proposal_upload_status: input.requiredUploadStatus
+    },
+    error: null
+  };
+}
+
+export async function getAdminRecoverablePendingCommercialProposal(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+}) {
+  return getAdminCompleteCommercialProposalGraph({
+    ...input,
+    requiredUploadStatus: "pending"
+  });
+}
+
+export async function getAdminReadyCommercialProposal(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+}) {
+  return getAdminCompleteCommercialProposalGraph({
+    ...input,
+    requiredUploadStatus: "ready"
+  });
+}
+
+export async function markAdminRenewalProposalUploadReady(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+}) {
+  const client = admin();
+  const scoped = await client.from("contracts").select("id")
+    .eq("organization_id", input.organizationId).eq("id", input.contractId).maybeSingle();
+  if (scoped.error || !scoped.data) return { data: null, error: scoped.error as Error | null };
+  const transition = await client.from("contract_files").update({
+    proposal_upload_status: "ready",
+    proposal_failure_code: null,
+    proposal_processed_at: new Date().toISOString()
+  } as never).eq("contract_id", input.contractId).eq("id", input.quoteFileId)
+    .eq("proposal_upload_status", "pending")
+    .is("storage_deleted_at", null)
+    .select("id, proposal_upload_status")
+    .maybeSingle() as unknown as {
+      data: { id: string; proposal_upload_status: "ready" } | null;
+      error: Error | null;
+    };
+  if (transition.error) return { data: null, error: transition.error };
+  if (!transition.data || transition.data.proposal_upload_status !== "ready") {
+    const alreadyReady = await client.from("contract_files")
+      .select("id, proposal_upload_status")
+      .eq("contract_id", input.contractId)
+      .eq("id", input.quoteFileId)
+      .eq("extraction_source", "commercial_proposal")
+      .eq("proposal_upload_status", "ready")
+      .is("storage_deleted_at", null)
+      .maybeSingle() as unknown as {
+        data: { id: string; proposal_upload_status: "ready" } | null;
+        error: Error | null;
+      };
+    if (alreadyReady.error) return { data: null, error: alreadyReady.error };
+    if (alreadyReady.data?.proposal_upload_status === "ready") {
+      return { data: { ...alreadyReady.data, idempotentReplay: true }, error: null };
+    }
+    return {
+      data: null,
+      error: new Error("Proposal upload state transition was not allowed.")
+    };
+  }
+  return { data: { ...transition.data, idempotentReplay: false }, error: null };
+}
+
+export async function failAdminRenewalProposalUpload(input: {
+  organizationId: string;
+  contractId: string;
+  quoteFileId: string;
+  failureCode: "proposal_extraction_failed" | "proposal_comparison_failed" | "proposal_no_comparable_terms";
+}) {
+  const client = admin();
+  const scoped = await client.from("contracts").select("id")
+    .eq("organization_id", input.organizationId).eq("id", input.contractId).maybeSingle();
+  if (scoped.error || !scoped.data) return { cleaned: false, error: scoped.error as Error | null };
+  const file = await client.from("contract_files")
+    .select("storage_path, proposal_upload_status, storage_deleted_at")
+    .eq("contract_id", input.contractId).eq("id", input.quoteFileId).maybeSingle();
+  if (file.error || !file.data) return { cleaned: false, error: file.error as Error | null };
+  if (file.data.proposal_upload_status === "ready") {
+    return { cleaned: false, error: new Error("Ready proposal uploads cannot be failed by cleanup.") };
+  }
+  const failed = await client.from("contract_files").update({
+    proposal_upload_status: "failed",
+    proposal_failure_code: input.failureCode,
+    extraction_error: "Proposal processing failed safely.",
+    extracted_text: null,
+    proposal_processed_at: new Date().toISOString()
+  } as never).eq("contract_id", input.contractId).eq("id", input.quoteFileId)
+    .neq("proposal_upload_status", "ready");
+  if (failed.error) return { cleaned: false, error: failed.error as Error };
+  if (!file.data.storage_deleted_at) {
+    const removed = await client.storage.from(getAppConfig().supabase.storageBucket)
+      .remove([String(file.data.storage_path)]);
+    if (removed.error) return { cleaned: false, error: removed.error as Error };
+    const deletionRecorded = await client.from("contract_files")
+      .update({ storage_deleted_at: new Date().toISOString() } as never)
+      .eq("contract_id", input.contractId).eq("id", input.quoteFileId);
+    if (deletionRecorded.error) return { cleaned: false, error: deletionRecorded.error as Error };
+  }
+  return { cleaned: true, error: null };
 }
 
 export async function insertAdminRenewalQuoteComparison(input: {

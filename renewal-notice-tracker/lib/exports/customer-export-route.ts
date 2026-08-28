@@ -156,6 +156,13 @@ export async function handleCustomerDataExport(format: CustomerExportDownloadFor
       auditSafeHistory: json.datasets.auditSafeHistory.length
     };
 
+    const artifact =
+      format === "json"
+        ? json
+        : format === "xlsx"
+          ? buildCustomerExportWorkbookBuffer(bundle)
+          : buildLeadershipSummaryPdfBuffer(bundle);
+
     await recordCustomerExportCreated({
       organizationId: context.organizationId,
       actorUserId: context.user.id,
@@ -165,7 +172,7 @@ export async function handleCustomerDataExport(format: CustomerExportDownloadFor
     });
 
     if (format === "json") {
-      return NextResponse.json(json, {
+      return NextResponse.json(artifact, {
         headers: {
           "Content-Disposition": 'attachment; filename="noticecontrol-customer-data-export.json"'
         }
@@ -173,7 +180,7 @@ export async function handleCustomerDataExport(format: CustomerExportDownloadFor
     }
 
     if (format === "xlsx") {
-      return new NextResponse(new Uint8Array(buildCustomerExportWorkbookBuffer(bundle)), {
+      return new NextResponse(new Uint8Array(artifact as Buffer), {
         headers: {
           "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
           "Content-Disposition": 'attachment; filename="noticecontrol-customer-data-export.xlsx"'
@@ -181,7 +188,7 @@ export async function handleCustomerDataExport(format: CustomerExportDownloadFor
       });
     }
 
-    return new NextResponse(buildLeadershipSummaryPdfBuffer(bundle), {
+    return new NextResponse(new Uint8Array(artifact as Buffer), {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": 'attachment; filename="noticecontrol-leadership-summary.pdf"'

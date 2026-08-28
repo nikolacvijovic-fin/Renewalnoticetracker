@@ -53,6 +53,8 @@ describe("CustomerExportCenterPage", () => {
     expect(screen.getByText(/Spreadsheet and JSON SaaS opt-out datasets are intentionally deferred/i)).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: /JSON/i }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("link", { name: /PDF/i }).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Leadership summary only: headline counts and up to eight urgent rows/i)).toBeInTheDocument();
+    expect(screen.getByText(/Trusted upcoming deadline calendar only/i)).toBeInTheDocument();
     expect(container.innerHTML).toContain("Raw contract text");
     expect(container.innerHTML).toContain("provider payloads");
   }, 30000);

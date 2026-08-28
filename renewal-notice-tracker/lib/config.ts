@@ -101,6 +101,8 @@ function validateProductionSecret(
 }
 
 const rawEnvBaseSchema = z.object({
+  CI: optionalEnum(["true", "false"]),
+  NOTICECONTROL_CONFIG_VALIDATION_MODE: optionalEnum(["runtime", "ci_build"]),
   NODE_ENV: optionalEnum(["development", "test", "production"]),
   VERCEL_ENV: optionalEnum(["development", "preview", "production"]),
   APP_ENV: optionalNonEmptyString,
@@ -258,7 +260,9 @@ const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
     }
   }
 
-  if (!isProductionConfigSource(value)) {
+  const isExplicitCiBuild =
+    value.CI === "true" && value.NOTICECONTROL_CONFIG_VALIDATION_MODE === "ci_build";
+  if (!isProductionConfigSource(value) || isExplicitCiBuild) {
     return;
   }
 

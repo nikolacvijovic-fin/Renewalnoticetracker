@@ -379,6 +379,22 @@ describe("runtime configuration", () => {
     }
   });
 
+  it("allows build-only placeholders only through the explicit CI build boundary", () => {
+    const ciBuild = makeValidEnv({
+      NODE_ENV: "production",
+      CI: "true",
+      NOTICECONTROL_CONFIG_VALIDATION_MODE: "ci_build",
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder",
+      SUPABASE_SERVICE_ROLE_KEY: "placeholder"
+    });
+
+    expect(() => parseAppConfig(ciBuild)).not.toThrow();
+    expect(() => parseAppConfig({ ...ciBuild, CI: "false" })).toThrow(ConfigValidationError);
+    expect(() => parseAppConfig({ ...ciBuild, NOTICECONTROL_CONFIG_VALIDATION_MODE: "runtime" })).toThrow(
+      ConfigValidationError
+    );
+  });
+
   it("accepts explicitly production-safe config values", () => {
     const config = parseAppConfig(
       makeValidEnv({

@@ -34,8 +34,8 @@ export type Database = {
         Relationships: [];
       };
       contract_files: {
-        Row: { id: string; contract_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; extracted_text: string | null; extraction_error: string | null; extraction_source: string; ocr_provider: string | null; ocr_status: string | null; ocr_confidence: number | null; ocr_detected_needed: boolean; uploaded_at: string; uploaded_by: string };
-        Insert: { id?: string; contract_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; extracted_text?: string | null; extraction_error?: string | null; extraction_source?: string; ocr_provider?: string | null; ocr_status?: string | null; ocr_confidence?: number | null; ocr_detected_needed?: boolean; uploaded_at?: string; uploaded_by: string };
+        Row: { id: string; contract_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; extracted_text: string | null; extraction_error: string | null; extraction_source: string; ocr_provider: string | null; ocr_status: string | null; ocr_confidence: number | null; ocr_detected_needed: boolean; proposal_upload_status: string | null; proposal_content_hash: string | null; proposal_failure_code: string | null; proposal_processed_at: string | null; storage_deleted_at: string | null; uploaded_at: string; uploaded_by: string };
+        Insert: { id?: string; contract_id: string; storage_path: string; file_name: string; mime_type: string; size_bytes: number; extracted_text?: string | null; extraction_error?: string | null; extraction_source?: string; ocr_provider?: string | null; ocr_status?: string | null; ocr_confidence?: number | null; ocr_detected_needed?: boolean; proposal_upload_status?: string | null; proposal_content_hash?: string | null; proposal_failure_code?: string | null; proposal_processed_at?: string | null; storage_deleted_at?: string | null; uploaded_at?: string; uploaded_by: string };
         Update: Partial<Database["public"]["Tables"]["contract_files"]["Insert"]>;
         Relationships: [];
       };
@@ -424,7 +424,7 @@ export type Database = {
         Relationships: [];
       };
       contract_commercial_baseline_line_items: {
-        Row: { id: string; organization_id: string; contract_id: string; baseline_id: string; line_key: string; product_name: string; sku: string | null; charge_type: string; pricing_model: string; billing_period: string; quantity: number | null; unit_price: number | null; total_amount: number | null; annualized_amount: number; total_commitment_amount: number; currency: string; term_months: number | null; service_period_months: number | null; discount_amount: number | null; discount_percent: number | null; evidence_field_ids: string[]; warning_codes: string[]; created_at: string };
+        Row: { id: string; organization_id: string; contract_id: string; baseline_id: string; line_key: string; product_name: string; sku: string | null; charge_type: string; pricing_model: string; billing_period: string; quantity: number | null; unit_price: number | null; total_amount: number | null; one_time_amount: number; annualized_amount: number; total_commitment_amount: number; currency: string; term_months: number | null; service_period_months: number | null; discount_amount: number | null; discount_percent: number | null; evidence_field_ids: string[]; warning_codes: string[]; created_at: string };
         Insert: Omit<Database["public"]["Tables"]["contract_commercial_baseline_line_items"]["Row"], "id" | "created_at"> & { id?: string; created_at?: string };
         Update: never;
         Relationships: [];
@@ -436,13 +436,13 @@ export type Database = {
         Relationships: [];
       };
       renewal_quote_proposal_line_items: {
-        Row: { id: string; organization_id: string; contract_id: string; proposal_version_id: string; line_key: string; product_name: string; sku: string | null; charge_type: string; pricing_model: string; billing_period: string; quantity: number | null; unit_price: number | null; total_amount: number | null; annualized_amount: number; total_commitment_amount: number; currency: string; term_months: number | null; service_period_months: number | null; discount_amount: number | null; discount_percent: number | null; evidence_field_ids: string[]; citations: Json; warning_codes: string[]; created_at: string };
+        Row: { id: string; organization_id: string; contract_id: string; proposal_version_id: string; line_key: string; product_name: string; sku: string | null; charge_type: string; pricing_model: string; billing_period: string; quantity: number | null; unit_price: number | null; total_amount: number | null; one_time_amount: number; annualized_amount: number; total_commitment_amount: number; currency: string; term_months: number | null; service_period_months: number | null; discount_amount: number | null; discount_percent: number | null; evidence_field_ids: string[]; citations: Json; warning_codes: string[]; created_at: string };
         Insert: Omit<Database["public"]["Tables"]["renewal_quote_proposal_line_items"]["Row"], "id" | "created_at"> & { id?: string; created_at?: string };
         Update: Partial<Database["public"]["Tables"]["renewal_quote_proposal_line_items"]["Insert"]>;
         Relationships: [];
       };
       renewal_quote_cost_bridges: {
-        Row: { id: string; organization_id: string; contract_id: string; comparison_id: string; baseline_id: string; proposal_version_id: string; status: string; currency: string | null; current_annual_cost: number | null; proposed_annual_cost: number | null; attributed_delta: number | null; residual_amount: number | null; components: Json; explanation: string; limitation_codes: string[]; calculation_version: string; evidence_fingerprint: string; created_at: string };
+        Row: { id: string; organization_id: string; contract_id: string; comparison_id: string; baseline_id: string; proposal_version_id: string; status: string; currency: string | null; current_annual_cost: number | null; proposed_annual_cost: number | null; current_one_time_cost: number | null; proposed_one_time_cost: number | null; current_commitment_cost: number | null; proposed_commitment_cost: number | null; attributed_delta: number | null; residual_amount: number | null; recurring_delta: number | null; one_time_delta: number | null; attributed_recurring_delta: number | null; attributed_one_time_delta: number | null; residual_recurring_amount: number | null; residual_one_time_amount: number | null; components: Json; explanation: string; limitation_codes: string[]; calculation_version: string; evidence_fingerprint: string; created_at: string };
         Insert: Omit<Database["public"]["Tables"]["renewal_quote_cost_bridges"]["Row"], "id" | "created_at"> & { id?: string; created_at?: string };
         Update: never;
         Relationships: [];
@@ -465,6 +465,10 @@ export type Database = {
       create_reviewed_commercial_baseline: {
         Args: { p_organization_id: string; p_contract_id: string; p_source_extraction_run_id: string; p_source_extraction_run_ids: string[]; p_source_file_ids: string[]; p_effective_date: string | null; p_reviewed_by_user_id: string; p_calculation_version: string; p_completeness_status: string; p_missing_data_warnings: string[]; p_evidence_field_ids: string[]; p_evidence_fingerprint: string; p_terms_snapshot: Json; p_line_items: Json };
         Returns: string;
+      };
+      persist_commercial_comparison_transaction: {
+        Args: { p_organization_id: string; p_contract_id: string; p_actor_user_id: string; p_baseline_id: string; p_quote_file_id: string | null; p_idempotency_key: string; p_payload: Json };
+        Returns: Json;
       };
       approve_renewal_decision_version: {
         Args: { p_organization_id: string; p_decision_id: string; p_expected_version: number; p_reviewer_note?: string | null };

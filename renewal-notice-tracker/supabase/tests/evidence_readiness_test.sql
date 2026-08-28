@@ -17,7 +17,7 @@ on conflict (id) do nothing;
 insert into public.memberships (organization_id, user_id, role)
 values
   ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-0000000000a1', 'owner'),
-  ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000a2', 'member')
+  ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000a2', 'reviewer')
 on conflict do nothing;
 
 insert into public.contracts (id, organization_id, created_by, status, source_type)

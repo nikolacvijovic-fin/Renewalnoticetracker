@@ -17,7 +17,7 @@ on conflict (id) do nothing;
 insert into public.memberships (organization_id, user_id, role)
 values
   ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000081', 'owner'),
-  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000082', 'member')
+  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000082', 'reviewer')
 on conflict do nothing;
 
 insert into public.subscription_usage_provider_connections (
@@ -56,7 +56,7 @@ select throws_ok(
     'microsoft_365', 'paid-beta-interval', false
   )$$,
   '42501', 'Insufficient organization role',
-  'ordinary members cannot begin manual synchronization'
+  'reviewers cannot begin privileged manual synchronization'
 );
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000081';
