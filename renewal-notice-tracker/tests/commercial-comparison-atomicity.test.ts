@@ -24,6 +24,17 @@ describe("atomic commercial comparison persistence", () => {
     expect(migration).toContain("to service_role");
   });
 
+  it("serializes a contract context before checking the idempotency record", () => {
+    const advisoryLock = migration.indexOf("perform pg_advisory_xact_lock");
+    const idempotencyLookup = migration.indexOf("and c.idempotency_key = p_idempotency_key");
+
+    expect(advisoryLock).toBeGreaterThan(-1);
+    expect(idempotencyLookup).toBeGreaterThan(advisoryLock);
+    expect(migration).toContain(
+      "on public.renewal_quote_comparisons (organization_id, contract_id, idempotency_key)"
+    );
+  });
+
   it("does not describe independent application writes as a transaction", () => {
     expect(service).toContain("persistAdminCommercialComparisonTransaction");
     expect(service).not.toContain("insertAdminProposalVersion");
@@ -47,5 +58,20 @@ describe("atomic commercial comparison persistence", () => {
     ]) {
       expect(migration).toContain(column);
     }
+  });
+
+  it("has executable database proof for rollback, scope mismatches, permissions, and split costs", () => {
+    const databaseTest = readFileSync(
+      resolve(process.cwd(), "supabase/tests/commercial_comparison_atomicity_test.sql"),
+      "utf8"
+    );
+
+    expect(databaseTest).toContain("the failed RPC leaves no partial comparison");
+    expect(databaseTest).toContain("commercial comparison contract organization mismatch");
+    expect(databaseTest).toContain("commercial comparison baseline organization mismatch");
+    expect(databaseTest).toContain("commercial comparison proposal file organization mismatch");
+    expect(databaseTest).toContain("anonymous callers cannot execute");
+    expect(databaseTest).toContain("authenticated callers cannot execute");
+    expect(databaseTest).toContain("recurring, one-time, commitment, and residual amounts persist independently");
   });
 });
