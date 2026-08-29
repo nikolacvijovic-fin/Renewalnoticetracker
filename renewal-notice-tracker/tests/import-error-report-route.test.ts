@@ -43,7 +43,7 @@ describe("import error report route", () => {
   it("exports only the active organization's row-level import rescue report", async () => {
     const { GET } = await import("@/app/dashboard/contracts/imports/[id]/errors/route");
     const response = await GET(new Request("http://localhost"), {
-      params: { id: "job-1" }
+      params: Promise.resolve({ id: "job-1" })
     });
 
     expect(getScopedImportJobErrorReport).toHaveBeenCalledWith("job-1", "org-1");

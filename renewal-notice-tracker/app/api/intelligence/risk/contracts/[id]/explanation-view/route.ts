@@ -41,10 +41,10 @@ export const POST = createRouteHandler<
     calculationVersion: string;
     inputDataVersion: string;
   },
-  { params: { id: string } }
+  { params: Promise<{ id: string }> }
 >(
   {
-    auth: requireOrganizationRouteAuth<{ params: { id: string } }>(),
+    auth: requireOrganizationRouteAuth<{ params: Promise<{ id: string }> }>(),
     parse: async ({ request }) => {
       const body = await parseJsonBody<{
         sourceSurface?: unknown;
@@ -129,8 +129,9 @@ export const POST = createRouteHandler<
     }
   },
   async ({ auth: context, input: body, routeContext, noContent }) => {
+    const { id } = await routeContext!.params;
     const contract = await getContractRiskAuditContext(
-      routeContext!.params.id,
+      id,
       context.organizationId
     );
     if (!contract) {

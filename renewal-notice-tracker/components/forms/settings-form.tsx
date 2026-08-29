@@ -3,6 +3,7 @@ import {
   saveProfileSettingsAction,
   setActiveOrganizationAction
 } from "@/lib/actions/settings";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -197,18 +198,18 @@ export function SettingsForm({
             auditable, and owner-only.
           </p>
           <div className="flex flex-wrap gap-3">
-            <a
+            <Link
               href="/dashboard/contracts/export/csv"
               className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-ink transition hover:border-brand-400 hover:text-brand-700"
             >
               Export contracts as CSV
-            </a>
-            <a
+            </Link>
+            <Link
               href="/dashboard/contracts/export/xlsx"
               className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-ink transition hover:border-brand-400 hover:text-brand-700"
             >
               Export contracts as Excel
-            </a>
+            </Link>
             <ServerActionForm serverAction={requestWorkspaceDeletionAction}>
               <Button type="submit" variant="secondary">
                 Request workspace deletion

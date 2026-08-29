@@ -639,13 +639,13 @@ afterEach(() => {
 async function renderContractDetailForCurrentBilling() {
   cleanup();
   const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
-  render(await Page({ params: { id: "contract-1" } }));
+  render(await Page({ params: Promise.resolve({ id: "contract-1" }) }));
 }
 
 async function renderContractsListForCurrentBilling(searchParams: Record<string, string> = {}) {
   cleanup();
   const Page = (await import("@/app/dashboard/contracts/page")).default;
-  render(await Page({ searchParams }));
+  render(await Page({ searchParams: Promise.resolve(searchParams) }));
 }
 
 async function getSharedContractsListRiskViewerExpectation(input: {

@@ -62,7 +62,7 @@ describe("risk explanation view audit route", () => {
           inputDataVersion: "trusted_workflow_state.v1"
         })
       }),
-      { params: { id: "contract-1" } }
+      { params: Promise.resolve({ id: "contract-1" }) }
     );
 
     expect(response.status).toBe(204);
@@ -100,7 +100,7 @@ describe("risk explanation view audit route", () => {
           riskBand: "critical"
         })
       }),
-      { params: { id: "contract-1" } }
+      { params: Promise.resolve({ id: "contract-1" }) }
     );
 
     expect(response.status).toBe(400);
@@ -137,7 +137,7 @@ describe("risk explanation view audit route", () => {
           inputDataVersion: "trusted_workflow_state.v1"
         })
       }),
-      { params: { id: "contract-1" } }
+      { params: Promise.resolve({ id: "contract-1" }) }
     );
 
     expect(response.status).toBe(403);

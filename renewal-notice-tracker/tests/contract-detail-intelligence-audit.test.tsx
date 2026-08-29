@@ -377,7 +377,7 @@ describe("Contract detail intelligence audit semantics", () => {
     });
 
     const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
-    render(await Page({ params: { id: "contract-1" } }));
+    render(await Page({ params: Promise.resolve({ id: "contract-1" }) }));
 
     expect(auditRiskBadgeViewed).toHaveBeenCalledWith({
       organizationId: "org-1",
@@ -408,7 +408,7 @@ describe("Contract detail intelligence audit semantics", () => {
     });
 
     const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
-    render(await Page({ params: { id: "contract-1" } }));
+    render(await Page({ params: Promise.resolve({ id: "contract-1" }) }));
 
     expect(auditRiskBadgeViewed).toHaveBeenCalledWith(
       expect.objectContaining({

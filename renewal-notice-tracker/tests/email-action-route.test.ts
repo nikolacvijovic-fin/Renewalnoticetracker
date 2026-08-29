@@ -31,7 +31,7 @@ describe("email action route", () => {
 
     const { GET } = await import("@/app/api/email-actions/[action]/[token]/route");
     const response = await GET(new Request("http://localhost") as never, {
-      params: { action: "acknowledge", token: "token-1" }
+      params: Promise.resolve({ action: "acknowledge", token: "token-1" })
     });
 
     expect(response.status).toBe(303);
@@ -47,7 +47,7 @@ describe("email action route", () => {
 
     const { GET } = await import("@/app/api/email-actions/[action]/[token]/route");
     const response = await GET(new Request("http://localhost") as never, {
-      params: { action: "acknowledge", token: "token-1" }
+      params: Promise.resolve({ action: "acknowledge", token: "token-1" })
     });
 
     expect(response.status).toBe(410);
@@ -65,7 +65,7 @@ describe("email action route", () => {
 
     const { GET } = await import("@/app/api/email-actions/[action]/[token]/route");
     const wrongActionResponse = await GET(new Request("http://localhost") as never, {
-      params: { action: "acknowledge", token: "token-1" }
+      params: Promise.resolve({ action: "acknowledge", token: "token-1" })
     });
 
     expect(wrongActionResponse.status).toBe(403);
@@ -80,7 +80,7 @@ describe("email action route", () => {
     );
 
     const wrongOrgResponse = await GET(new Request("http://localhost") as never, {
-      params: { action: "decision", token: "token-2" }
+      params: Promise.resolve({ action: "decision", token: "token-2" })
     });
 
     expect(wrongOrgResponse.status).toBe(403);

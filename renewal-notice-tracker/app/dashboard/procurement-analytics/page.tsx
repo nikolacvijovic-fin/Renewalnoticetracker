@@ -17,20 +17,21 @@ import { requireIntelligencePageContext } from "@/lib/intelligence/page-access";
 export default async function ProcurementAnalyticsPage({
   searchParams
 }: {
-  searchParams: {
+  searchParams: Promise<{
     department?: string;
     owner?: string;
     counterparty?: string;
     dueWindow?: string;
     trustStatus?: string;
-  };
+  }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const context = await requireIntelligencePageContext("procurement_dashboard");
 
   const { organizationId } = context;
   const dashboard = await getProcurementAnalyticsDashboard(
     organizationId,
-    buildProcurementAnalyticsDashboardQuery(searchParams)
+    buildProcurementAnalyticsDashboardQuery(resolvedSearchParams)
   );
   await auditProcurementAnalyticsViewed(
     buildProcurementAnalyticsViewedAuditPayload({

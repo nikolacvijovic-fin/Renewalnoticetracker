@@ -110,8 +110,9 @@ function actionStatusLabel(status: string) {
 export default async function DashboardPage({
   searchParams
 }: {
-  searchParams?: { segment?: string };
+  searchParams?: Promise<{ segment?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const { organizationId, user } = await requireOrganization();
   const [contracts, saasClock, saasImportBatches, myRenewalActions] = await Promise.all([
     getRenewalCommandCenterContracts(organizationId),
@@ -140,7 +141,7 @@ export default async function DashboardPage({
           rejectedCount: latestImportBatch.rows.filter((row) => row.status === "rejected").length
         }
       : null,
-    segment: (searchParams?.segment as RenewalRiskSegmentId | undefined) ?? null
+    segment: (resolvedSearchParams?.segment as RenewalRiskSegmentId | undefined) ?? null
   });
   const urgentRenewals = buildUrgentRenewalDashboard({ contracts });
   const topAction = commandCenter.recommendedActions[0] ?? null;

@@ -12,10 +12,11 @@ function statusTone(status: string) {
 export default async function AdminEnterpriseReadinessPage({
   searchParams
 }: {
-  searchParams?: { organizationId?: string };
+  searchParams?: Promise<{ organizationId?: string }>;
 }) {
   await requireInternalRole(["internal_admin", "internal_support"]);
-  const organizationId = searchParams?.organizationId?.trim() ?? "";
+  const resolvedSearchParams = await searchParams;
+  const organizationId = resolvedSearchParams?.organizationId?.trim() ?? "";
 
   if (!organizationId) {
     return (

@@ -19,10 +19,11 @@ import {
 export default async function NewContractPage({
   searchParams
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     commercial?: string;
-  };
+  }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const { organizationId } = await requireOrganization();
   const [members, billing, contractCount, latestImportJob] = await Promise.all([
     getOrganizationMembers(organizationId),
@@ -39,7 +40,7 @@ export default async function NewContractPage({
   const manualContractsAccess = getFeatureAccessResult(billingSnapshot, "manual_contracts");
   const multiRecipientAccess = getFeatureAccessResult(billingSnapshot, "multi_recipient_reminders");
   const contractTrackingAccess = getContractTrackingLimitResult(billingSnapshot, contractCount);
-  const commercialNotice = getCommercialNoticeFromCode(searchParams?.commercial);
+  const commercialNotice = getCommercialNoticeFromCode(resolvedSearchParams?.commercial);
   const allowedReminderRecipients = getAllowedReminderRecipients(
     billingSnapshot,
     ["ops@example.com", "finance@example.com"],

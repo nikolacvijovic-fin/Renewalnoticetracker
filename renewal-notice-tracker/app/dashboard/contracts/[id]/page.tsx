@@ -63,12 +63,13 @@ import { getSaasOptOutStatusForContract } from "@/lib/saas/queries";
 export default async function ContractDetailPage({
   params
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const context = await requireOrganization();
   const { organizationId } = context;
   const [contract, members, counterparties, organizationTimezone] = await Promise.all([
-    getContractById(params.id, organizationId).catch(() => null),
+    getContractById(id, organizationId).catch(() => null),
     getOrganizationMembers(organizationId),
     getCounterparties(organizationId),
     getOrganizationTimezone(organizationId)
