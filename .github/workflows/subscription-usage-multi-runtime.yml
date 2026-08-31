@@ -133,8 +133,14 @@ jobs:
         run: npm ci
       - name: Start isolated Supabase stack
         run: npx --yes supabase@2.39.2 start
-      - name: Run migration and RPC integration tests
-        run: npm run test:db:subscription-usage
+      - name: Test commercial comparison atomicity
+        run: npx --yes supabase@2.39.2 test db supabase/tests/commercial_comparison_atomicity_test.sql
+      - name: Test evidence readiness persistence
+        run: npx --yes supabase@2.39.2 test db supabase/tests/evidence_readiness_test.sql
+      - name: Test paid design-partner readiness
+        run: npx --yes supabase@2.39.2 test db supabase/tests/paid_design_partner_beta_readiness_test.sql
+      - name: Test subscription usage lifecycle
+        run: npx --yes supabase@2.39.2 test db supabase/tests/subscription_usage_lifecycle_stabilization_test.sql
       - name: Stop isolated Supabase stack
         if: always()
         run: npx --yes supabase@2.39.2 stop --no-backup
