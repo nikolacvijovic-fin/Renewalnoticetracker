@@ -25,7 +25,7 @@ values (
   '00000000-0000-0000-0000-0000000000c1',
   '00000000-0000-0000-0000-0000000000b1',
   '00000000-0000-0000-0000-0000000000a1',
-  'active',
+  'uploaded',
   'upload'
 ) on conflict (id) do nothing;
 
@@ -122,7 +122,8 @@ select throws_ok(
     '00000000-0000-0000-0000-0000000000b2',
     '00000000-0000-0000-0000-0000000000c1',
     'renewal_triage', 0, 'blocked', 'evidence-readiness-v1',
-    repeat('c', 64), 'Review the contract.', timezone('utc', now()), '[]'::jsonb
+    repeat('c', 64), 'Review the contract.', timezone('utc', now()),
+    '[{"requirementKey":"real_contract_source","label":"Real contract source","category":"contract_identity","state":"missing","weight":4,"earnedWeight":0,"isCritical":true,"evidenceSource":null,"sourceRecordId":null,"verifiedBy":null,"verifiedAt":null,"freshnessDate":null,"explanation":"The real contract source is missing.","recommendedAction":"Upload the current real contract."}]'::jsonb
   )$$,
   'P0001',
   'contract not found in organization',
