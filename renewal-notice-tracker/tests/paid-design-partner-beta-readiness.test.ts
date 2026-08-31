@@ -9,6 +9,8 @@ import { buildExecutiveValuePdf, buildExecutiveValueSummary, buildExecutiveValue
 
 const read = (...segments: string[]) => fs.readFileSync(path.join(process.cwd(), ...segments), "utf8");
 const migration = () => read("supabase", "migrations", "202608240001_paid_design_partner_beta_readiness.sql");
+const pgcryptoSearchPathFix = () =>
+  read("supabase", "migrations", "202608290003_subscription_usage_pgcrypto_search_path_fix.sql");
 
 const activeControl: DesignPartnerBetaControl = {
   organizationId: "org-1",
@@ -47,6 +49,18 @@ function reportInput() {
 }
 
 describe("paid design-partner beta readiness", () => {
+  it("resolves pgcrypto only through an explicit trusted function search path", () => {
+    const sql = pgcryptoSearchPathFix();
+
+    expect(sql).toContain(
+      "alter function public.create_subscription_usage_analysis_scope(uuid, uuid, boolean)"
+    );
+    expect(sql).toContain(
+      "alter function public.begin_manual_subscription_usage_sync_attempt(uuid, uuid, text, text, boolean)"
+    );
+    expect(sql.match(/set search_path = pg_catalog, public, extensions, pg_temp/g)).toHaveLength(2);
+  });
+
   it("excludes resolved findings from active queries and blocks historical review requests", () => {
     const page = read("app", "dashboard", "subscription-optimization", "page.tsx");
     const action = read("lib", "actions", "subscription-usage-optimization.ts");
