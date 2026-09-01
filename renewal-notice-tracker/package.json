@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --config vitest.config.mjs",
     "test:release-critical:session-org": "vitest run tests/auth-callback-route.test.ts tests/auth-context.test.ts tests/settings-actions-authz.test.ts --config vitest.config.mjs",
     "test:release-critical:authz": "vitest run tests/permissions.test.ts tests/contract-actions-tenant.test.ts tests/contract-queries-authz.test.ts tests/trust-sensitive-routes.test.ts tests/scoped-admin.test.ts tests/admin-actions.test.ts --config vitest.config.mjs",
