@@ -1,0 +1,6 @@
+.ci-tools/*.zip
+*.zip
+.ci-tools/
+*.zip
+*.exe
+tsconfig.tsbuildinfo
