@@ -176,6 +176,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Require every readiness job to pass
+        working-directory: .
         env:
           NODE_RESULT: ${{ needs.node-and-schema.result }}
           PYTHON_RESULT: ${{ needs.python.result }}
