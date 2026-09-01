@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { LEGAL_DISCLAIMER } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { SHIPPED_FIRST_SCOPE } from "@/lib/product/shipping-profile";
@@ -6,18 +7,28 @@ import { SHIPPED_FIRST_SCOPE } from "@/lib/product/shipping-profile";
 export default function HomePage() {
   return (
     <main className="page-shell py-12">
-      <section className="panel subtle-grid overflow-hidden p-8 lg:p-12">
-        <div className="max-w-3xl">
+      <section className="panel relative min-h-[620px] overflow-hidden p-8 sm:min-h-[590px] lg:flex lg:min-h-[650px] lg:items-center lg:p-12">
+        <Image
+          src="/images/noticecontrol-opt-out-clock-hero.png"
+          alt="Contract documents organized around a renewal deadline clock"
+          fill
+          priority
+          sizes="(max-width: 1024px) 100vw, 1200px"
+          className="object-cover object-center"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-white via-white/95 to-white/20" aria-hidden="true" />
+        <div className="absolute inset-0 bg-gradient-to-t from-white/90 via-transparent to-white/20 lg:hidden" aria-hidden="true" />
+        <div className="relative z-10 max-w-3xl">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-brand-700">
             Renewal / Notice Control
           </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+          <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
             Stop surprise auto-renewals before they become finance, procurement, or legal fire drills.
           </h1>
           <p className="mt-6 max-w-2xl text-lg text-slate-600">
             Turn buried notice dates into owners, reminders, and decisions without buying CLM. Upload one contract, review the essential dates, assign one owner, and make upcoming obligations visible before they slip.
           </p>
-          <div className="mt-6 grid gap-3 md:grid-cols-3">
+          <div className="mt-6 grid max-w-2xl gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
               Buyer sees value in one session: upload, review, owner, live obligation.
             </div>

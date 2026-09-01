@@ -95,6 +95,13 @@ import {
   applyManualPdfRenewalCorrections,
   preparePdfRenewalExtractionForReview
 } from "@/lib/contracts/pdf-renewal-control";
+import {
+  contractTitleFromPdfFileName,
+  hasContractPdfSignature,
+  sanitizeContractPdfFileName,
+  validateContractPdf,
+  type PdfContractUploadActionResult
+} from "@/lib/contracts/pdf-upload";
 import { REMINDER_RETRY_POLICY } from "@/lib/constants";
 import {
   type BillingSnapshot,
@@ -355,6 +362,7 @@ async function enforceContractTrackingCapacityOrRedirect(input: {
   featurePath: string;
   context: Record<string, unknown>;
   additionalContracts?: number;
+  redirectOnDenied?: boolean;
 }) {
   const currentCount = await getOrganizationContractCount(input.organizationId);
   const access = getContractTrackingLimitResult(
@@ -378,7 +386,18 @@ async function enforceContractTrackingCapacityOrRedirect(input: {
     }
   });
 
-  redirect(`${input.featurePath}?commercial=billing.contract_tracking_limit_reached`);
+  if (input.redirectOnDenied !== false) {
+    redirect(`${input.featurePath}?commercial=billing.contract_tracking_limit_reached`);
+  }
+
+  throw new ContractTrackingCapacityError();
+}
+
+class ContractTrackingCapacityError extends Error {
+  constructor() {
+    super("Contract tracking capacity has been reached.");
+    this.name = "ContractTrackingCapacityError";
+  }
 }
 
 async function findOrCreateCounterparty(params: {
@@ -685,7 +704,10 @@ async function regenerateSystemReminders(params: {
   };
 }
 
-export async function createContractAction(formData: FormData) {
+async function createContractFromUpload(
+  formData: FormData,
+  options: { redirectOnSuccess: boolean }
+): Promise<PdfContractUploadActionResult> {
   const { user, organizationId } = await requireShippedRuntimeAction("upload_import");
   const file = formData.get("file");
   const contractTitle = formData.get("contractTitle");
@@ -707,13 +729,21 @@ export async function createContractAction(formData: FormData) {
     sizeBytes: file.size
   });
 
+  if (ownerUserId) {
+    const members = await getOrganizationMembers(organizationId);
+    if (!members.some((member) => member.user_id === ownerUserId)) {
+      throw new Error("Assigned owner must be a member of the active organization.");
+    }
+  }
+
   const billingSnapshot = await getBillingSnapshot(organizationId);
   const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
     organizationId,
     actorUserId: user.id,
     billingSnapshot,
     featurePath: "/dashboard/contracts/new",
-    context: { source: "upload_contract_action" }
+    context: { source: "upload_contract_action" },
+    redirectOnDenied: options.redirectOnSuccess
   });
   await enforceDesignPartnerBetaMutation({
     organizationId,
@@ -726,7 +756,9 @@ export async function createContractAction(formData: FormData) {
       : await getDefaultRecipients(user.id, organizationId);
   let recipients: string[];
   try {
-    recipients = getAllowedReminderRecipients(billingSnapshot, parsedRecipients, { strict: true });
+    recipients = getAllowedReminderRecipients(billingSnapshot, parsedRecipients, {
+      strict: options.redirectOnSuccess
+    });
   } catch (error) {
     if (error instanceof CommercialAccessError) {
       await createCommercialDenialAuditLog({
@@ -736,7 +768,9 @@ export async function createContractAction(formData: FormData) {
         billingSnapshot,
         context: { source: "upload_contract_action" }
       });
-      redirectWithCommercialCode("/dashboard/contracts/new", error.feature, error.access.reason);
+      if (options.redirectOnSuccess) {
+        redirectWithCommercialCode("/dashboard/contracts/new", error.feature, error.access.reason);
+      }
     }
     throw error;
   }
@@ -1098,7 +1132,108 @@ export async function createContractAction(formData: FormData) {
   }).catch(() => null);
 
   revalidatePath("/dashboard");
-  redirect(`/dashboard/contracts/${contract.id}`);
+  revalidatePath("/dashboard/saas-opt-out-clock");
+
+  const result: PdfContractUploadActionResult = {
+    ok: true,
+    contractId: contract.id,
+    contractFileId: contractFile.id,
+    contractPath: `/dashboard/contracts/${contract.id}`,
+    extractionStatus: finalStatus,
+    needsReview: true,
+    reviewReasons: pdfRenewalReviewReasons,
+    safeMessage:
+      finalStatus === "extraction_failed"
+        ? "The PDF was uploaded, but extraction needs attention. Open the contract to retry or enter the fields manually."
+        : "The PDF was extracted and is ready for human review."
+  };
+
+  if (options.redirectOnSuccess) {
+    redirect(result.contractPath);
+  }
+
+  return result;
+}
+
+export async function createContractAction(formData: FormData) {
+  return createContractFromUpload(formData, { redirectOnSuccess: true });
+}
+
+export async function uploadSaasOptOutClockPdfAction(
+  formData: FormData
+): Promise<PdfContractUploadActionResult> {
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return {
+      ok: false,
+      errorCode: "invalid_file_type",
+      safeMessage: "Choose a PDF contract to upload."
+    };
+  }
+
+  const validation = validateContractPdf(file);
+  if (!validation.ok) {
+    return {
+      ok: false,
+      errorCode: validation.code,
+      safeMessage: validation.safeMessage
+    };
+  }
+
+  if (!(await hasContractPdfSignature(file))) {
+    return {
+      ok: false,
+      errorCode: "invalid_file_type",
+      safeMessage: "The selected file is not a valid PDF contract."
+    };
+  }
+
+  const safeFileName = sanitizeContractPdfFileName(file.name);
+  const normalizedFormData = new FormData();
+  normalizedFormData.set(
+    "file",
+    safeFileName === file.name
+      ? file
+      : new File([file], safeFileName, {
+          type: "application/pdf",
+          lastModified: file.lastModified
+        })
+  );
+  normalizedFormData.set(
+    "contractTitle",
+    String(formData.get("contractTitle") ?? "").trim() || contractTitleFromPdfFileName(safeFileName)
+  );
+
+  const ownerUserId = formData.get("owner_user_id");
+  if (typeof ownerUserId === "string" && ownerUserId) {
+    normalizedFormData.set("owner_user_id", ownerUserId);
+  }
+
+  try {
+    return await createContractFromUpload(normalizedFormData, { redirectOnSuccess: false });
+  } catch (error) {
+    if (error instanceof ContractTrackingCapacityError) {
+      return {
+        ok: false,
+        errorCode: "contract_limit_reached",
+        safeMessage: "Your tracked contract limit has been reached. Add capacity before uploading another PDF."
+      };
+    }
+
+    if (error instanceof CommercialAccessError) {
+      return {
+        ok: false,
+        errorCode: "permission_denied",
+        safeMessage: error.access.message
+      };
+    }
+
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "The PDF could not be processed safely. Retry the upload or add the contract manually."
+    };
+  }
 }
 
 export async function createManualContractAction(formData: FormData) {
