@@ -201,7 +201,7 @@ select throws_ok(
     '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000051',
     '00000000-0000-0000-0000-000000000041', 'manual_csv', null, null, '[]'::jsonb
   )$$,
-  '42501', 'Insufficient organization role',
+  '42501', 'Analysis scope mismatch',
   'finding persistence cannot cross organization scope'
 );
 
