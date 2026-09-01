@@ -1,6 +1,7 @@
-.ci-tools/*.zip
-*.zip
 .ci-tools/
-*.zip
 *.exe
-tsconfig.tsbuildinfo
+*.tsbuildinfo
+*.zip
+/noticecontrol-ci-repair/
+/noticecontrol-ux-hardening/
+/t run
