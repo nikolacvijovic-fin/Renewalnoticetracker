@@ -83,9 +83,10 @@ public final class GoogleWorkspaceUsageInventoryConnector implements UsageInvent
       warnings.add("purchased_seats_unavailable");
       warnings.add("activity_uses_account_login_proxy");
       String collectedAt = Instant.now().toString();
+      ActivityEvidence activityEvidence = activity;
       List<UsageInventoryRecord> records = assignments.entrySet().stream()
           .limit(Math.min(Math.max(request.pageSize(), 1), MAX_PAGE_SIZE))
-          .map(entry -> buildRecord(entry.getKey(), entry.getValue(), activity, collectedAt, warnings))
+          .map(entry -> buildRecord(entry.getKey(), entry.getValue(), activityEvidence, collectedAt, warnings))
           .toList();
       return new UsageInventorySnapshotResult(
           true,
@@ -219,8 +220,8 @@ public final class GoogleWorkspaceUsageInventoryConnector implements UsageInvent
 
   HttpRequest buildProviderRequest(URI uri, String token, String method) {
     if (!"GET".equals(method)) throw new GoogleConnectorException("mutation_method_forbidden");
-    boolean allowedEndpoint = isAllowedEndpoint(uri, licensingBaseUri)
-        || isAllowedEndpoint(uri, adminReportsBaseUri);
+    boolean allowedEndpoint = isAllowedEndpoint(uri, licensingBaseUrl)
+        || isAllowedEndpoint(uri, adminBaseUrl);
     if (!allowedEndpoint) throw new GoogleConnectorException("provider_endpoint_forbidden");
     return HttpRequest.newBuilder(uri)
         .timeout(requestTimeout)

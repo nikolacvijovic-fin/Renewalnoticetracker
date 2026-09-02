@@ -28,16 +28,17 @@ function memberLabel(
 export default async function CommercialDecisionPage({
   params
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const context = await requireOrganization();
-  const scopedContract = await requireScopedContract(params.id, context.organizationId).catch(() => null);
+  const scopedContract = await requireScopedContract(id, context.organizationId).catch(() => null);
   if (!scopedContract) notFound();
 
   const [workbench, members] = await Promise.all([
     getCommercialDecisionWorkbench({
       organizationId: context.organizationId,
-      contractId: params.id
+      contractId: id
     }),
     getOrganizationMembers(context.organizationId)
   ]);
@@ -55,7 +56,7 @@ export default async function CommercialDecisionPage({
     : null;
   const evidenceReadiness = await getLatestEvidenceReadiness({
     organizationId: context.organizationId,
-    contractId: params.id
+    contractId: id
   });
   const canAct = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
   const canReassignApprover = hasRequiredRole(context.role, ["admin", "operator"]);
@@ -64,12 +65,12 @@ export default async function CommercialDecisionPage({
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="secondary">
-          <a href={`/dashboard/contracts/${params.id}`}>Back to contract</a>
+          <a href={`/dashboard/contracts/${id}`}>Back to contract</a>
         </Button>
         <Button asChild variant="secondary">
           <a href="/dashboard/renewal-workspace">Renewal portfolio</a>
         </Button>
-        <form action={refreshEvidenceReadinessFormAction.bind(null, params.id)}>
+        <form action={refreshEvidenceReadinessFormAction.bind(null, id)}>
           <Button type="submit" variant="secondary">Refresh evidence</Button>
         </form>
       </div>
@@ -98,7 +99,7 @@ export default async function CommercialDecisionPage({
           />
           {renewalWorkspace ? (
             <RenewalWorkspaceExtensionPanel
-              contractId={params.id}
+              contractId={id}
               decision={workbench.decision}
               extension={renewalWorkspace}
               members={members.map((member) => ({
@@ -110,7 +111,7 @@ export default async function CommercialDecisionPage({
           ) : null}
         </>
       ) : (
-        <CommercialDecisionEmptyState contractId={params.id} canCreate={canAct} />
+        <CommercialDecisionEmptyState contractId={id} canCreate={canAct} />
       )}
     </section>
   );

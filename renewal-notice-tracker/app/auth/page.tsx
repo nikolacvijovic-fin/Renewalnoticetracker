@@ -4,11 +4,12 @@ import { Input } from "@/components/ui/input";
 import { ServerActionForm } from "@/components/ui/server-action-form";
 import { signInAction, signUpAction } from "@/lib/actions/auth";
 
-export default function AuthPage({
+export default async function AuthPage({
   searchParams
 }: {
-  searchParams: { message?: string; source?: string; campaign?: string };
+  searchParams: Promise<{ message?: string; source?: string; campaign?: string }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   return (
     <main className="page-shell flex min-h-screen items-center justify-center py-12">
       <div className="grid w-full max-w-4xl gap-6 lg:grid-cols-[1.1fr_0.9fr]">
@@ -30,8 +31,8 @@ export default function AuthPage({
             <h2 className="text-xl font-semibold">Sign in</h2>
             <p className="mt-2 text-sm text-slate-500">Use a passwordless link for the fastest supported flow.</p>
             <ServerActionForm serverAction={signInAction} className="mt-6 space-y-4">
-              <input type="hidden" name="source" value={searchParams.source ?? ""} />
-              <input type="hidden" name="campaign" value={searchParams.campaign ?? ""} />
+              <input type="hidden" name="source" value={resolvedSearchParams.source ?? ""} />
+              <input type="hidden" name="campaign" value={resolvedSearchParams.campaign ?? ""} />
               <Input type="email" name="email" placeholder="you@company.com" required />
               <Button type="submit" className="w-full">
                 Send sign-in link
@@ -45,8 +46,8 @@ export default function AuthPage({
               New users can bootstrap an account and finish organization setup after the first sign-in.
             </p>
             <ServerActionForm serverAction={signUpAction} className="mt-6 space-y-4">
-              <input type="hidden" name="source" value={searchParams.source ?? ""} />
-              <input type="hidden" name="campaign" value={searchParams.campaign ?? ""} />
+              <input type="hidden" name="source" value={resolvedSearchParams.source ?? ""} />
+              <input type="hidden" name="campaign" value={resolvedSearchParams.campaign ?? ""} />
               <Input type="email" name="email" placeholder="founder@company.com" required />
               <Button type="submit" variant="secondary" className="w-full">
                 Send account setup link
@@ -61,9 +62,9 @@ export default function AuthPage({
                 Reset password
               </Link>
             </p>
-            {searchParams.message ? (
+            {resolvedSearchParams.message ? (
               <p className="mt-3 rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-900">
-                {searchParams.message}
+                {resolvedSearchParams.message}
               </p>
             ) : null}
           </div>

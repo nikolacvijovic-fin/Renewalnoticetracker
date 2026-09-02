@@ -23,7 +23,7 @@ import { getSaasOptOutStatusesForContracts } from "@/lib/saas/queries";
 export default async function ContractsPage({
   searchParams
 }: {
-  searchParams: {
+  searchParams: Promise<{
     filter?: string;
     owner?: string;
     department?: string;
@@ -36,18 +36,19 @@ export default async function ContractsPage({
     unassignedDepartment?: string;
     contractIds?: string;
     procurementView?: string;
-  };
+  }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const context = await requireOrganization();
   const { organizationId } = context;
-  const filter = CONTRACT_FILTERS.includes((searchParams.filter ?? "all") as never)
-    ? (searchParams.filter ?? "all")
+  const filter = CONTRACT_FILTERS.includes((resolvedSearchParams.filter ?? "all") as never)
+    ? (resolvedSearchParams.filter ?? "all")
     : "all";
   const [contracts, facets, intelligenceAccess] = await Promise.all([
     getContracts(organizationId, filter as never, {
-      ownerUserId: searchParams.owner,
-      department: searchParams.department,
-      statusTag: searchParams.statusTag
+      ownerUserId: resolvedSearchParams.owner,
+      department: resolvedSearchParams.department,
+      statusTag: resolvedSearchParams.statusTag
     }),
     getContractFacets(organizationId),
     getIntelligenceSurfaceAccessMap({
@@ -58,16 +59,16 @@ export default async function ContractsPage({
   ]);
   const billingSnapshot = intelligenceAccess.billingSnapshot;
   const exportAccess = getFeatureAccessResult(billingSnapshot, "exports");
-  const commercialNotice = getCommercialNoticeFromCode(searchParams.commercial);
-  const financialDrilldownDescription = describeFinancialDrilldown(searchParams);
+  const commercialNotice = getCommercialNoticeFromCode(resolvedSearchParams.commercial);
+  const financialDrilldownDescription = describeFinancialDrilldown(resolvedSearchParams);
   const contractIds = new Set(
-    (searchParams.contractIds ?? "")
+    (resolvedSearchParams.contractIds ?? "")
       .split(",")
       .map((value) => value.trim())
       .filter(Boolean)
   );
-  const procurementDrilldownDescription = describeProcurementDrilldown(searchParams.procurementView);
-  const filteredContracts = filterContractsForFinancialDrilldown(contracts, searchParams).filter(
+  const procurementDrilldownDescription = describeProcurementDrilldown(resolvedSearchParams.procurementView);
+  const filteredContracts = filterContractsForFinancialDrilldown(contracts, resolvedSearchParams).filter(
     (contract) => contractIds.size === 0 || contractIds.has(contract.id ?? "")
   );
   const riskBadgeAccess = intelligenceAccess.accessBySurface.risk_badge;
@@ -121,9 +122,9 @@ export default async function ContractsPage({
         facets={facets}
         current={{
           filter,
-          owner: searchParams.owner ?? "",
-          department: searchParams.department ?? "",
-          statusTag: searchParams.statusTag ?? ""
+          owner: resolvedSearchParams.owner ?? "",
+          department: resolvedSearchParams.department ?? "",
+          statusTag: resolvedSearchParams.statusTag ?? ""
         }}
       />
       <ContractsTable

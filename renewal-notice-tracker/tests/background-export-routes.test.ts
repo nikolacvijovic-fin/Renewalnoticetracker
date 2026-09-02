@@ -184,7 +184,7 @@ describe("background export routes", () => {
     const { GET } = await import("@/app/api/exports/contracts/[id]/route");
     const response = await GET(
       new Request("http://localhost:3000/api/exports/contracts/export-request-1"),
-      { params: { id: "export-request-1" } }
+      { params: Promise.resolve({ id: "export-request-1" }) }
     );
     const body = await response.json();
 
@@ -213,7 +213,7 @@ describe("background export routes", () => {
     const { GET } = await import("@/app/api/exports/contracts/[id]/route");
     const response = await GET(
       new Request("http://localhost:3000/api/exports/contracts/export-request-1"),
-      { params: { id: "export-request-1" } }
+      { params: Promise.resolve({ id: "export-request-1" }) }
     );
     const body = await response.json();
 
@@ -236,7 +236,7 @@ describe("background export routes", () => {
     const { GET } = await import("@/app/api/exports/contracts/[id]/route");
     const response = await GET(
       new Request("http://localhost:3000/api/exports/contracts/other-org-request"),
-      { params: { id: "other-org-request" } }
+      { params: Promise.resolve({ id: "other-org-request" }) }
     );
 
     expect(response.status).toBe(404);
@@ -262,7 +262,7 @@ describe("background export routes", () => {
     const { GET } = await import("@/app/api/exports/contracts/[id]/download/route");
     const response = await GET(
       new Request("http://localhost:3000/api/exports/contracts/export-request-1/download"),
-      { params: { id: "export-request-1" } }
+      { params: Promise.resolve({ id: "export-request-1" }) }
     );
 
     expect(response.status).toBe(401);
@@ -273,7 +273,7 @@ describe("background export routes", () => {
     const { GET } = await import("@/app/api/exports/contracts/[id]/download/route");
     const response = await GET(
       new Request("http://localhost:3000/api/exports/contracts/export-request-1/download"),
-      { params: { id: "export-request-1" } }
+      { params: Promise.resolve({ id: "export-request-1" }) }
     );
     const body = await response.text();
 
@@ -303,7 +303,7 @@ describe("background export routes", () => {
     const { GET } = await import("@/app/api/exports/contracts/[id]/download/route");
     const response = await GET(
       new Request("http://localhost:3000/api/exports/contracts/export-request-1/download"),
-      { params: { id: "export-request-1" } }
+      { params: Promise.resolve({ id: "export-request-1" }) }
     );
     const body = await response.json();
 

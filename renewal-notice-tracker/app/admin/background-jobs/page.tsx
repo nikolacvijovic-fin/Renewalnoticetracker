@@ -11,10 +11,11 @@ function ageMinutes(value: string | null) {
 export default async function AdminBackgroundJobsPage({
   searchParams
 }: {
-  searchParams?: { organizationId?: string };
+  searchParams?: Promise<{ organizationId?: string }>;
 }) {
   await requireInternalRole(["internal_support", "internal_admin"]);
-  const organizationId = searchParams?.organizationId?.trim() ?? "";
+  const resolvedSearchParams = await searchParams;
+  const organizationId = resolvedSearchParams?.organizationId?.trim() ?? "";
 
   if (!organizationId) {
     return (

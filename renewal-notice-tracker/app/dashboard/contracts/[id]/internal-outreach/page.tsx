@@ -23,16 +23,17 @@ function memberLabel(
 export default async function ContractInternalOutreachPage({
   params
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const context = await requireOrganization();
-  const scopedContract = await requireScopedContract(params.id, context.organizationId).catch(() => null);
+  const scopedContract = await requireScopedContract(id, context.organizationId).catch(() => null);
   if (!scopedContract) notFound();
 
   const members = await getOrganizationMembers(context.organizationId);
   const outreach = await listInternalOutreachForContract({
     organizationId: context.organizationId,
-    contractId: params.id,
+    contractId: id,
     organizationMembers: members
   });
   const canAct = hasRequiredRole(context.role, ["admin", "operator", "reviewer"]);
@@ -41,10 +42,10 @@ export default async function ContractInternalOutreachPage({
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Button asChild variant="secondary">
-          <a href={`/dashboard/contracts/${params.id}`}>Back to contract</a>
+          <a href={`/dashboard/contracts/${id}`}>Back to contract</a>
         </Button>
         {canAct ? (
-          <ServerActionForm serverAction={detectOutreachOpportunitiesFormAction.bind(null, params.id)}>
+          <ServerActionForm serverAction={detectOutreachOpportunitiesFormAction.bind(null, id)}>
             <Button type="submit">Refresh outreach signals</Button>
           </ServerActionForm>
         ) : null}

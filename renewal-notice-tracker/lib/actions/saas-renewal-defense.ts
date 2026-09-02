@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireOrganization } from "@/lib/auth";
+import { assertCanUseShippedAction, requireOrganization } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { createDomainEvent } from "@/lib/events/domain-event-bus";
 import type { DomainEventName } from "@/lib/events/domain-event-types";
@@ -47,6 +47,10 @@ import {
   type SaasOptOutWorkflowStatus,
   type NoticePeriodUnit
 } from "@/lib/saas/renewal-defense";
+import {
+  parseSaasContractActivationResult,
+  type SaasContractActivationResult
+} from "@/lib/saas/contract-activation";
 
 const writeRoles = new Set(["admin", "operator"]);
 const conflictResolutionRoles = new Set(["admin", "operator", "reviewer"]);
@@ -1496,6 +1500,40 @@ export async function createSaasSoftwareAction(formData: FormData) {
     entityType: "saas_software"
   });
   revalidatePath("/dashboard/saas-opt-out-clock");
+}
+
+export async function activateReviewedContractForSaasClockAction(
+  contractId: string
+): Promise<SaasContractActivationResult> {
+  // The RPC transaction emits the audit event saas.contract_activated_for_opt_out_clock.
+  const context = await requireOrganization();
+  await assertCanUseShippedAction(context, "review_p0", {
+    organizationId: context.organizationId,
+    assertScoped: async (organizationId) => {
+      await requireScopedContract(contractId, organizationId);
+    }
+  });
+
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase.rpc("activate_reviewed_contract_for_saas_clock", {
+    p_organization_id: context.organizationId,
+    p_contract_id: contractId
+  });
+
+  if (error) {
+    throw new Error("The contract could not be activated for the Opt-Out Clock. Review its trusted fields and try again.");
+  }
+
+  const result = parseSaasContractActivationResult(data);
+  revalidatePath("/dashboard/saas-opt-out-clock");
+  revalidatePath(`/dashboard/contracts/${contractId}`);
+  revalidatePath("/dashboard/contracts");
+  revalidatePath("/dashboard");
+  return result;
+}
+
+export async function activateReviewedContractForSaasClockFormAction(contractId: string) {
+  await activateReviewedContractForSaasClockAction(contractId);
 }
 
 export async function createSaasContractTermAction(formData: FormData) {

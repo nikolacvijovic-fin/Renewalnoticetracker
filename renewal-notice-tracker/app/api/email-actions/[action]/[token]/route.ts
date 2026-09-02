@@ -35,11 +35,12 @@ function mapEmailActionError(error: unknown) {
 export const GET = createRouteHandler<
   undefined,
   { action: Phase1EmailAction; token: string },
-  { params: { action: string; token: string } }
+  { params: Promise<{ action: string; token: string }> }
 >(
   {
-    parse: ({ routeContext }) => {
-      const action = routeContext?.params.action ?? "";
+    parse: async ({ routeContext }) => {
+      const params = await routeContext?.params;
+      const action = params?.action ?? "";
       if (!isEmailAction(action)) {
         throw routeNotFoundError(
           "Email action could not be completed.",
@@ -49,7 +50,7 @@ export const GET = createRouteHandler<
 
       return {
         action,
-        token: routeContext?.params.token ?? ""
+        token: params?.token ?? ""
       };
     },
     mapError: mapEmailActionError

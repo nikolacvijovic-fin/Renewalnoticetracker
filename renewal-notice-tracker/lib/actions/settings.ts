@@ -64,7 +64,7 @@ export async function saveProfileSettingsAction(formData: FormData) {
   const activeContext = await getActiveOrganizationContextOrNull();
   const selectionState = await getActiveOrganizationSelectionState(user.id);
   let organizationId = activeContext?.organizationId ?? null;
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const acquisitionSource = cookieStore.get("marketing_source")?.value ?? null;
   const acquisitionCampaign = cookieStore.get("marketing_campaign")?.value ?? null;
 

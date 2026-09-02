@@ -256,7 +256,7 @@ describe("ProcurementAnalyticsPage", () => {
       const Page = (await import("@/app/dashboard/procurement-analytics/page")).default;
       render(
         await Page({
-          searchParams: {}
+          searchParams: Promise.resolve({})
         })
       );
 

@@ -59,16 +59,19 @@ import {
   listSavingsOpportunities
 } from "@/lib/quote-comparison/quote-comparison";
 import { getSaasOptOutStatusForContract } from "@/lib/saas/queries";
+import { SaasClockActivationPanel } from "@/components/contracts/saas-clock-activation-panel";
+import { evaluateSaasContractActivationReadiness } from "@/lib/saas/contract-activation";
 
 export default async function ContractDetailPage({
   params
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = await params;
   const context = await requireOrganization();
   const { organizationId } = context;
   const [contract, members, counterparties, organizationTimezone] = await Promise.all([
-    getContractById(params.id, organizationId).catch(() => null),
+    getContractById(id, organizationId).catch(() => null),
     getOrganizationMembers(organizationId),
     getCounterparties(organizationId),
     getOrganizationTimezone(organizationId)
@@ -144,6 +147,22 @@ export default async function ContractDetailPage({
   const pendingRequestCount = pendingRenewalActionRequestCount;
   const riskBadgeAccess = viewModel.intelligenceAccess.accessBySurface.risk_badge;
   const riskExplanationAccess = viewModel.intelligenceAccess.accessBySurface.risk_explanation;
+  const activationMetadata = Array.isArray(contract.contract_metadata)
+    ? contract.contract_metadata[0]
+    : contract.contract_metadata;
+  const saasActivationReadiness = evaluateSaasContractActivationReadiness({
+    needsReview: activationMetadata?.needs_review ?? true,
+    reviewedAt: activationMetadata?.reviewed_at ?? null,
+    reviewedBy: activationMetadata?.reviewed_by ?? null,
+    noticeDeadlineDate: activationMetadata?.notice_deadline_date ?? null,
+    deadlineVerifiedAt: activationMetadata?.deadline_verified_at ?? null,
+    autoRenewal: activationMetadata?.auto_renewal ?? null,
+    contractTitle: activationMetadata?.contract_title ?? null,
+    counterpartyName: activationMetadata?.counterparty_name ?? null,
+    ownerUserId: contract.owner_user_id,
+    contractValueAmount: activationMetadata?.contract_value_amount ?? null,
+    contractValueCurrency: activationMetadata?.contract_value_currency ?? null
+  });
   if (riskBadgeAccess.allowed) {
     await auditRiskBadgeViewed({
       organizationId,
@@ -247,11 +266,13 @@ export default async function ContractDetailPage({
               </div>
             </div>
           ) : null}
-          <ReviewForm
-            contractId={contract.id}
-            metadata={viewModel.reviewMetadata as never}
-            members={viewModel.memberLabels}
-          />
+          <div id="contract-review">
+            <ReviewForm
+              contractId={contract.id}
+              metadata={viewModel.reviewMetadata as never}
+              members={viewModel.memberLabels}
+            />
+          </div>
           <CustomerFeedbackPanel
             title="Deadline or metadata looks wrong?"
             description="Tell founder/support what looks off. This does not change trusted dates; it creates a safe help request."
@@ -481,7 +502,13 @@ export default async function ContractDetailPage({
                       </p>
                     ) : null}
                   </div>
-                ) : null}
+                ) : (
+                  <SaasClockActivationPanel
+                    contractId={contract.id}
+                    readiness={saasActivationReadiness}
+                    canActivate={canReviewExtraction}
+                  />
+                )}
               </div>
             </div>
             <ReminderTimeline

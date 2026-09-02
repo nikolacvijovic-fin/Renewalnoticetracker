@@ -21,14 +21,15 @@ import { requireIntelligencePageContext } from "@/lib/intelligence/page-access";
 export default async function RiskQueuePage({
   searchParams
 }: {
-  searchParams: {
+  searchParams: Promise<{
     owner?: string;
     department?: string;
     riskBand?: string;
     dueWindow?: string;
     trustStatus?: string;
-  };
+  }>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const context = await requireIntelligencePageContext("risk_queue");
 
   const { organizationId } = context;
@@ -36,7 +37,7 @@ export default async function RiskQueuePage({
     getContracts(
       organizationId,
       "all",
-      buildRiskQueueContractQueryOptions(searchParams)
+      buildRiskQueueContractQueryOptions(resolvedSearchParams)
     ),
     getContractFacets(organizationId),
     getCounterparties(organizationId)
@@ -46,7 +47,7 @@ export default async function RiskQueuePage({
     contracts,
     facets,
     counterparties,
-    searchParams
+    searchParams: resolvedSearchParams
   });
   await auditRiskQueueViewed(
     buildRiskQueueViewedAuditPayload({

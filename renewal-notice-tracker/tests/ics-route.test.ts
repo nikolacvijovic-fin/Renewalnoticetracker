@@ -135,14 +135,18 @@ describe("ICS export route", () => {
   it("blocks unauthenticated requests", async () => {
     getOrganizationContextOrNull.mockResolvedValueOnce(null);
     const { GET } = await import("@/app/dashboard/contracts/[id]/ics/route");
-    const response = await GET(new Request("http://localhost"), { params: { id: "c1" } });
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: "c1" })
+    });
 
     expect(response.status).toBe(401);
   });
 
   it("returns calendar data and logs audit", async () => {
     const { GET } = await import("@/app/dashboard/contracts/[id]/ics/route");
-    const response = await GET(new Request("http://localhost"), { params: { id: "c1" } });
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: "c1" })
+    });
 
     expect(response.headers.get("content-type")).toContain("text/calendar");
     expect(response.headers.get("content-disposition")).toContain("noticecontrol-contract-c1.ics");
@@ -164,7 +168,9 @@ describe("ICS export route", () => {
     });
 
     const { GET } = await import("@/app/dashboard/contracts/[id]/ics/route");
-    const response = await GET(new Request("http://localhost"), { params: { id: "c1" } });
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: "c1" })
+    });
 
     expect(response.status).toBe(200);
     expect(buildCalendar).toHaveBeenCalledTimes(1);
@@ -176,7 +182,9 @@ describe("ICS export route", () => {
     );
 
     const { GET } = await import("@/app/dashboard/contracts/[id]/ics/route");
-    const response = await GET(new Request("http://localhost"), { params: { id: "foreign-contract" } });
+    const response = await GET(new Request("http://localhost"), {
+      params: Promise.resolve({ id: "foreign-contract" })
+    });
 
     expect(response.status).toBe(404);
     expect(buildCalendar).not.toHaveBeenCalled();
