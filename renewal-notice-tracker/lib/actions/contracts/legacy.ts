@@ -98,10 +98,17 @@ import {
 import {
   contractTitleFromPdfFileName,
   hasContractPdfSignature,
+  normalizePdfUploadAttemptId,
   sanitizeContractPdfFileName,
   validateContractPdf,
   type PdfContractUploadActionResult
 } from "@/lib/contracts/pdf-upload";
+import {
+  claimSaasPdfUploadAttempt,
+  getScopedPdfUploadAttemptResult,
+  markScopedPdfUploadAttempt,
+  markScopedPdfUploadAttemptFailed
+} from "@/lib/contracts/pdf-upload-attempts";
 import { REMINDER_RETRY_POLICY } from "@/lib/constants";
 import {
   type BillingSnapshot,
@@ -706,7 +713,10 @@ async function regenerateSystemReminders(params: {
 
 async function createContractFromUpload(
   formData: FormData,
-  options: { redirectOnSuccess: boolean }
+  options: {
+    redirectOnSuccess: boolean;
+    onUploadAttemptClaimed?: (input: { organizationId: string; uploadAttemptId: string }) => void;
+  }
 ): Promise<PdfContractUploadActionResult> {
   const { user, organizationId } = await requireShippedRuntimeAction("upload_import");
   const file = formData.get("file");
@@ -717,6 +727,7 @@ async function createContractFromUpload(
   const manualRecipients = String(formData.get("recipient_emails") ?? "");
   const counterpartyId = String(formData.get("counterparty_id") ?? "") || null;
   const templateKey = String(formData.get("contract_template_key") ?? "") || null;
+  const uploadAttemptId = normalizePdfUploadAttemptId(formData.get("upload_attempt_id"));
 
   if (!(file instanceof File)) {
     throw new Error("A file upload is required.");
@@ -736,20 +747,27 @@ async function createContractFromUpload(
     }
   }
 
+  const existingAttempt = uploadAttemptId
+    ? await getScopedPdfUploadAttemptResult({ organizationId, uploadAttemptId })
+    : null;
+  if (existingAttempt?.ok) return existingAttempt;
+
   const billingSnapshot = await getBillingSnapshot(organizationId);
-  const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
-    organizationId,
-    actorUserId: user.id,
-    billingSnapshot,
-    featurePath: "/dashboard/contracts/new",
-    context: { source: "upload_contract_action" },
-    redirectOnDenied: options.redirectOnSuccess
-  });
-  await enforceDesignPartnerBetaMutation({
-    organizationId,
-    action: "upload_contract",
-    currentContracts: trackingCapacity.currentCount
-  });
+  if (!existingAttempt) {
+    const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
+      organizationId,
+      actorUserId: user.id,
+      billingSnapshot,
+      featurePath: "/dashboard/contracts/new",
+      context: { source: "upload_contract_action" },
+      redirectOnDenied: options.redirectOnSuccess
+    });
+    await enforceDesignPartnerBetaMutation({
+      organizationId,
+      action: "upload_contract",
+      currentContracts: trackingCapacity.currentCount
+    });
+  }
   const parsedRecipients =
     manualRecipients.trim().length > 0
       ? recipientListSchema.parse(manualRecipients)
@@ -777,86 +795,144 @@ async function createContractFromUpload(
 
   const admin = createPrivilegedSupabaseClient("contract_action_legacy");
 
-  const { data: contract, error: contractError } = await admin
-    .from("contracts")
-    .insert({
-      organization_id: organizationId,
-      created_by: user.id,
-      status: "uploaded",
-      cycle_status: "open",
-      source_type: "upload",
-      owner_user_id: ownerUserId,
-      department,
-      status_tag: statusTag,
-      counterparty_id: counterpartyId
-    })
-    .select("id")
-    .single();
-
-  if (contractError) throw contractError;
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const extension = file.name.split(".").pop() ?? "bin";
-  const storagePath = `${organizationId}/${contract.id}/${randomUUID()}.${extension}`;
-  const storageResult = await admin.storage
-    .from(getAppConfig().supabase.storageBucket)
-    .upload(storagePath, buffer, {
-      contentType: file.type,
-      upsert: false
-    });
-
-  if (storageResult.error) {
-    await recordProcessingError({
+  let contract: { id: string };
+  let attemptWasNew = false;
+  if (uploadAttemptId) {
+    const claim = await claimSaasPdfUploadAttempt({
       organizationId,
-      contractId: contract.id,
-      stage: "upload",
-      message: sanitizeInternalError(storageResult.error),
-      details: { file_name: file.name, storage_path: storagePath }
+      uploadAttemptId,
+      contractTitle: String(contractTitle ?? "Uploaded contract"),
+      ownerUserId
     });
-    throw storageResult.error;
+    if (!claim.claimed) {
+      const replay = await getScopedPdfUploadAttemptResult({
+        organizationId,
+        uploadAttemptId,
+        recovered: true
+      });
+      if (replay) return replay;
+      throw new Error("PDF upload attempt could not be recovered safely.");
+    }
+    contract = { id: claim.contractId };
+    attemptWasNew = claim.isNew;
+    options.onUploadAttemptClaimed?.({ organizationId, uploadAttemptId });
+  } else {
+    const { data, error } = await admin
+      .from("contracts")
+      .insert({
+        organization_id: organizationId,
+        created_by: user.id,
+        status: "uploaded",
+        cycle_status: "open",
+        source_type: "upload",
+        owner_user_id: ownerUserId,
+        department,
+        status_tag: statusTag,
+        counterparty_id: counterpartyId
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    contract = data;
   }
 
-  const { data: contractFile, error: fileError } = await admin
-    .from("contract_files")
-    .insert({
-      contract_id: contract.id,
-      storage_path: storagePath,
-      file_name: file.name,
-      mime_type: file.type,
-      size_bytes: file.size,
-      extracted_text: null,
-      extraction_error: null,
-      uploaded_by: user.id
-    })
-    .select("id")
-    .single();
+  const { data: storedFile, error: storedFileError } = uploadAttemptId && !attemptWasNew
+    ? await admin
+        .from("contract_files")
+        .select("id, storage_path, file_name, mime_type, size_bytes")
+        .eq("contract_id", contract.id)
+        .order("uploaded_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null, error: null };
+  if (storedFileError) throw storedFileError;
 
-  if (fileError) {
-    await recordProcessingError({
-      organizationId,
-      contractId: contract.id,
-      stage: "upload",
-      message: sanitizeInternalError(fileError),
-      details: { file_name: file.name }
-    });
-    throw fileError;
+  let buffer: Buffer;
+  let contractFile: { id: string };
+  let processingFileName = file.name;
+  let processingMimeType = file.type;
+  let processingSize = file.size;
+
+  if (storedFile?.id) {
+    const download = await admin.storage
+      .from(getAppConfig().supabase.storageBucket)
+      .download(storedFile.storage_path);
+    if (download.error || !download.data) {
+      throw download.error ?? new Error("Stored PDF could not be recovered safely.");
+    }
+    buffer = Buffer.from(await download.data.arrayBuffer());
+    contractFile = { id: storedFile.id };
+    processingFileName = storedFile.file_name;
+    processingMimeType = storedFile.mime_type;
+    processingSize = storedFile.size_bytes;
+  } else {
+    buffer = Buffer.from(await file.arrayBuffer());
+    const extension = file.name.split(".").pop() ?? "bin";
+    const storagePath = `${organizationId}/${contract.id}/${randomUUID()}.${extension}`;
+    const storageResult = await admin.storage
+      .from(getAppConfig().supabase.storageBucket)
+      .upload(storagePath, buffer, {
+        contentType: file.type,
+        upsert: false
+      });
+
+    if (storageResult.error) {
+      await recordProcessingError({
+        organizationId,
+        contractId: contract.id,
+        stage: "upload",
+        message: sanitizeInternalError(storageResult.error),
+        details: { file_name: file.name }
+      });
+      throw storageResult.error;
+    }
+
+    const { data, error: fileError } = await admin
+      .from("contract_files")
+      .insert({
+        contract_id: contract.id,
+        storage_path: storagePath,
+        file_name: file.name,
+        mime_type: file.type,
+        size_bytes: file.size,
+        extracted_text: null,
+        extraction_error: null,
+        uploaded_by: user.id
+      })
+      .select("id")
+      .single();
+
+    if (fileError) {
+      await admin.storage
+        .from(getAppConfig().supabase.storageBucket)
+        .remove([storagePath]);
+      await recordProcessingError({
+        organizationId,
+        contractId: contract.id,
+        stage: "upload",
+        message: sanitizeInternalError(fileError),
+        details: { file_name: file.name }
+      });
+      throw fileError;
+    }
+    contractFile = data;
+
+    await admin
+      .from("contracts")
+      .update({ latest_file_id: contractFile.id })
+      .eq("id", contract.id)
+      .eq("organization_id", organizationId);
   }
-
-  await admin
-    .from("contracts")
-    .update({ latest_file_id: contractFile.id })
-    .eq("id", contract.id)
-    .eq("organization_id", organizationId);
 
   await transitionContractStatus(admin, contract.id, organizationId, "queued_for_text_extraction");
   await transitionContractStatus(admin, contract.id, organizationId, "extracting_text");
 
-  const parsedText = await extractTextFromFile(buffer, file.type);
+  const parsedText = await extractTextFromFile(buffer, processingMimeType);
   const resolvedText = await resolveDocumentTextForExtraction({
     buffer,
-    fileName: file.name,
-    mimeType: file.type,
-    sizeBytes: file.size,
+    fileName: processingFileName,
+    mimeType: processingMimeType,
+    sizeBytes: processingSize,
     nativeExtraction: parsedText
   });
   await admin
@@ -1131,6 +1207,15 @@ async function createContractFromUpload(
     trigger: "contract_extraction_completed"
   }).catch(() => null);
 
+  if (uploadAttemptId) {
+    await markScopedPdfUploadAttempt({
+      organizationId,
+      contractId: contract.id,
+      uploadAttemptId,
+      status: finalStatus
+    });
+  }
+
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/saas-opt-out-clock");
 
@@ -1142,6 +1227,8 @@ async function createContractFromUpload(
     extractionStatus: finalStatus,
     needsReview: true,
     reviewReasons: pdfRenewalReviewReasons,
+    uploadAttemptId: uploadAttemptId ?? undefined,
+    recovered: Boolean(uploadAttemptId && !attemptWasNew),
     safeMessage:
       finalStatus === "extraction_failed"
         ? "The PDF was uploaded, but extraction needs attention. Open the contract to retry or enter the fields manually."
@@ -1209,8 +1296,26 @@ export async function uploadSaasOptOutClockPdfAction(
     normalizedFormData.set("owner_user_id", ownerUserId);
   }
 
+  const uploadAttemptId = normalizePdfUploadAttemptId(formData.get("upload_attempt_id"));
+  if (!uploadAttemptId) {
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "This PDF upload needs a valid retry identifier. Select the file again."
+    };
+  }
+  normalizedFormData.set("upload_attempt_id", uploadAttemptId);
+
+  const claimedAttempt = {
+    current: null as { organizationId: string; uploadAttemptId: string } | null
+  };
   try {
-    return await createContractFromUpload(normalizedFormData, { redirectOnSuccess: false });
+    return await createContractFromUpload(normalizedFormData, {
+      redirectOnSuccess: false,
+      onUploadAttemptClaimed: (claim) => {
+        claimedAttempt.current = claim;
+      }
+    });
   } catch (error) {
     if (error instanceof ContractTrackingCapacityError) {
       return {
@@ -1226,6 +1331,14 @@ export async function uploadSaasOptOutClockPdfAction(
         errorCode: "permission_denied",
         safeMessage: error.access.message
       };
+    }
+
+    if (claimedAttempt.current) {
+      await markScopedPdfUploadAttemptFailed({
+        organizationId: claimedAttempt.current.organizationId,
+        uploadAttemptId: claimedAttempt.current.uploadAttemptId,
+        safeFailureCode: "pdf_processing_failed"
+      }).catch(() => undefined);
     }
 
     return {

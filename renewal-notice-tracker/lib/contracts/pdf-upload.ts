@@ -29,12 +29,14 @@ export type PdfContractUploadActionResult =
   | {
       ok: true;
       contractId: string;
-      contractFileId: string;
+      contractFileId: string | null;
       contractPath: string;
-      extractionStatus: "needs_review" | "extraction_failed";
+      extractionStatus: "processing" | "needs_review" | "extraction_failed";
       needsReview: true;
       reviewReasons: string[];
       safeMessage: string;
+      uploadAttemptId?: string;
+      recovered?: boolean;
     }
   | {
       ok: false;
@@ -43,9 +45,23 @@ export type PdfContractUploadActionResult =
         | "authentication_required"
         | "permission_denied"
         | "contract_limit_reached"
+        | "upload_already_processing"
         | "upload_failed";
       safeMessage: string;
     };
+
+export type PdfUploadAttemptStatus =
+  | "processing"
+  | "needs_review"
+  | "extraction_failed"
+  | "failed";
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function normalizePdfUploadAttemptId(value: unknown) {
+  const candidate = typeof value === "string" ? value.trim() : "";
+  return UUID_PATTERN.test(candidate) ? candidate.toLowerCase() : null;
+}
 
 export function validateContractPdf(candidate: PdfUploadCandidate): PdfUploadValidationResult {
   if (candidate.size <= 0) {

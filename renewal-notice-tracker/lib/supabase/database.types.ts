@@ -87,9 +87,9 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["extracted_field_evidence"]["Insert"]>;
         Relationships: [];
       };
-      contracts: {
-        Row: { id: string; organization_id: string; created_by: string; status: string; source_type: string; is_sample: boolean; latest_file_id: string | null; created_at: string; updated_at: string; owner_user_id: string | null; owner_confirmed_at: string | null; owner_confirmed_by_user_id: string | null; department: string | null; department_confirmed_at: string | null; status_tag: string; counterparty_id: string | null; renewal_decision_status: string; renewal_decision_date: string | null; cycle_status: string; last_acknowledged_at: string | null; last_acknowledged_by: string | null };
-        Insert: { id?: string; organization_id: string; created_by: string; status?: string; source_type?: string; is_sample?: boolean; latest_file_id?: string | null; created_at?: string; updated_at?: string; owner_user_id?: string | null; owner_confirmed_at?: string | null; owner_confirmed_by_user_id?: string | null; department?: string | null; department_confirmed_at?: string | null; status_tag?: string; counterparty_id?: string | null; renewal_decision_status?: string; renewal_decision_date?: string | null; cycle_status?: string; last_acknowledged_at?: string | null; last_acknowledged_by?: string | null };
+        contracts: {
+          Row: { id: string; organization_id: string; created_by: string; status: string; source_type: string; is_sample: boolean; latest_file_id: string | null; created_at: string; updated_at: string; owner_user_id: string | null; owner_confirmed_at: string | null; owner_confirmed_by_user_id: string | null; department: string | null; department_confirmed_at: string | null; status_tag: string; counterparty_id: string | null; renewal_decision_status: string; renewal_decision_date: string | null; cycle_status: string; last_acknowledged_at: string | null; last_acknowledged_by: string | null; pdf_upload_attempt_id: string | null; pdf_upload_attempt_status: string | null; pdf_upload_claimed_at: string | null; pdf_upload_completed_at: string | null; pdf_upload_failure_code: string | null };
+          Insert: { id?: string; organization_id: string; created_by: string; status?: string; source_type?: string; is_sample?: boolean; latest_file_id?: string | null; created_at?: string; updated_at?: string; owner_user_id?: string | null; owner_confirmed_at?: string | null; owner_confirmed_by_user_id?: string | null; department?: string | null; department_confirmed_at?: string | null; status_tag?: string; counterparty_id?: string | null; renewal_decision_status?: string; renewal_decision_date?: string | null; cycle_status?: string; last_acknowledged_at?: string | null; last_acknowledged_by?: string | null; pdf_upload_attempt_id?: string | null; pdf_upload_attempt_status?: string | null; pdf_upload_claimed_at?: string | null; pdf_upload_completed_at?: string | null; pdf_upload_failure_code?: string | null };
         Update: Partial<Database["public"]["Tables"]["contracts"]["Insert"]>;
         Relationships: [];
       };
@@ -462,6 +462,14 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      claim_saas_pdf_contract_upload: {
+        Args: { p_organization_id: string; p_upload_attempt_id: string; p_contract_title: string; p_owner_user_id?: string | null };
+        Returns: Json;
+      };
+      activate_reviewed_contract_for_saas_clock: {
+        Args: { p_organization_id: string; p_contract_id: string };
+        Returns: Json;
+      };
       create_reviewed_commercial_baseline: {
         Args: { p_organization_id: string; p_contract_id: string; p_source_extraction_run_id: string; p_source_extraction_run_ids: string[]; p_source_file_ids: string[]; p_effective_date: string | null; p_reviewed_by_user_id: string; p_calculation_version: string; p_completeness_status: string; p_missing_data_warnings: string[]; p_evidence_field_ids: string[]; p_evidence_fingerprint: string; p_terms_snapshot: Json; p_line_items: Json };
         Returns: string;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -32,7 +32,10 @@ type UploadStatus =
 
 type UploadItem = {
   id: string;
-  file: File;
+  uploadAttemptId: string;
+  file: File | null;
+  fileName: string;
+  fileSize: number;
   status: UploadStatus;
   progress: number;
   retryable: boolean;
@@ -58,9 +61,32 @@ function safeUploadFailure(): PdfContractUploadActionResult {
   };
 }
 
+const RECOVERABLE_UPLOAD_ATTEMPTS_KEY = "noticecontrol:saas-pdf-upload-attempts";
+
+function parseRecoverableUploadAttemptIds(raw: string | null) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is string => typeof value === "string")
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
+}
+
+function createUploadAttemptId() {
+  return globalThis.crypto?.randomUUID?.() ??
+    "00000000-0000-4000-8000-000000000000".replace(/0/g, () =>
+      Math.floor(Math.random() * 16).toString(16)
+    );
+}
+
 export function uploadPdfContract(
   file: File,
   ownerUserId: string,
+  uploadAttemptId: string,
   callbacks: UploadCallbacks
 ): Promise<PdfContractUploadActionResult> {
   return new Promise((resolve) => {
@@ -68,6 +94,7 @@ export function uploadPdfContract(
     const formData = new FormData();
     formData.set("file", file);
     formData.set("contractTitle", contractTitleFromPdfFileName(file.name));
+    formData.set("upload_attempt_id", uploadAttemptId);
     if (ownerUserId) formData.set("owner_user_id", ownerUserId);
 
     request.open("POST", "/api/contracts/pdf-upload");
@@ -101,6 +128,21 @@ export function uploadPdfContract(
     });
     request.send(formData);
   });
+}
+
+export async function getPersistedPdfUploadAttempt(
+  uploadAttemptId: string
+): Promise<PdfContractUploadActionResult> {
+  try {
+    const response = await fetch(
+      `/api/contracts/pdf-upload?attemptId=${encodeURIComponent(uploadAttemptId)}`,
+      { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } }
+    );
+    const parsed = await response.json() as PdfContractUploadActionResult;
+    return parsed && typeof parsed === "object" && "ok" in parsed ? parsed : safeUploadFailure();
+  } catch {
+    return safeUploadFailure();
+  }
 }
 
 function formatFileSize(size: number) {
@@ -139,6 +181,7 @@ export function PdfUploadWorkbench({
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const itemSequence = useRef(0);
+  const restoredAttempts = useRef(false);
   const [items, setItems] = useState<UploadItem[]>([]);
   const [ownerUserId, setOwnerUserId] = useState(defaultOwnerUserId);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
@@ -147,6 +190,44 @@ export function PdfUploadWorkbench({
   const partialCount = items.filter((item) => item.status === "partial").length;
   const errorCount = items.filter((item) => item.status === "error").length;
   const readyCount = items.filter((item) => item.status === "selected").length;
+
+  useEffect(() => {
+    let cancelled = false;
+    const raw = sessionStorage.getItem(RECOVERABLE_UPLOAD_ATTEMPTS_KEY);
+    const attemptIds = parseRecoverableUploadAttemptIds(raw);
+    const restored = attemptIds.map((uploadAttemptId, index): UploadItem => ({
+      id: `recovered-${index}-${uploadAttemptId}`,
+      uploadAttemptId,
+      file: null,
+      fileName: "Recovered PDF upload",
+      fileSize: 0,
+      status: "extracting",
+      progress: 100,
+      retryable: false,
+      safeMessage: "Checking the saved processing state…",
+      result: null
+    }));
+    if (restored.length > 0) setItems(restored);
+    restoredAttempts.current = true;
+
+    for (const item of restored) {
+      void pollPersistedAttempt(item, () => cancelled);
+    }
+    return () => {
+      cancelled = true;
+    };
+    // Recovery runs once; the server revalidates every attempt against the active organization.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!restoredAttempts.current) return;
+    const attemptIds = items
+      .filter((item) => item.status !== "selected")
+      .map((item) => item.uploadAttemptId)
+      .slice(-10);
+    sessionStorage.setItem(RECOVERABLE_UPLOAD_ATTEMPTS_KEY, JSON.stringify(attemptIds));
+  }, [items]);
 
   function addFiles(files: File[]) {
     setBatchMessage(null);
@@ -161,7 +242,10 @@ export function PdfUploadWorkbench({
       itemSequence.current += 1;
       return {
         id: `pdf-${itemSequence.current}`,
+        uploadAttemptId: createUploadAttemptId(),
         file,
+        fileName: file.name,
+        fileSize: file.size,
         status: validation.ok ? "selected" : "error",
         progress: 0,
         retryable: validation.ok,
@@ -172,6 +256,55 @@ export function PdfUploadWorkbench({
     setItems((current) => [...current, ...additions].slice(0, MAX_CONTRACT_PDF_BATCH_FILES));
   }
 
+  function applyPersistedResult(item: UploadItem, result: PdfContractUploadActionResult) {
+    if (!result.ok) {
+      updateItem(item.id, {
+        status: "error",
+        progress: 0,
+        retryable: Boolean(item.file),
+        safeMessage: result.safeMessage,
+        result: null
+      });
+      return false;
+    }
+    if (result.extractionStatus === "processing") {
+      updateItem(item.id, {
+        status: "extracting",
+        progress: 100,
+        retryable: false,
+        safeMessage: result.safeMessage,
+        result
+      });
+      return null;
+    }
+    updateItem(item.id, {
+      status: result.extractionStatus === "extraction_failed" ? "partial" : "success",
+      progress: 100,
+      retryable: false,
+      safeMessage: result.recovered
+        ? `${result.safeMessage} The original upload was recovered without creating a duplicate.`
+        : result.safeMessage,
+      result
+    });
+    return true;
+  }
+
+  async function pollPersistedAttempt(item: UploadItem, isCancelled = () => false) {
+    for (let attempt = 0; attempt < 60 && !isCancelled(); attempt += 1) {
+      const result = await getPersistedPdfUploadAttempt(item.uploadAttemptId);
+      const applied = applyPersistedResult(item, result);
+      if (applied !== null) return applied;
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+    if (!isCancelled()) {
+      updateItem(item.id, {
+        status: "extracting",
+        safeMessage: "Processing is still saved. You can leave this page and return later."
+      });
+    }
+    return false;
+  }
+
   function updateItem(id: string, values: Partial<UploadItem>) {
     setItems((current) =>
       current.map((item) => (item.id === id ? { ...item, ...values } : item))
@@ -179,36 +312,25 @@ export function PdfUploadWorkbench({
   }
 
   async function processItem(item: UploadItem) {
+    if (!item.file) return pollPersistedAttempt(item);
     updateItem(item.id, {
       status: "uploading",
       progress: 0,
       safeMessage: null,
       result: null
     });
-    const result = await uploadPdfContract(item.file, ownerUserId, {
+    const result = await uploadPdfContract(item.file, ownerUserId, item.uploadAttemptId, {
       onUploadProgress: (progress) => updateItem(item.id, { progress }),
       onExtractionStarted: () => updateItem(item.id, { status: "extracting", progress: 100 })
     });
 
     if (!result.ok) {
-      updateItem(item.id, {
-        status: "error",
-        progress: 0,
-        retryable: !["invalid_file_type", "empty_file", "file_too_large"].includes(result.errorCode),
-        safeMessage: result.safeMessage,
-        result: null
-      });
-      return false;
+      const invalid = ["invalid_file_type", "empty_file", "file_too_large"].includes(result.errorCode);
+      updateItem(item.id, { retryable: !invalid });
+      return applyPersistedResult(item, result);
     }
-
-    updateItem(item.id, {
-      status: result.extractionStatus === "extraction_failed" ? "partial" : "success",
-      progress: 100,
-      retryable: false,
-      safeMessage: result.safeMessage,
-      result
-    });
-    return true;
+    const applied = applyPersistedResult(item, result);
+    return applied === null ? pollPersistedAttempt(item) : applied;
   }
 
   async function processBatch(selectedItems = items.filter((item) => item.status === "selected")) {
@@ -232,7 +354,7 @@ export function PdfUploadWorkbench({
   }
 
   const batchSummary = isProcessing
-    ? "Processing selected PDFs one at a time. Keep this page open."
+    ? "Processing selected PDFs one at a time. Saved attempts can be checked again after you return."
     : completedCount || partialCount || errorCount
       ? `${completedCount} ready for review, ${partialCount} need extraction attention, ${errorCount} failed.`
       : items.length
@@ -339,8 +461,10 @@ export function PdfUploadWorkbench({
                       )}
                     </span>
                     <div className="min-w-0">
-                      <h3 className="break-all text-sm font-semibold text-ink">{item.file.name}</h3>
-                      <p className="mt-1 text-xs text-muted">{formatFileSize(item.file.size)} · {statusLabel(item.status)}</p>
+                      <h3 className="break-words text-sm font-semibold text-ink">{item.fileName}</h3>
+                      <p className="mt-1 text-xs text-muted">
+                        {item.fileSize > 0 ? `${formatFileSize(item.fileSize)} · ` : ""}{statusLabel(item.status)}
+                      </p>
                       {item.safeMessage ? <p className="mt-2 text-sm text-slate-600">{item.safeMessage}</p> : null}
                       {item.result?.reviewReasons.length ? (
                         <p className="mt-2 text-xs text-amber-800">
@@ -363,22 +487,22 @@ export function PdfUploadWorkbench({
                         className="gap-2"
                         disabled={isProcessing}
                         onClick={() => retryItem(item)}
-                        title={`Retry ${item.file.name}`}
-                        aria-label={`Retry ${item.file.name}`}
+                        title={`Retry ${item.fileName}`}
+                        aria-label={`Retry ${item.fileName}`}
                       >
                         <RefreshCw className="h-4 w-4" aria-hidden="true" />
                         Retry
                       </Button>
                     ) : null}
-                    {!active && !item.result ? (
+                    {!active ? (
                       <Button
                         type="button"
                         variant="ghost"
                         className="gap-2"
                         disabled={isProcessing}
                         onClick={() => setItems((current) => current.filter((candidate) => candidate.id !== item.id))}
-                        title={`Remove ${item.file.name}`}
-                        aria-label={`Remove ${item.file.name}`}
+                        title={`Remove ${item.fileName}`}
+                        aria-label={`Remove ${item.fileName}`}
                       >
                         <Trash2 className="h-4 w-4" aria-hidden="true" />
                         Remove
@@ -388,7 +512,15 @@ export function PdfUploadWorkbench({
                 </div>
 
                 {active ? (
-                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100" aria-label={`${statusLabel(item.status)} progress`}>
+                  <div
+                    className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"
+                    aria-label={`${statusLabel(item.status)} progress`}
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={item.status === "uploading" ? item.progress : undefined}
+                    aria-valuetext={item.status === "extracting" ? "Extraction is processing" : `${item.progress}% uploaded`}
+                  >
                     <div
                       className={`h-full rounded-full bg-brand-600 transition-all ${item.status === "extracting" ? "animate-pulse" : ""}`}
                       style={{ width: `${item.status === "extracting" ? 100 : item.progress}%` }}
@@ -413,9 +545,9 @@ export function PdfUploadWorkbench({
         </Button>
         <div className="flex flex-col gap-2 sm:flex-row">
           {(completedCount > 0 || partialCount > 0) ? (
-            <Button asChild variant="secondary" className="w-full sm:w-auto">
-              <Link href="/dashboard/saas-opt-out-clock">View updated clock</Link>
-            </Button>
+            <p className="max-w-md text-xs text-slate-600">
+              Uploaded contracts stay outside the Opt-Out Clock until human review and explicit activation.
+            </p>
           ) : null}
           <Button
             type="button"

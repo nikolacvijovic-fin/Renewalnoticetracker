@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getOrganizationContextOrNull: vi.fn(),
   assertCanUseShippedAction: vi.fn(),
-  uploadSaasOptOutClockPdfAction: vi.fn()
+  uploadSaasOptOutClockPdfAction: vi.fn(),
+  getScopedPdfUploadAttemptResult: vi.fn()
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -15,7 +16,11 @@ vi.mock("@/lib/actions/contracts/upload", () => ({
   uploadSaasOptOutClockPdfAction: mocks.uploadSaasOptOutClockPdfAction
 }));
 
-import { POST } from "@/app/api/contracts/pdf-upload/route";
+vi.mock("@/lib/contracts/pdf-upload-attempts", () => ({
+  getScopedPdfUploadAttemptResult: mocks.getScopedPdfUploadAttemptResult
+}));
+
+import { GET, POST } from "@/app/api/contracts/pdf-upload/route";
 
 function requestWithPdf(extra: Record<string, string> = {}) {
   const formData = new FormData();
@@ -35,6 +40,41 @@ describe("PDF upload route", () => {
       user: { id: "user-1" }
     });
     mocks.assertCanUseShippedAction.mockResolvedValue(undefined);
+    mocks.getScopedPdfUploadAttemptResult.mockResolvedValue(null);
+  });
+
+  it("recovers status only inside the active organization", async () => {
+    mocks.getScopedPdfUploadAttemptResult.mockResolvedValue({
+      ok: true,
+      contractId: "contract-1",
+      contractFileId: "file-1",
+      contractPath: "/dashboard/contracts/contract-1",
+      extractionStatus: "needs_review",
+      needsReview: true,
+      reviewReasons: [],
+      recovered: true,
+      safeMessage: "Recovered safely."
+    });
+
+    const response = await GET(new Request(
+      "https://noticecontrol.test/api/contracts/pdf-upload?attemptId=11111111-1111-4111-8111-111111111111"
+    ));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getScopedPdfUploadAttemptResult).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      uploadAttemptId: "11111111-1111-4111-8111-111111111111",
+      recovered: true
+    });
+  });
+
+  it("does not reveal an attempt outside the active organization", async () => {
+    const response = await GET(new Request(
+      "https://noticecontrol.test/api/contracts/pdf-upload?attemptId=11111111-1111-4111-8111-111111111111"
+    ));
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ ok: false });
   });
 
   it("rejects unauthenticated requests before parsing or processing files", async () => {

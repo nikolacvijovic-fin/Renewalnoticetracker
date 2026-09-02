@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { File as NodeFile } from "node:buffer";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PdfUploadWorkbench } from "@/components/saas/pdf-upload-workbench";
 import {
@@ -67,9 +67,11 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
     FakeXmlHttpRequest.pending = [];
     refresh.mockReset();
     vi.stubGlobal("XMLHttpRequest", FakeXmlHttpRequest);
+    sessionStorage.clear();
   });
 
   afterEach(() => {
+    cleanup();
     vi.unstubAllGlobals();
   });
 
@@ -131,6 +133,8 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
       expect(screen.getByText(/Uploading/)).toBeInTheDocument();
       expect(FakeXmlHttpRequest.pending).toHaveLength(1);
     });
+    const firstAttemptId = String(FakeXmlHttpRequest.pending[0]?.formData.get("upload_attempt_id"));
+    expect(firstAttemptId).toMatch(/^[0-9a-f-]{36}$/i);
 
     await act(async () => {
       FakeXmlHttpRequest.pending[0]?.request.upload.dispatchEvent(new Event("load"));
@@ -161,6 +165,8 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
     });
     await waitFor(() => expect(FakeXmlHttpRequest.pending).toHaveLength(1));
 
+    const failedAttemptId = String(FakeXmlHttpRequest.pending[0]?.formData.get("upload_attempt_id"));
+
     await respondToNext({
       ok: false,
       errorCode: "upload_failed",
@@ -174,6 +180,8 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry third.pdf" }));
     await waitFor(() => expect(FakeXmlHttpRequest.pending).toHaveLength(1));
+    expect(String(FakeXmlHttpRequest.pending[0]?.formData.get("upload_attempt_id")))
+      .toBe(failedAttemptId);
     await respondToNext({
       ok: true,
       contractId: "contract-3",
@@ -188,6 +196,7 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
       expect(screen.getByText("2 ready for review, 1 need extraction attention, 0 failed.")).toBeInTheDocument();
     });
     expect(refresh).toHaveBeenCalledTimes(2);
+    expect(screen.getByText(/stay outside the Opt-Out Clock until human review/i)).toBeInTheDocument();
   });
 
   it("keeps a complete batch failure visible and retryable", async () => {
@@ -222,6 +231,62 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
     expect(screen.getByRole("button", { name: "Retry failed-one.pdf" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Retry failed-two.pdf" })).toBeEnabled();
     expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it("restores a saved attempt after refresh without uploading the PDF again", async () => {
+    const uploadAttemptId = "11111111-1111-4111-8111-111111111111";
+    sessionStorage.setItem(
+      "noticecontrol:saas-pdf-upload-attempts",
+      JSON.stringify([uploadAttemptId])
+    );
+    const fetchStatus = vi.fn().mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        contractId: "contract-recovered",
+        contractFileId: "file-recovered",
+        contractPath: "/dashboard/contracts/contract-recovered",
+        extractionStatus: "needs_review",
+        needsReview: true,
+        reviewReasons: [],
+        recovered: true,
+        safeMessage: "The prior PDF upload was recovered and is ready for human review."
+      })
+    });
+    vi.stubGlobal("fetch", fetchStatus);
+
+    render(
+      <PdfUploadWorkbench
+        members={[]}
+        defaultOwnerUserId=""
+        canUpload
+        capacityMessage="Capacity available."
+      />
+    );
+
+    await waitFor(() => expect(screen.getByRole("link", { name: "Review contract" }))
+      .toHaveAttribute("href", "/dashboard/contracts/contract-recovered"));
+    expect(fetchStatus).toHaveBeenCalledWith(
+      `/api/contracts/pdf-upload?attemptId=${uploadAttemptId}`,
+      expect.objectContaining({ cache: "no-store", credentials: "same-origin" })
+    );
+    expect(FakeXmlHttpRequest.pending).toHaveLength(0);
+    expect(screen.getByText(/without creating a duplicate/i)).toBeInTheDocument();
+  });
+
+  it("ignores malformed saved recovery state", () => {
+    sessionStorage.setItem("noticecontrol:saas-pdf-upload-attempts", "not-json");
+
+    render(
+      <PdfUploadWorkbench
+        members={[]}
+        defaultOwnerUserId=""
+        canUpload
+        capacityMessage="Capacity available."
+      />
+    );
+
+    expect(screen.getByText("Your upload queue is empty")).toBeInTheDocument();
+    expect(FakeXmlHttpRequest.pending).toHaveLength(0);
   });
 
   it("keeps the upload boundary organization-scoped and review-gated", () => {

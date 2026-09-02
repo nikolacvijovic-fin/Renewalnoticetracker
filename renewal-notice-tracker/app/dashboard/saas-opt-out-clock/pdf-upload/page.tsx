@@ -45,7 +45,8 @@ export default async function SaasOptOutClockPdfUploadPage() {
           </h1>
           <p className="mt-2 max-w-3xl text-muted">
             Add several SaaS contracts in one controlled batch. NoticeControl extracts renewal evidence,
-            then keeps every operational date in human review until your team confirms it.
+            then keeps every operational date in human review until your team confirms it and explicitly
+            activates the contract for the Opt-Out Clock.
           </p>
         </div>
         <Button asChild variant="secondary" className="gap-2">
