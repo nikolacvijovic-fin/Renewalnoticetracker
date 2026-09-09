@@ -6,6 +6,7 @@ type JobType string
 
 const (
 	TrustedReminderDelivery JobType = "trusted_reminder_delivery"
+	ContractPDFExtraction    JobType = "contract_pdf_extraction"
 	ContractImportProcessing JobType = "contract_import_processing"
 	WebhookDispatch          JobType = "webhook_dispatch"
 	AuditEventFlush          JobType = "audit_event_flush"
@@ -31,7 +32,7 @@ func Validate(job Job) error {
 		return errors.New("idempotency_key_required")
 	}
 	switch job.Type {
-	case TrustedReminderDelivery, ContractImportProcessing, WebhookDispatch, AuditEventFlush, AddOnTask:
+	case TrustedReminderDelivery, ContractPDFExtraction, ContractImportProcessing, WebhookDispatch, AuditEventFlush, AddOnTask:
 		return nil
 	default:
 		return errors.New("unsupported_job_type")

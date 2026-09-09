@@ -9,7 +9,9 @@ const repo = vi.hoisted(() => ({
   failAdminBackgroundJob: vi.fn(),
   cancelAdminBackgroundJob: vi.fn(),
   insertAdminBackgroundJobAttempt: vi.fn(),
-  getAdminBackgroundJobById: vi.fn()
+  getAdminBackgroundJobById: vi.fn(),
+  rescueStaleAdminBackgroundJobs: vi.fn(),
+  requeueAdminContractPdfExtractionJob: vi.fn()
 }));
 const recordEnterpriseAuditEvent = vi.fn();
 
@@ -48,6 +50,7 @@ describe("background job queue", () => {
     vi.clearAllMocks();
     recordEnterpriseAuditEvent.mockResolvedValue({ ok: true });
     repo.insertAdminBackgroundJobAttempt.mockResolvedValue({ data: {}, error: null });
+    repo.rescueStaleAdminBackgroundJobs.mockResolvedValue({ data: [], error: null });
   });
 
   it("enqueues trusted reminder jobs idempotently by organization and idempotency key", async () => {
@@ -106,6 +109,39 @@ describe("background job queue", () => {
       idempotencyKey: existing.idempotency_key
     });
     expect(recordEnterpriseAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("requeues a terminal PDF extraction job without creating a duplicate job", async () => {
+    const terminal = job({
+      job_type: "contract_pdf_extraction",
+      status: "dead_lettered",
+      idempotency_key: "contract_pdf_extraction:attempt-1"
+    });
+    const requeued = job({
+      job_type: "contract_pdf_extraction",
+      status: "queued",
+      idempotency_key: "contract_pdf_extraction:attempt-1"
+    });
+    const uniqueError = Object.assign(new Error("duplicate key"), { code: "23505" });
+    repo.insertAdminBackgroundJob.mockResolvedValue({ data: null, error: uniqueError });
+    repo.getAdminBackgroundJobByIdempotencyKey.mockResolvedValue({ data: terminal, error: null });
+    repo.requeueAdminContractPdfExtractionJob.mockResolvedValue({ data: requeued, error: null });
+    const { enqueueContractPdfExtractionJob } = await import("@/lib/background-jobs/job-queue");
+
+    const result = await enqueueContractPdfExtractionJob({
+      organizationId: terminal.organization_id,
+      contractId: terminal.contract_id,
+      contractFileId: "file-1",
+      uploadAttemptId: "attempt-1",
+      requestedByUserId: "user-1"
+    });
+
+    expect(result).toEqual(requeued);
+    expect(repo.requeueAdminContractPdfExtractionJob).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: terminal.organization_id,
+      jobId: terminal.id
+    }));
+    expect(repo.insertAdminBackgroundJob).toHaveBeenCalledTimes(1);
   });
 
   it("does not revive terminal duplicate jobs during enqueue", async () => {

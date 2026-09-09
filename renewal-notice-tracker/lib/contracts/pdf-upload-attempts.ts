@@ -12,6 +12,13 @@ export type PdfUploadAttemptClaim = {
   claimed: boolean;
 };
 
+export class PdfUploadCapacityError extends Error {
+  constructor() {
+    super("Contract tracking capacity has been reached.");
+    this.name = "PdfUploadCapacityError";
+  }
+}
+
 type PdfUploadAttemptRow = {
   id: string;
   organization_id: string;
@@ -20,6 +27,15 @@ type PdfUploadAttemptRow = {
   pdf_upload_attempt_id: string | null;
   pdf_upload_attempt_status: string | null;
   pdf_upload_claimed_at: string | null;
+  pdf_extraction_job_id: string | null;
+  contract_files:
+    | Array<{
+        id: string;
+        file_name: string;
+        size_bytes: number;
+        storage_deleted_at: string | null;
+      }>
+    | null;
   contract_metadata:
     | { needs_review: boolean; pdf_renewal_review_reasons?: string[] | null }
     | Array<{ needs_review: boolean; pdf_renewal_review_reasons?: string[] | null }>
@@ -41,7 +57,7 @@ export function parsePdfUploadAttemptClaim(value: Json | null): PdfUploadAttempt
   const status = String(object.status ?? "");
   if (
     typeof object.contractId !== "string" ||
-    !["processing", "needs_review", "extraction_failed", "failed"].includes(status)
+    !["processing", "needs_review", "extraction_failed", "failed", "abandoned", "cleaned"].includes(status)
   ) {
     throw new Error("PDF upload attempt claim returned an invalid state.");
   }
@@ -68,7 +84,13 @@ export async function claimSaasPdfUploadAttempt(input: {
     p_owner_user_id: input.ownerUserId
   });
 
-  if (error) throw error;
+  if (error) {
+    const safeHint = "hint" in error ? String(error.hint ?? "") : "";
+    if (safeHint === "contract_limit_reached" || error.message === "Contract tracking capacity has been reached.") {
+      throw new PdfUploadCapacityError();
+    }
+    throw error;
+  }
   return parsePdfUploadAttemptClaim(data);
 }
 
@@ -79,6 +101,9 @@ export function pdfUploadAttemptResultFromRow(input: {
 }): PdfContractUploadActionResult {
   const status = input.row.pdf_upload_attempt_status as PdfUploadAttemptStatus | null;
   const metadata = first(input.row.contract_metadata);
+  const file = input.row.contract_files?.find((candidate) =>
+    candidate.id === input.row.latest_file_id && !candidate.storage_deleted_at
+  ) ?? null;
   const inferredTerminalStatus = input.row.status === "extraction_failed"
     ? "extraction_failed"
     : "needs_review";
@@ -88,18 +113,6 @@ export function pdfUploadAttemptResultFromRow(input: {
   const reviewReasons = Array.isArray(metadata?.pdf_renewal_review_reasons)
     ? metadata.pdf_renewal_review_reasons.map(String)
     : [];
-
-  const staleProcessing = status === "processing" && input.row.pdf_upload_claimed_at
-    ? Date.parse(input.row.pdf_upload_claimed_at) <= Date.now() - 15 * 60_000
-    : false;
-
-  if (staleProcessing && !metadata) {
-    return {
-      ok: false,
-      errorCode: "upload_failed",
-      safeMessage: "The saved PDF processing claim expired. Retry to resume without creating another contract."
-    };
-  }
 
   if (status === "processing" && !metadata) {
     return {
@@ -111,6 +124,9 @@ export function pdfUploadAttemptResultFromRow(input: {
       needsReview: true,
       reviewReasons: [],
       uploadAttemptId: input.uploadAttemptId,
+      jobId: input.row.pdf_extraction_job_id ?? undefined,
+      fileName: file?.file_name,
+      fileSize: file?.size_bytes,
       recovered: input.recovered,
       safeMessage: "This PDF upload is already processing. Its saved status can be recovered safely."
     };
@@ -124,6 +140,14 @@ export function pdfUploadAttemptResultFromRow(input: {
     };
   }
 
+  if (status === "abandoned" || status === "cleaned") {
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "This PDF upload was abandoned and cannot be resumed. Start a new upload when you are ready."
+    };
+  }
+
   return {
     ok: true,
     contractId: input.row.id,
@@ -133,6 +157,9 @@ export function pdfUploadAttemptResultFromRow(input: {
     needsReview: true,
     reviewReasons,
     uploadAttemptId: input.uploadAttemptId,
+    jobId: input.row.pdf_extraction_job_id ?? undefined,
+    fileName: file?.file_name,
+    fileSize: file?.size_bytes,
     recovered: input.recovered,
     safeMessage: terminalStatus === "extraction_failed"
       ? "The prior PDF upload was recovered. Extraction still needs human attention."
@@ -148,7 +175,7 @@ export async function getScopedPdfUploadAttemptResult(input: {
   const supabase = createServerSupabaseClient();
   const { data: contract, error } = await supabase
     .from("contracts")
-    .select("id, organization_id, status, latest_file_id, pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at")
+    .select("id, organization_id, status, latest_file_id, pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at, pdf_extraction_job_id")
     .eq("organization_id", input.organizationId)
     .eq("pdf_upload_attempt_id", input.uploadAttemptId)
     .maybeSingle();
@@ -156,17 +183,25 @@ export async function getScopedPdfUploadAttemptResult(input: {
   if (error) throw error;
   if (!contract?.id) return null;
 
-  const { data: metadata, error: metadataError } = await supabase
-    .from("contract_metadata")
-    .select("needs_review")
-    .eq("contract_id", contract.id)
-    .maybeSingle();
-  if (metadataError) throw metadataError;
+  const [metadataResult, fileResult] = await Promise.all([
+    supabase
+      .from("contract_metadata")
+      .select("needs_review, pdf_renewal_review_reasons")
+      .eq("contract_id", contract.id)
+      .maybeSingle(),
+    supabase
+      .from("contract_files")
+      .select("id, file_name, size_bytes, storage_deleted_at")
+      .eq("contract_id", contract.id)
+  ]);
+  if (metadataResult.error) throw metadataResult.error;
+  if (fileResult.error) throw fileResult.error;
 
   return pdfUploadAttemptResultFromRow({
     row: {
       ...contract,
-      contract_metadata: metadata
+      contract_metadata: metadataResult.data,
+      contract_files: fileResult.data
     },
     uploadAttemptId: input.uploadAttemptId,
     recovered: input.recovered ?? true
@@ -216,4 +251,25 @@ export async function markScopedPdfUploadAttempt(input: {
 
   if (error) throw error;
   if (!data?.id) throw new Error("PDF upload attempt state transition did not match a scoped contract.");
+}
+
+export async function abandonScopedPdfUploadAttempt(input: {
+  organizationId: string;
+  uploadAttemptId: string;
+}) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase.rpc("abandon_saas_pdf_contract_upload", {
+    p_organization_id: input.organizationId,
+    p_upload_attempt_id: input.uploadAttemptId
+  });
+  if (error) throw error;
+  const result = asObject(data);
+  if (typeof result.contractId !== "string" || result.status !== "abandoned") {
+    throw new Error("PDF upload abandon transition returned an invalid state.");
+  }
+  return {
+    contractId: result.contractId,
+    status: "abandoned" as const,
+    replayed: result.replayed === true
+  };
 }

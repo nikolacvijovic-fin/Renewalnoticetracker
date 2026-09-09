@@ -169,7 +169,8 @@ const rawEnvBaseSchema = z.object({
   BACKGROUND_EXPORT_PAGE_SIZE: operationalInt({ min: 100, max: 5000, fallback: 1000 }),
   BACKGROUND_EXPORT_JOB_LIMIT: operationalInt({ min: 1, max: 10, fallback: 3 }),
   REMINDER_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 15 }),
-  OCR_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 30 })
+  OCR_PROCESSING_LEASE_MINUTES: operationalInt({ min: 1, max: 120, fallback: 30 }),
+  PDF_UPLOAD_ATTEMPT_RETENTION_HOURS: operationalInt({ min: 1, max: 720, fallback: 72 })
 });
 
 const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
@@ -403,6 +404,7 @@ export type AppConfig = {
     backgroundExportJobLimit: number;
     reminderProcessingLeaseMinutes: number;
     ocrProcessingLeaseMinutes: number;
+    pdfUploadAttemptRetentionHours: number;
   };
   addOns: {
     internalSigningSecret: string | null;
@@ -508,7 +510,8 @@ export function parseAppConfig(
       backgroundExportPageSize: raw.BACKGROUND_EXPORT_PAGE_SIZE,
       backgroundExportJobLimit: raw.BACKGROUND_EXPORT_JOB_LIMIT,
       reminderProcessingLeaseMinutes: raw.REMINDER_PROCESSING_LEASE_MINUTES,
-      ocrProcessingLeaseMinutes: raw.OCR_PROCESSING_LEASE_MINUTES
+      ocrProcessingLeaseMinutes: raw.OCR_PROCESSING_LEASE_MINUTES,
+      pdfUploadAttemptRetentionHours: raw.PDF_UPLOAD_ATTEMPT_RETENTION_HOURS
     },
     addOns: {
       internalSigningSecret: nullable(raw.ADD_ON_INTERNAL_SIGNING_SECRET),

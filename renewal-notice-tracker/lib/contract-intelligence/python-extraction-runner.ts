@@ -16,6 +16,7 @@ import {
 } from "@/lib/contract-intelligence/extraction-runs";
 import {
   getAdminScopedContractFile,
+  listAdminContractExtractedFields,
   replaceAdminContractDocumentPages,
   updateAdminContractExtractionRun
 } from "@/lib/contract-intelligence/repositories/admin-extraction-repository";
@@ -85,7 +86,13 @@ export async function runFullDocumentContractExtraction(input: {
     ? new Date(run.processing_lease_expires_at).getTime() > Date.now()
     : false;
   if (["completed", "partial"].includes(run.status) || (run.status === "processing" && activeLease)) {
-    return { ok: true as const, run, fields: [], idempotentReplay: true };
+    const existingFields = await listAdminContractExtractedFields({
+      organizationId: input.organizationId,
+      contractId: input.contractId,
+      extractionRunId: run.id
+    });
+    if (existingFields.error) throw existingFields.error;
+    return { ok: true as const, run, fields: existingFields.data ?? [], idempotentReplay: true };
   }
 
   await updateAdminContractExtractionRun({

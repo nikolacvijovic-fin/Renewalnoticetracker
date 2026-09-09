@@ -20,6 +20,19 @@ import type {
   NormalizedSaasRenewalImportRow,
   SaasRenewalImportCleanupIssue
 } from "@/lib/saas/import-cleanup";
+import { normalizeCounterpartyName } from "@/lib/contracts/counterparty-normalization";
+
+export type SaasActivationCandidate = Pick<SaasSoftwareRow, "id" | "name" | "vendor_name">;
+
+export type SaasAwaitingActivationContract = {
+  contractId: string;
+  contractTitle: string;
+  counterpartyName: string;
+  noticeDeadlineDate: string;
+  ownerUserId: string;
+  reviewedAt: string;
+  deadlineClassification: "auto_renewal" | "notice_only";
+};
 
 export type SaasSoftwareRow =
   Database["public"]["Tables"]["saas_software_inventory"]["Row"];
@@ -51,6 +64,7 @@ export type SaasOptOutClockItem = {
   daysUntilOptOut: number | null;
   urgency: OptOutUrgency | null;
   deadlineWindow: OptOutDeadlineWindow;
+  deadlineClassification: "auto_renewal" | "notice_only";
   spendAtRiskAmount: number;
   spendAtRiskCurrency: string | null;
   contractId: string | null;
@@ -70,6 +84,8 @@ export type SaasOptOutClock = {
     highCount: number;
     missingNoticeDeadlineCount: number;
     autoRenewalFindingCount: number;
+    autoRenewalDeadlineCount: number;
+    noticeOnlyDeadlineCount: number;
     dueIn7DaysCount: number;
     dueIn30DaysCount: number;
     dueIn60DaysCount: number;
@@ -85,6 +101,7 @@ export type SaasContractOptOutStatus = {
   optOutDeadline: string | null;
   urgency: OptOutUrgency | null;
   deadlineWindow: OptOutDeadlineWindow;
+  deadlineClassification: "auto_renewal" | "notice_only";
   workflowStatus: SaasOptOutWorkflowStatus;
   ownerLabel: string;
   nextAction: string | null;
@@ -177,6 +194,109 @@ export async function requireScopedSaasSoftware(softwareId: string, organization
   }
 
   return data;
+}
+
+export async function getSaasActivationCandidates(input: {
+  organizationId: string;
+  contractTitle: string | null;
+  counterpartyName: string | null;
+}): Promise<SaasActivationCandidate[]> {
+  const title = normalizeCounterpartyName(input.contractTitle ?? "");
+  const vendor = normalizeCounterpartyName(input.counterpartyName ?? "");
+  if (!title || !vendor) return [];
+
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("saas_software_inventory")
+    .select("id, name, vendor_name")
+    .eq("organization_id", input.organizationId)
+    .eq("status", "active")
+    .order("name", { ascending: true });
+  if (error) throw error;
+
+  return (data ?? []).filter((candidate) =>
+    normalizeCounterpartyName(candidate.name) === title &&
+    normalizeCounterpartyName(candidate.vendor_name ?? "") === vendor
+  );
+}
+
+export async function getSaasContractsAwaitingActivation(
+  organizationId: string
+): Promise<SaasAwaitingActivationContract[]> {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("contracts")
+    .select(`
+      id,
+      owner_user_id,
+      status,
+      status_tag,
+      contract_metadata (
+        contract_title,
+        counterparty_name,
+        notice_deadline_date,
+        deadline_verified_at,
+        auto_renewal,
+        needs_review,
+        reviewed_at,
+        reviewed_by
+      ),
+      saas_contract_terms ( id )
+    `)
+    .eq("organization_id", organizationId)
+    .neq("status", "archived")
+    .neq("status_tag", "archived")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+
+  return (data ?? []).flatMap((row) => {
+    const record = row as unknown as {
+      id: string;
+      owner_user_id: string | null;
+      contract_metadata: Array<{
+        contract_title: string | null;
+        counterparty_name: string | null;
+        notice_deadline_date: string | null;
+        deadline_verified_at: string | null;
+        auto_renewal: boolean | null;
+        needs_review: boolean;
+        reviewed_at: string | null;
+        reviewed_by: string | null;
+      }> | {
+        contract_title: string | null;
+        counterparty_name: string | null;
+        notice_deadline_date: string | null;
+        deadline_verified_at: string | null;
+        auto_renewal: boolean | null;
+        needs_review: boolean;
+        reviewed_at: string | null;
+        reviewed_by: string | null;
+      } | null;
+      saas_contract_terms: Array<{ id: string }> | null;
+    };
+    const metadata = first(record.contract_metadata);
+    if (
+      !metadata ||
+      metadata.needs_review ||
+      !metadata.reviewed_at ||
+      !metadata.reviewed_by ||
+      !metadata.notice_deadline_date ||
+      !metadata.deadline_verified_at ||
+      metadata.auto_renewal === null ||
+      !record.owner_user_id ||
+      (record.saas_contract_terms?.length ?? 0) > 0
+    ) return [];
+
+    return [{
+      contractId: record.id,
+      contractTitle: metadata.contract_title?.trim() || "Untitled contract",
+      counterpartyName: metadata.counterparty_name?.trim() || "Vendor not set",
+      noticeDeadlineDate: metadata.notice_deadline_date,
+      ownerUserId: record.owner_user_id,
+      reviewedAt: metadata.reviewed_at,
+      deadlineClassification: metadata.auto_renewal ? "auto_renewal" as const : "notice_only" as const
+    }];
+  });
 }
 
 export async function getSaasOptOutClock(organizationId: string): Promise<SaasOptOutClock> {
@@ -354,6 +474,9 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       ],
       currentStatus: optOutWindow?.workflow_status as SaasOptOutWorkflowStatus | null | undefined
     });
+    const deadlineClassification = optOutWindow?.deadline_classification === "notice_only" || latestTerm?.auto_renewal === false
+      ? "notice_only" as const
+      : "auto_renewal" as const;
 
     return {
       software,
@@ -370,6 +493,7 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       daysUntilOptOut: daysUntilOptOut(effectiveNoticeDeadline),
       urgency: getOptOutUrgency(effectiveNoticeDeadline),
       deadlineWindow: getOptOutDeadlineWindow(effectiveNoticeDeadline),
+      deadlineClassification,
       spendAtRiskAmount: Number.isFinite(effectiveSpendAmount) ? Math.max(0, effectiveSpendAmount) : 0,
       spendAtRiskCurrency: effectiveSpendCurrency,
       contractId: latestTerm?.contract_id ?? software.source_contract_id ?? null,
@@ -400,6 +524,8 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       autoRenewalFindingCount: items.filter((item) =>
         item.openFindings.some((finding) => finding.finding_type === "auto_renewal")
       ).length,
+      autoRenewalDeadlineCount: items.filter((item) => item.deadlineClassification === "auto_renewal").length,
+      noticeOnlyDeadlineCount: items.filter((item) => item.deadlineClassification === "notice_only").length,
       dueIn7DaysCount: items.filter((item) => item.deadlineWindow === "due_7_days").length,
       dueIn30DaysCount: items.filter((item) => item.deadlineWindow === "due_30_days").length,
       dueIn60DaysCount: items.filter((item) => item.deadlineWindow === "due_60_days").length,
@@ -475,6 +601,7 @@ export async function getSaasOptOutStatusesForContracts(
       optOutDeadline: item.effectiveOptOutDeadline,
       urgency: item.urgency,
       deadlineWindow: item.deadlineWindow,
+      deadlineClassification: item.deadlineClassification,
       workflowStatus: item.workflowStatus,
       ownerLabel: item.ownerLabel,
       nextAction: item.nextAction,

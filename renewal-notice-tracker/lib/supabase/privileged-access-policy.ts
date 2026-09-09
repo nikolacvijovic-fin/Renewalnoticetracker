@@ -14,6 +14,7 @@ export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
   "lib/contracts/background-exports.ts",
   "lib/contracts/export-route.ts",
   "lib/contracts/repositories/admin-processing-errors-repository.ts",
+  "lib/contracts/repositories/admin-pdf-upload-repository.ts",
   "lib/contracts/repositories/admin-trust-exception-approvals-repository.ts",
   "lib/contracts/queries.ts",
   "lib/email/actions.ts",

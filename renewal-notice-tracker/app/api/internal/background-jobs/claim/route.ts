@@ -8,6 +8,7 @@ import { requireSignedWorkerRouteAuth } from "@/lib/background-jobs/worker-auth"
 const claimRequestSchema = z.object({
   limit: z.number().int().min(1).max(50).optional().default(10),
   jobTypes: z.array(z.string().refine(isBackgroundJobType)).optional(),
+  processClaimedJobs: z.boolean().optional().default(false),
   processTrustedReminders: z.boolean().optional().default(false)
 });
 
@@ -32,7 +33,7 @@ export const POST = createRouteHandler(
       jobTypes: input.jobTypes as never,
       limit: input.limit
     });
-    const results = input.processTrustedReminders
+    const results = input.processClaimedJobs || input.processTrustedReminders
       ? await Promise.all(jobs.map((job) => runClaimedBackgroundJob({ job, workerId: auth.workerId })))
       : [];
 

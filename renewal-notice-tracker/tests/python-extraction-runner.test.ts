@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getAdminScopedContractFile: vi.fn(),
+  listAdminContractExtractedFields: vi.fn(),
   replaceAdminContractDocumentPages: vi.fn(),
   updateAdminContractExtractionRun: vi.fn(),
   requestContractExtraction: vi.fn(),
@@ -14,6 +15,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/contract-intelligence/repositories/admin-extraction-repository", () => ({
   getAdminScopedContractFile: mocks.getAdminScopedContractFile,
+  listAdminContractExtractedFields: mocks.listAdminContractExtractedFields,
   replaceAdminContractDocumentPages: mocks.replaceAdminContractDocumentPages,
   updateAdminContractExtractionRun: mocks.updateAdminContractExtractionRun
 }));
@@ -57,6 +59,10 @@ describe("full-document contract extraction runner", () => {
         declaredSizeBytes: 12,
         bytes: Buffer.from("%PDF-synthetic")
       },
+      error: null
+    });
+    mocks.listAdminContractExtractedFields.mockResolvedValue({
+      data: [{ id: "field-1" }],
       error: null
     });
     mocks.requestContractExtraction.mockResolvedValue({
@@ -154,6 +160,11 @@ describe("full-document contract extraction runner", () => {
     const { runFullDocumentContractExtraction } = await import("@/lib/contract-intelligence/python-extraction-runner");
     const result = await runFullDocumentContractExtraction({ organizationId: "org-1", contractId: "contract-1" });
     expect(result).toMatchObject({ ok: true, idempotentReplay: true });
+    expect(mocks.listAdminContractExtractedFields).toHaveBeenCalledWith({
+      organizationId: "org-1",
+      contractId: "contract-1",
+      extractionRunId: "run-1"
+    });
     expect(mocks.parseContractDocument).not.toHaveBeenCalled();
   });
 

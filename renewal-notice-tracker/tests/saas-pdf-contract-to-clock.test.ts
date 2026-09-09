@@ -55,6 +55,7 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
         saasTermId: "term-1",
         optOutWindowId: "window-1",
         optOutDeadline: "2026-10-01",
+        deadlineClassification: "auto_renewal",
         replayed: false
       },
       error: null
@@ -117,9 +118,11 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
       "contract-1",
       "11111111-1111-4111-8111-111111111111"
     );
-    expect(mocks.rpc).toHaveBeenCalledWith("activate_reviewed_contract_for_saas_clock", {
+    expect(mocks.rpc).toHaveBeenCalledWith("activate_reviewed_contract_for_saas_clock_v2", {
       p_organization_id: "11111111-1111-4111-8111-111111111111",
-      p_contract_id: "contract-1"
+      p_contract_id: "contract-1",
+      p_software_id: null,
+      p_create_new: false
     });
     expect(result).toMatchObject({
       contractId: "contract-1",
@@ -139,6 +142,22 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(mocks.rpc).not.toHaveBeenCalled();
   });
 
+  it("keeps reviewer metadata review separate from operational activation", async () => {
+    mocks.requireOrganization.mockResolvedValue({
+      organizationId: "11111111-1111-4111-8111-111111111111",
+      role: "reviewer",
+      user: { id: "22222222-2222-4222-8222-222222222222" }
+    });
+    const { activateReviewedContractForSaasClockAction } = await import(
+      "@/lib/actions/saas-renewal-defense"
+    );
+
+    await expect(activateReviewedContractForSaasClockAction("contract-1"))
+      .rejects.toThrow("Only admins and operators can manage SaaS renewal-defense records.");
+    expect(mocks.assertCanUseShippedAction).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
   it("parses an idempotent replay without creating a second graph", () => {
     expect(parseSaasContractActivationResult({
       contractId: "contract-1",
@@ -148,24 +167,39 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
       optOutDeadline: "2026-10-01",
       replayed: true
     })).toMatchObject({ replayed: true, saasTermId: "term-1" });
+
+    expect(parseSaasContractActivationResult({
+      contractId: "contract-2",
+      softwareId: "software-2",
+      saasTermId: "term-2",
+      optOutWindowId: "window-2",
+      optOutDeadline: "2026-11-01",
+      deadlineClassification: "notice_only",
+      replayed: false
+    })).toMatchObject({ deadlineClassification: "notice_only" });
   });
 
   it("locks upload and activation idempotency, tenant checks, and audit safety in the migration", () => {
-    const migration = source("supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql");
+    const originalMigration = source("supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql");
+    const migration = source("supabase/migrations/202609030001_saas_pdf_upload_runtime_hardening.sql");
 
-    expect(migration).toContain("contracts_pdf_upload_attempt_id_unique_idx");
+    expect(originalMigration).toContain("contracts_pdf_upload_attempt_id_unique_idx");
     expect(migration).toContain("pg_advisory_xact_lock");
+    expect(migration).toContain("contract-capacity:");
+    expect(migration).toContain("v_capacity_count >= v_capacity_limit");
+    expect(migration).toContain("v_organization.subscription_status = 'active'");
+    expect(migration).toContain("v_organization.subscription_status = 'trialing'");
+    expect(migration).toContain("v_organization.trial_ends_at >= v_now");
+    expect(migration).toContain("c.expires_at > v_now");
+    expect(migration).toContain("pdf_renewal_review_reasons text[]");
     expect(migration).toContain("PDF upload attempt is not available.");
     expect(migration).toContain("v_role is null or v_role not in ('admin', 'operator')");
-    expect(migration).toContain(
-      "v_role is null or v_role not in ('admin', 'operator', 'reviewer')"
-    );
-    expect(migration).toContain("v_metadata.needs_review");
-    expect(migration).toContain("v_metadata.deadline_verified_at is null");
-    expect(migration).toContain("Existing SaaS term conflicts with reviewed contract metadata.");
-    expect(migration).toContain("Multiple linked SaaS terms require manual review before activation.");
-    expect(migration).toContain("Multiple linked opt-out windows require manual review before activation.");
-    expect(migration).toContain("saas.contract_activated_for_opt_out_clock");
+    expect(migration).toContain("Only admins or operators can activate the Opt-Out Clock.");
+    expect(migration).toContain("activate_reviewed_contract_for_saas_clock_v2");
+    expect(migration).toContain("saas-clock-activation:");
+    expect(migration).toContain("deadline_classification");
+    expect(migration).toContain("'notice_only'");
+    expect(migration).toContain("and f.finding_type = 'auto_renewal'");
     expect(migration).toContain("revoke all on function public.claim_saas_pdf_contract_upload");
     expect(migration).toContain("revoke all on function public.activate_reviewed_contract_for_saas_clock");
     expect(migration).toContain("to authenticated");

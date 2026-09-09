@@ -34,8 +34,8 @@ func (client NoticeControlClient) ClaimAndProcessTrustedReminders(ctx context.Co
 
 	body, err := json.Marshal(map[string]any{
 		"limit": limit,
-		"jobTypes": []string{"trusted_reminder_delivery"},
-		"processTrustedReminders": true,
+		"jobTypes": []string{"trusted_reminder_delivery", "contract_pdf_extraction"},
+		"processClaimedJobs": true,
 	})
 	if err != nil {
 		return ClaimResponse{}, err

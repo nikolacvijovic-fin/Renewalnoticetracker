@@ -1,13 +1,14 @@
 begin;
 
-select plan(22);
+select plan(36);
 
 insert into auth.users (id, email)
 values
   ('00000000-0000-4000-8000-00000000d101', 'pdf-admin-a@example.test'),
   ('00000000-0000-4000-8000-00000000d102', 'pdf-reviewer-a@example.test'),
   ('00000000-0000-4000-8000-00000000d103', 'pdf-owner-a@example.test'),
-  ('00000000-0000-4000-8000-00000000d104', 'pdf-admin-b@example.test')
+  ('00000000-0000-4000-8000-00000000d104', 'pdf-admin-b@example.test'),
+  ('00000000-0000-4000-8000-00000000d105', 'pdf-operator-a@example.test')
 on conflict (id) do nothing;
 
 insert into public.organizations (id, name, slug, created_by)
@@ -31,8 +32,27 @@ values
   ('00000000-0000-4000-8000-00000000d111', '00000000-0000-4000-8000-00000000d101', 'admin'),
   ('00000000-0000-4000-8000-00000000d111', '00000000-0000-4000-8000-00000000d102', 'reviewer'),
   ('00000000-0000-4000-8000-00000000d111', '00000000-0000-4000-8000-00000000d103', 'owner'),
+  ('00000000-0000-4000-8000-00000000d111', '00000000-0000-4000-8000-00000000d105', 'operator'),
   ('00000000-0000-4000-8000-00000000d112', '00000000-0000-4000-8000-00000000d104', 'admin')
 on conflict do nothing;
+
+insert into public.design_partner_beta_controls (
+  organization_id,
+  status,
+  maximum_contracts,
+  founder_approved_at,
+  founder_approved_by_user_id
+) values (
+  '00000000-0000-4000-8000-00000000d112',
+  'active',
+  1,
+  timezone('utc', now()),
+  '00000000-0000-4000-8000-00000000d104'
+) on conflict (organization_id) do update
+set status = excluded.status,
+    maximum_contracts = excluded.maximum_contracts,
+    founder_approved_at = excluded.founder_approved_at,
+    founder_approved_by_user_id = excluded.founder_approved_by_user_id;
 
 select is(
   has_function_privilege(
@@ -70,8 +90,28 @@ select is(
     'public.activate_reviewed_contract_for_saas_clock(uuid,uuid)',
     'execute'
   ),
+  false,
+  'authenticated sessions cannot bypass the hardened activation wrapper'
+);
+
+select is(
+  has_function_privilege(
+    'anon',
+    'public.activate_reviewed_contract_for_saas_clock_v2(uuid,uuid,uuid,boolean)',
+    'execute'
+  ),
+  false,
+  'anonymous callers cannot reach the hardened activation boundary'
+);
+
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.activate_reviewed_contract_for_saas_clock_v2(uuid,uuid,uuid,boolean)',
+    'execute'
+  ),
   true,
-  'authenticated sessions can reach the role-checked activation boundary'
+  'authenticated sessions can reach the hardened role-checked activation boundary'
 );
 
 set local role authenticated;
@@ -159,6 +199,102 @@ select throws_ok(
   'another organization cannot reuse an existing attempt identifier'
 );
 
+select like(
+  pg_get_functiondef('public.claim_saas_pdf_contract_upload(uuid,uuid,text,uuid)'::regprocedure),
+  '%pg_advisory_xact_lock%contract-capacity:%',
+  'capacity enforcement is serialized inside the claim transaction'
+);
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d130',
+    'Capacity slot one',
+    null
+  )->>'claimed',
+  'true',
+  'the first organization-B claim consumes its configured slot'
+);
+
+select throws_ok(
+  $$select public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d131',
+    'Capacity slot two',
+    null
+  )$$,
+  'P0001',
+  'Contract tracking capacity has been reached.',
+  'a new claim is rejected at the canonical organization capacity limit'
+);
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d130',
+    'Capacity slot replay',
+    null
+  )->>'claimed',
+  'false',
+  'replaying an active attempt does not consume another capacity slot'
+);
+
+select is(
+  public.abandon_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d130'
+  )->>'status',
+  'abandoned',
+  'an authorized abandon transition releases the placeholder from paid capacity'
+);
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d131',
+    'Capacity after abandon',
+    null
+  )->>'claimed',
+  'true',
+  'a new attempt can claim the slot released by an abandoned placeholder'
+);
+
+reset role;
+update public.contracts
+set pdf_upload_attempt_status = 'failed'
+where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d131';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d132',
+    'Capacity after failure',
+    null
+  )->>'claimed',
+  'true',
+  'a failed unreviewed placeholder does not consume paid capacity'
+);
+
+reset role;
+update public.contracts
+set pdf_upload_attempt_status = 'extraction_failed'
+where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d132';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d132',
+    'Retry existing extraction',
+    null
+  )->>'claimed',
+  'true',
+  'an extraction-failed attempt can retry without requiring a second capacity slot'
+);
+
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
 
 select is(
@@ -212,21 +348,23 @@ insert into public.contract_metadata (
 );
 
 set local role authenticated;
-set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d102';
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
 
 select is(
-  public.activate_reviewed_contract_for_saas_clock(
+  public.activate_reviewed_contract_for_saas_clock_v2(
     '00000000-0000-4000-8000-00000000d111',
     (
       select id from public.contracts
       where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121'
-    )
+    ),
+    null,
+    true
   )->>'contractId',
   (
     select id::text from public.contracts
     where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121'
   ),
-  'a reviewer activates one fully reviewed contract'
+  'an admin explicitly creates the SaaS projection for one fully reviewed contract'
 );
 
 select is_deeply(
@@ -261,15 +399,17 @@ select is(
 );
 
 select is(
-  public.activate_reviewed_contract_for_saas_clock(
+  public.activate_reviewed_contract_for_saas_clock_v2(
     '00000000-0000-4000-8000-00000000d111',
     (
       select id from public.contracts
       where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121'
-    )
+    ),
+    null,
+    true
   )->>'replayed',
   'true',
-  'repeated activation returns an idempotent replay'
+  'repeated activation returns an idempotent replay even when the original create-new intent is repeated'
 );
 
 select is_deeply(
@@ -287,7 +427,7 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d103';
 
 select throws_ok(
   format(
-    'select public.activate_reviewed_contract_for_saas_clock(%L, %L)',
+    'select public.activate_reviewed_contract_for_saas_clock_v2(%L, %L, null, false)',
     '00000000-0000-4000-8000-00000000d111',
     (
       select id from public.contracts
@@ -295,15 +435,31 @@ select throws_ok(
     )
   ),
   '42501',
-  'Only review-capable organization roles can activate the Opt-Out Clock.',
-  'an owner role cannot bypass the review-capable activation boundary'
+  'Only admins or operators can activate the Opt-Out Clock.',
+  'an owner role cannot bypass the Admin/Operator activation boundary'
+);
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d102';
+
+select throws_ok(
+  format(
+    'select public.activate_reviewed_contract_for_saas_clock_v2(%L, %L, null, false)',
+    '00000000-0000-4000-8000-00000000d111',
+    (
+      select id from public.contracts
+      where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121'
+    )
+  ),
+  '42501',
+  'Only admins or operators can activate the Opt-Out Clock.',
+  'a reviewer may review metadata but cannot create the operational SaaS graph'
 );
 
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
 
 select throws_ok(
   format(
-    'select public.activate_reviewed_contract_for_saas_clock(%L, %L)',
+    'select public.activate_reviewed_contract_for_saas_clock_v2(%L, %L, null, true)',
     '00000000-0000-4000-8000-00000000d111',
     (
       select id from public.contracts
@@ -319,7 +475,7 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
 
 select throws_ok(
   format(
-    'select public.activate_reviewed_contract_for_saas_clock(%L, %L)',
+    'select public.activate_reviewed_contract_for_saas_clock_v2(%L, %L, null, true)',
     '00000000-0000-4000-8000-00000000d112',
     (
       select id from public.contracts
@@ -333,16 +489,109 @@ select throws_ok(
 
 reset role;
 
+insert into public.contracts (
+  id,
+  organization_id,
+  created_by,
+  owner_user_id,
+  status,
+  source_type,
+  status_tag
+) values (
+  '00000000-0000-4000-8000-00000000d141',
+  '00000000-0000-4000-8000-00000000d111',
+  '00000000-0000-4000-8000-00000000d101',
+  '00000000-0000-4000-8000-00000000d103',
+  'reviewed',
+  'upload',
+  'active'
+);
+
+insert into public.contract_metadata (
+  contract_id,
+  contract_title,
+  counterparty_name,
+  renewal_date,
+  expiration_date,
+  auto_renewal,
+  notice_deadline_date,
+  contract_value_amount,
+  contract_value_currency,
+  needs_review,
+  reviewed_at,
+  reviewed_by,
+  deadline_verified_at
+) values (
+  '00000000-0000-4000-8000-00000000d141',
+  'Notice-Only Support Agreement',
+  'Notice Vendor',
+  '2027-06-30',
+  '2027-06-30',
+  false,
+  '2027-05-31',
+  12000,
+  'EUR',
+  false,
+  timezone('utc', now()),
+  '00000000-0000-4000-8000-00000000d102',
+  timezone('utc', now())
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d105';
+
+select is(
+  public.activate_reviewed_contract_for_saas_clock_v2(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d141',
+    null,
+    true
+  )->>'deadlineClassification',
+  'notice_only',
+  'an operator can activate a verified non-auto-renewal notice deadline'
+);
+
 select is(
   (
-    select (details ?| array[
+    select deadline_classification
+    from public.saas_opt_out_windows
+    where organization_id = '00000000-0000-4000-8000-00000000d111'
+      and contract_term_id = (
+        select id from public.saas_contract_terms
+        where contract_id = '00000000-0000-4000-8000-00000000d141'
+      )
+  ),
+  'notice_only',
+  'the projected clock record preserves notice-only classification'
+);
+
+select is(
+  (
+    select count(*)::integer
+    from public.saas_contract_risk_findings
+    where organization_id = '00000000-0000-4000-8000-00000000d111'
+      and contract_term_id = (
+        select id from public.saas_contract_terms
+        where contract_id = '00000000-0000-4000-8000-00000000d141'
+      )
+      and finding_type = 'auto_renewal'
+  ),
+  0,
+  'notice-only activation does not claim auto-renewal risk'
+);
+
+reset role;
+
+select is(
+  (
+    select coalesce(bool_or(details ?| array[
       'raw_contract_text',
       'provider_payload',
       'recipient_email',
       'message_body',
       'private_notes',
       'storage_path'
-    ])
+    ]), false)
     from public.audit_logs
     where organization_id = '00000000-0000-4000-8000-00000000d111'
       and action = 'saas.contract_activated_for_opt_out_clock'

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const claimBackgroundJobs = vi.fn();
 const completeBackgroundJob = vi.fn();
 const runClaimedBackgroundJob = vi.fn();
+const cleanupStalePdfUploadAttempts = vi.fn();
 
 vi.mock("@/lib/background-jobs/job-queue", () => ({
   claimBackgroundJobs,
@@ -18,6 +19,10 @@ vi.mock("@/lib/background-jobs/job-queue", () => ({
 
 vi.mock("@/lib/background-jobs/job-runner", () => ({
   runClaimedBackgroundJob
+}));
+
+vi.mock("@/lib/contracts/pdf-upload-cleanup", () => ({
+  cleanupStalePdfUploadAttempts
 }));
 
 function signRequest(input: {
@@ -43,6 +48,12 @@ describe("background job internal routes", () => {
     claimBackgroundJobs.mockResolvedValue([]);
     completeBackgroundJob.mockResolvedValue({ id: "job-1", status: "completed" });
     runClaimedBackgroundJob.mockResolvedValue({ jobId: "job-1", status: "completed" });
+    cleanupStalePdfUploadAttempts.mockResolvedValue({
+      cleaned: 1,
+      protectedCount: 0,
+      candidateCount: 1,
+      retentionHours: 72
+    });
   });
 
   it("rejects unsigned worker claim requests before reading jobs", async () => {
@@ -116,6 +127,52 @@ describe("background job internal routes", () => {
     expect(payload.results).toEqual([{ jobId: "job-1", status: "completed" }]);
   });
 
+  it("lets the signed worker process durable PDF extraction jobs", async () => {
+    const path = "/api/internal/background-jobs/claim";
+    const body = JSON.stringify({
+      limit: 1,
+      jobTypes: ["contract_pdf_extraction"],
+      processClaimedJobs: true
+    });
+    const timestamp = new Date().toISOString();
+    const signed = signRequest({ method: "POST", path, timestamp, body, secret: "test-worker-signing-secret" });
+    const claimedJob = {
+      id: "job-pdf-1",
+      organization_id: "org-1",
+      contract_id: "contract-1",
+      job_type: "contract_pdf_extraction",
+      status: "processing",
+      attempts: 0,
+      max_attempts: 3,
+      payload: {
+        contract_file_id: "file-1",
+        upload_attempt_id: "attempt-1",
+        requested_by_user_id: "user-1"
+      }
+    };
+    claimBackgroundJobs.mockResolvedValue([claimedJob]);
+    runClaimedBackgroundJob.mockResolvedValue({ jobId: "job-pdf-1", status: "completed" });
+    const { POST } = await import("@/app/api/internal/background-jobs/claim/route");
+
+    const response = await POST(new Request(`http://localhost${path}`, {
+      method: "POST",
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-noticecontrol-worker-id": "worker-1",
+        "x-noticecontrol-timestamp": timestamp,
+        "x-noticecontrol-body-sha256": signed.bodySha256,
+        "x-noticecontrol-signature": signed.signature
+      }
+    }));
+
+    expect(response.status).toBe(200);
+    expect(runClaimedBackgroundJob).toHaveBeenCalledWith({ job: claimedJob, workerId: "worker-1" });
+    await expect(response.json()).resolves.toMatchObject({
+      results: [{ jobId: "job-pdf-1", status: "completed" }]
+    });
+  });
+
   it("rejects invalid signatures before reading jobs", async () => {
     const path = "/api/internal/background-jobs/claim";
     const body = JSON.stringify({ limit: 1 });
@@ -145,6 +202,51 @@ describe("background job internal routes", () => {
 
     expect(response.status).toBe(401);
     expect(claimBackgroundJobs).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsigned PDF upload cleanup requests", async () => {
+    const { POST } = await import("@/app/api/internal/pdf-upload-attempts/cleanup/route");
+    const response = await POST(new Request(
+      "http://localhost/api/internal/pdf-upload-attempts/cleanup",
+      { method: "POST", body: "{}" }
+    ));
+
+    expect(response.status).toBe(401);
+    expect(cleanupStalePdfUploadAttempts).not.toHaveBeenCalled();
+  });
+
+  it("lets only a signed worker run PDF upload cleanup", async () => {
+    const path = "/api/internal/pdf-upload-attempts/cleanup";
+    const body = "{}";
+    const timestamp = new Date().toISOString();
+    const signed = signRequest({
+      method: "POST",
+      path,
+      timestamp,
+      body,
+      secret: "test-worker-signing-secret"
+    });
+    const { POST } = await import("@/app/api/internal/pdf-upload-attempts/cleanup/route");
+    const response = await POST(new Request(`http://localhost${path}`, {
+      method: "POST",
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-noticecontrol-worker-id": "worker-1",
+        "x-noticecontrol-timestamp": timestamp,
+        "x-noticecontrol-body-sha256": signed.bodySha256,
+        "x-noticecontrol-signature": signed.signature
+      }
+    }));
+
+    expect(response.status).toBe(200);
+    expect(cleanupStalePdfUploadAttempts).toHaveBeenCalledOnce();
+    await expect(response.json()).resolves.toEqual({
+      cleaned: 1,
+      protectedCount: 0,
+      candidateCount: 1,
+      retentionHours: 72
+    });
   });
 
   it("maps stale completion ownership conflicts to a safe conflict response", async () => {

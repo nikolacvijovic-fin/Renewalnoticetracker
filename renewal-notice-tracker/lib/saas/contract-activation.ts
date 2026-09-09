@@ -21,6 +21,7 @@ export type SaasContractActivationResult = {
   optOutWindowId: string;
   optOutDeadline: string;
   replayed: boolean;
+  deadlineClassification: "auto_renewal" | "notice_only";
 };
 
 export function evaluateSaasContractActivationReadiness(input: {
@@ -86,7 +87,10 @@ export function parseSaasContractActivationResult(value: Json | null): SaasContr
     saasTermId: object.saasTermId as string,
     optOutWindowId: object.optOutWindowId as string,
     optOutDeadline: object.optOutDeadline as string,
-    replayed: object.replayed === true
+    replayed: object.replayed === true,
+    deadlineClassification: object.deadlineClassification === "notice_only"
+      ? "notice_only"
+      : "auto_renewal"
   };
 }
 

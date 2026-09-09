@@ -1503,10 +1503,12 @@ export async function createSaasSoftwareAction(formData: FormData) {
 }
 
 export async function activateReviewedContractForSaasClockAction(
-  contractId: string
+  contractId: string,
+  selection: { softwareId?: string | null; createNew?: boolean } = {}
 ): Promise<SaasContractActivationResult> {
   // The RPC transaction emits the audit event saas.contract_activated_for_opt_out_clock.
   const context = await requireOrganization();
+  requireSaasWriteRole(context.role);
   await assertCanUseShippedAction(context, "review_p0", {
     organizationId: context.organizationId,
     assertScoped: async (organizationId) => {
@@ -1515,9 +1517,11 @@ export async function activateReviewedContractForSaasClockAction(
   });
 
   const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase.rpc("activate_reviewed_contract_for_saas_clock", {
+  const { data, error } = await supabase.rpc("activate_reviewed_contract_for_saas_clock_v2", {
     p_organization_id: context.organizationId,
-    p_contract_id: contractId
+    p_contract_id: contractId,
+    p_software_id: selection.softwareId ?? null,
+    p_create_new: selection.createNew === true
   });
 
   if (error) {
@@ -1532,8 +1536,12 @@ export async function activateReviewedContractForSaasClockAction(
   return result;
 }
 
-export async function activateReviewedContractForSaasClockFormAction(contractId: string) {
-  await activateReviewedContractForSaasClockAction(contractId);
+export async function activateReviewedContractForSaasClockFormAction(contractId: string, formData: FormData) {
+  const softwareId = optionalText(formData.get("software_id"));
+  await activateReviewedContractForSaasClockAction(contractId, {
+    softwareId,
+    createNew: formData.get("create_new") === "true"
+  });
 }
 
 export async function createSaasContractTermAction(formData: FormData) {

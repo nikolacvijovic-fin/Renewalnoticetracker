@@ -18,6 +18,7 @@ Enqueue is insert-first. If `(organization_id, idempotency_key)` already exists,
 Supported job types:
 
 - `trusted_reminder_delivery`
+- `contract_pdf_extraction`
 - `contract_import_processing`
 - `audit_event_flush`
 - `webhook_dispatch`
@@ -87,6 +88,16 @@ Flow:
 
 The existing reminder delivery engine still owns email idempotency, duplicate suppression, reminder runs, notification logs, and analytics.
 
+## Contract PDF Extraction Flow
+
+The SaaS PDF workbench stores the validated file and enqueues one `contract_pdf_extraction` job per upload-attempt ID. The HTTP request returns a durable processing result and never waits for OCR or provider extraction. A signed worker claims the job with a lease, runs page parsing, selective OCR, field extraction, and evidence persistence, then moves the upload attempt to `needs_review`. Provider failures use the bounded queue retry policy; stale leases are rescued before new claims and exhausted attempts become `extraction_failed`.
+
+An Admin or Operator can retry terminal extraction against the existing stored file, or abandon an unreviewed processing/failed attempt. Workers re-check the scoped attempt after provider work so an abandonment cannot be overwritten by late extraction output.
+
+Failed or explicitly abandoned upload placeholders are retained for `PDF_UPLOAD_ATTEMPT_RETENTION_HOURS` (72 hours by default). The signed cleanup route archives only unreviewed, non-activated placeholders and removes their orphaned storage object. Reviewed contracts and contracts linked to SaaS terms are never cleanup candidates.
+
+Deployment must schedule `POST /api/internal/pdf-upload-attempts/cleanup` through the same signed-worker boundary used by other internal jobs. The repository provides the route and bounded cleanup operation, but it does not claim that an external scheduler is already configured. Operators should run it at least daily, alert on non-2xx responses, and verify `saas_pdf_upload_cleanup_completed` counts without logging file paths or extracted content.
+
 ## Renewal Action Request Outbox
 
 Renewal-action request notifications use `notification_logs` as a narrow operational outbox. Workers claim one row with a `processing_token`, create or reuse a protected payload row in `renewal_action_notification_payloads`, write only a safe payload reference back to `notification_logs.provider_payload`, and then call Resend with the stable `delivery_key` as the request-level `idempotencyKey`.
@@ -153,7 +164,8 @@ The page shows queued, processing, retry-scheduled, dead-lettered, recent attemp
 
 ## Known Limitations
 
-- The Go worker currently acts as a signed poller and invokes the TypeScript app to process trusted reminder jobs.
+- The Go worker currently acts as a signed poller and invokes the TypeScript app to process trusted reminder and contract PDF extraction jobs.
+- Stale PDF placeholder cleanup requires an external scheduler to call the signed cleanup route; deployment configuration is not created by this code change.
 - Direct provider email delivery stays in the TypeScript app.
 - Full distributed worker leases should be stress-tested against a real Supabase instance.
 - Exact queue metrics should eventually move to SQL aggregate views or RPCs.

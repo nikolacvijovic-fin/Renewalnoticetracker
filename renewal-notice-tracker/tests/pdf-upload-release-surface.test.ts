@@ -41,4 +41,18 @@ describe("PDF upload release surface", () => {
     expect(homepage).toContain("Stop surprise auto-renewals");
     expect(fs.statSync(assetPath).size).toBeGreaterThan(100_000);
   });
+
+  it("has a required authenticated SaaS PDF browser acceptance boundary", () => {
+    const runner = read("scripts/run-saas-pdf-e2e.mjs");
+    const spec = read("e2e/saas-pdf-opt-out-clock.spec.ts");
+
+    expect(runner).toContain("E2E_SECONDARY_AUTH_COOKIE_VALUE");
+    expect(runner).toContain("--required");
+    expect(spec).toContain('extractionStatus: "processing"');
+    expect(spec).toContain("sessionStorage");
+    expect(spec).toContain("Save review");
+    expect(spec).toContain("activate for opt-out clock");
+    expect(spec).toContain("toHaveCount(1)");
+    expect(spec).toContain("noticecontrol-saas-opt-out-deadlines.ics");
+  });
 });

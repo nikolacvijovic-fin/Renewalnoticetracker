@@ -58,7 +58,7 @@ The Next.js app owns internal route contracts, job records, reminder delivery, a
 - `NOTICECONTROL_WORKER_ID`
 - `NOTICECONTROL_WORKER_CLAIM_LIMIT`
 
-The current loop calls `/api/internal/background-jobs/claim` with `processTrustedReminders=true`. This keeps provider secrets and delivery truth in the app while making Go useful as a deployable signed poller.
+The current loop calls `/api/internal/background-jobs/claim` with `processClaimedJobs=true` for trusted reminder delivery and contract PDF extraction jobs. Provider secrets, extraction data, and delivery truth remain in the app; the Go process is only the signed durable poller.
 
 ## Scaffolded vs Production-Ready
 

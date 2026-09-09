@@ -141,6 +141,8 @@ jobs:
         run: npx --yes supabase@2.39.2 test db supabase/tests/paid_design_partner_beta_readiness_test.sql
       - name: Test subscription usage lifecycle
         run: npx --yes supabase@2.39.2 test db supabase/tests/subscription_usage_lifecycle_stabilization_test.sql
+      - name: Test SaaS PDF contract to Opt-Out Clock
+        run: npx --yes supabase@2.39.2 test db supabase/tests/saas_pdf_contract_to_clock_test.sql
       - name: Stop isolated Supabase stack
         if: always()
         run: npx --yes supabase@2.39.2 stop --no-backup

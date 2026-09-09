@@ -28,6 +28,7 @@ type UploadStatus =
   | "extracting"
   | "success"
   | "partial"
+  | "abandoned"
   | "error";
 
 type UploadItem = {
@@ -145,6 +146,44 @@ export async function getPersistedPdfUploadAttempt(
   }
 }
 
+export async function abandonPersistedPdfUploadAttempt(uploadAttemptId: string) {
+  try {
+    const response = await fetch(
+      `/api/contracts/pdf-upload?attemptId=${encodeURIComponent(uploadAttemptId)}`,
+      {
+        method: "DELETE",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      }
+    );
+    const result = await response.json() as { ok?: boolean; message?: string };
+    return response.ok && result.ok === true
+      ? { ok: true as const }
+      : { ok: false as const, message: result.message ?? "This upload could not be abandoned safely." };
+  } catch {
+    return { ok: false as const, message: "This upload could not be abandoned safely." };
+  }
+}
+
+export async function retryPersistedPdfUploadExtraction(uploadAttemptId: string) {
+  try {
+    const response = await fetch(
+      `/api/contracts/pdf-upload?attemptId=${encodeURIComponent(uploadAttemptId)}`,
+      {
+        method: "PATCH",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "application/json" }
+      }
+    );
+    const parsed = await response.json() as PdfContractUploadActionResult;
+    return parsed && typeof parsed === "object" && "ok" in parsed ? parsed : safeUploadFailure();
+  } catch {
+    return safeUploadFailure();
+  }
+}
+
 function formatFileSize(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -162,6 +201,8 @@ function statusLabel(status: UploadStatus) {
       return "Ready for human review";
     case "partial":
       return "Uploaded; extraction needs attention";
+    case "abandoned":
+      return "Upload abandoned";
     case "error":
       return "Upload failed";
   }
@@ -182,6 +223,7 @@ export function PdfUploadWorkbench({
   const inputRef = useRef<HTMLInputElement>(null);
   const itemSequence = useRef(0);
   const restoredAttempts = useRef(false);
+  const abandonedAttempts = useRef(new Set<string>());
   const [items, setItems] = useState<UploadItem[]>([]);
   const [ownerUserId, setOwnerUserId] = useState(defaultOwnerUserId);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
@@ -272,6 +314,8 @@ export function PdfUploadWorkbench({
         status: "extracting",
         progress: 100,
         retryable: false,
+        fileName: result.fileName ?? item.fileName,
+        fileSize: result.fileSize ?? item.fileSize,
         safeMessage: result.safeMessage,
         result
       });
@@ -280,7 +324,9 @@ export function PdfUploadWorkbench({
     updateItem(item.id, {
       status: result.extractionStatus === "extraction_failed" ? "partial" : "success",
       progress: 100,
-      retryable: false,
+      retryable: result.extractionStatus === "extraction_failed",
+      fileName: result.fileName ?? item.fileName,
+      fileSize: result.fileSize ?? item.fileSize,
       safeMessage: result.recovered
         ? `${result.safeMessage} The original upload was recovered without creating a duplicate.`
         : result.safeMessage,
@@ -291,6 +337,7 @@ export function PdfUploadWorkbench({
 
   async function pollPersistedAttempt(item: UploadItem, isCancelled = () => false) {
     for (let attempt = 0; attempt < 60 && !isCancelled(); attempt += 1) {
+      if (abandonedAttempts.current.has(item.uploadAttemptId)) return false;
       const result = await getPersistedPdfUploadAttempt(item.uploadAttemptId);
       const applied = applyPersistedResult(item, result);
       if (applied !== null) return applied;
@@ -330,7 +377,13 @@ export function PdfUploadWorkbench({
       return applyPersistedResult(item, result);
     }
     const applied = applyPersistedResult(item, result);
-    return applied === null ? pollPersistedAttempt(item) : applied;
+    if (applied === null) {
+      void pollPersistedAttempt(item).then((persisted) => {
+        if (persisted) router.refresh();
+      });
+      return true;
+    }
+    return applied;
   }
 
   async function processBatch(selectedItems = items.filter((item) => item.status === "selected")) {
@@ -348,9 +401,36 @@ export function PdfUploadWorkbench({
   async function retryItem(item: UploadItem) {
     if (isProcessing || !item.retryable) return;
     setIsProcessing(true);
-    const persisted = await processItem(item);
+    const result = item.status === "partial"
+      ? await retryPersistedPdfUploadExtraction(item.uploadAttemptId)
+      : null;
+    const persisted = result ? applyPersistedResult(item, result) : await processItem(item);
+    if (result?.ok && result.extractionStatus === "processing") {
+      void pollPersistedAttempt(item).then((completed) => {
+        if (completed) router.refresh();
+      });
+    }
     setIsProcessing(false);
     if (persisted) router.refresh();
+  }
+
+  async function abandonItem(item: UploadItem) {
+    if (isProcessing || !["extracting", "partial"].includes(item.status)) return;
+    setIsProcessing(true);
+    const result = await abandonPersistedPdfUploadAttempt(item.uploadAttemptId);
+    setIsProcessing(false);
+    if (!result.ok) {
+      setBatchMessage(result.message);
+      return;
+    }
+    abandonedAttempts.current.add(item.uploadAttemptId);
+    updateItem(item.id, {
+      status: "abandoned",
+      retryable: false,
+      result: null,
+      safeMessage: "The unreviewed upload was abandoned. Its placeholder no longer consumes contract capacity."
+    });
+    router.refresh();
   }
 
   const batchSummary = isProcessing
@@ -454,7 +534,7 @@ export function PdfUploadWorkbench({
                         <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" />
                       ) : item.status === "success" ? (
                         <CheckCircle2 className="h-5 w-5 text-success" aria-hidden="true" />
-                      ) : item.status === "partial" || item.status === "error" ? (
+                      ) : item.status === "partial" || item.status === "error" || item.status === "abandoned" ? (
                         <AlertCircle className="h-5 w-5 text-critical" aria-hidden="true" />
                       ) : (
                         <FileText className="h-5 w-5" aria-hidden="true" />
@@ -492,6 +572,20 @@ export function PdfUploadWorkbench({
                       >
                         <RefreshCw className="h-4 w-4" aria-hidden="true" />
                         Retry
+                      </Button>
+                    ) : null}
+                    {(item.status === "extracting" || item.status === "partial") && item.result?.uploadAttemptId ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="gap-2"
+                        disabled={isProcessing}
+                        onClick={() => abandonItem(item)}
+                        title={`Abandon ${item.fileName}`}
+                        aria-label={`Abandon ${item.fileName}`}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        Abandon
                       </Button>
                     ) : null}
                     {!active ? (

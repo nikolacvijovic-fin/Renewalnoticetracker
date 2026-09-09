@@ -248,6 +248,8 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
         extractionStatus: "needs_review",
         needsReview: true,
         reviewReasons: [],
+        fileName: "Recovered Acme Renewal.pdf",
+        fileSize: 4096,
         recovered: true,
         safeMessage: "The prior PDF upload was recovered and is ready for human review."
       })
@@ -270,6 +272,8 @@ describe("SaaS Opt-Out Clock PDF upload", () => {
       expect.objectContaining({ cache: "no-store", credentials: "same-origin" })
     );
     expect(FakeXmlHttpRequest.pending).toHaveLength(0);
+    expect(screen.getByText("Recovered Acme Renewal.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/4 KB.*Ready for human review/)).toBeInTheDocument();
     expect(screen.getByText(/without creating a duplicate/i)).toBeInTheDocument();
   });
 

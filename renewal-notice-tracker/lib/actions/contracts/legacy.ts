@@ -106,6 +106,7 @@ import {
 import {
   claimSaasPdfUploadAttempt,
   getScopedPdfUploadAttemptResult,
+  PdfUploadCapacityError,
   markScopedPdfUploadAttempt,
   markScopedPdfUploadAttemptFailed
 } from "@/lib/contracts/pdf-upload-attempts";
@@ -122,6 +123,8 @@ import {
 } from "@/lib/billing/entitlements";
 import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
 import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
+import { enqueueContractPdfExtractionJob } from "@/lib/background-jobs/job-queue";
+import { linkAdminPdfExtractionJob } from "@/lib/contracts/repositories/admin-pdf-upload-repository";
 
 function fallbackMetadata(
   contractTitle: FormDataEntryValue | null,
@@ -924,6 +927,42 @@ async function createContractFromUpload(
       .eq("organization_id", organizationId);
   }
 
+  if (uploadAttemptId) {
+    await transitionContractStatus(admin, contract.id, organizationId, "queued_for_text_extraction");
+    const extractionJob = await enqueueContractPdfExtractionJob({
+      organizationId,
+      contractId: contract.id,
+      contractFileId: contractFile.id,
+      uploadAttemptId,
+      requestedByUserId: user.id
+    });
+    const linkedJob = await linkAdminPdfExtractionJob({
+      organizationId,
+      contractId: contract.id,
+      uploadAttemptId,
+      jobId: extractionJob.id
+    });
+    if (linkedJob.error || !linkedJob.data?.id) {
+      throw linkedJob.error ?? new Error("PDF extraction job could not be linked safely.");
+    }
+
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/saas-opt-out-clock");
+    return {
+      ok: true,
+      contractId: contract.id,
+      contractFileId: contractFile.id,
+      contractPath: `/dashboard/contracts/${contract.id}`,
+      extractionStatus: "processing",
+      needsReview: true,
+      reviewReasons: [],
+      uploadAttemptId,
+      jobId: extractionJob.id,
+      recovered: !attemptWasNew,
+      safeMessage: "The PDF is stored and extraction is running in the background. You can safely leave this page and return later."
+    };
+  }
+
   await transitionContractStatus(admin, contract.id, organizationId, "queued_for_text_extraction");
   await transitionContractStatus(admin, contract.id, organizationId, "extracting_text");
 
@@ -1317,7 +1356,7 @@ export async function uploadSaasOptOutClockPdfAction(
       }
     });
   } catch (error) {
-    if (error instanceof ContractTrackingCapacityError) {
+    if (error instanceof ContractTrackingCapacityError || error instanceof PdfUploadCapacityError) {
       return {
         ok: false,
         errorCode: "contract_limit_reached",
@@ -1347,6 +1386,102 @@ export async function uploadSaasOptOutClockPdfAction(
       safeMessage: "The PDF could not be processed safely. Retry the upload or add the contract manually."
     };
   }
+}
+
+export async function retrySaasOptOutClockPdfExtractionAction(
+  uploadAttemptIdValue: unknown
+): Promise<PdfContractUploadActionResult> {
+  const uploadAttemptId = normalizePdfUploadAttemptId(uploadAttemptIdValue);
+  if (!uploadAttemptId) {
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "A valid PDF upload attempt identifier is required."
+    };
+  }
+
+  const { user, organizationId, role } = await requireShippedRuntimeAction("upload_import");
+  if (!["admin", "operator"].includes(role)) {
+    return {
+      ok: false,
+      errorCode: "permission_denied",
+      safeMessage: "Only an admin or operator can retry PDF extraction."
+    };
+  }
+
+  const existing = await getScopedPdfUploadAttemptResult({
+    organizationId,
+    uploadAttemptId,
+    recovered: true
+  });
+  if (!existing) {
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "This PDF upload is not available in the active organization."
+    };
+  }
+  if (!existing.ok || existing.extractionStatus !== "extraction_failed") {
+    return existing;
+  }
+  if (!existing.contractFileId) {
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "The stored PDF is unavailable. Start a new upload instead."
+    };
+  }
+
+  const claim = await claimSaasPdfUploadAttempt({
+    organizationId,
+    uploadAttemptId,
+    contractTitle: "Recovered contract PDF",
+    ownerUserId: null
+  });
+  if (!claim.claimed) {
+    return (await getScopedPdfUploadAttemptResult({
+      organizationId,
+      uploadAttemptId,
+      recovered: true
+    })) ?? {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "PDF extraction retry could not be recovered safely."
+    };
+  }
+
+  const extractionJob = await enqueueContractPdfExtractionJob({
+    organizationId,
+    contractId: claim.contractId,
+    contractFileId: existing.contractFileId,
+    uploadAttemptId,
+    requestedByUserId: user.id
+  });
+  const linkedJob = await linkAdminPdfExtractionJob({
+    organizationId,
+    contractId: claim.contractId,
+    uploadAttemptId,
+    jobId: extractionJob.id
+  });
+  if (linkedJob.error || !linkedJob.data?.id) {
+    throw linkedJob.error ?? new Error("PDF extraction retry could not be linked safely.");
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/saas-opt-out-clock");
+  return {
+    ok: true,
+    contractId: claim.contractId,
+    contractFileId: existing.contractFileId,
+    contractPath: `/dashboard/contracts/${claim.contractId}`,
+    extractionStatus: "processing",
+    needsReview: true,
+    reviewReasons: [],
+    uploadAttemptId,
+    jobId: extractionJob.id,
+    recovered: true,
+    safeMessage: "Extraction retry is queued against the existing PDF. No duplicate contract or file was created."
+  };
 }
 
 export async function createManualContractAction(formData: FormData) {

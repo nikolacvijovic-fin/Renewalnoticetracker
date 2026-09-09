@@ -3,6 +3,7 @@ import type { Json } from "@/lib/supabase/database.types";
 export const BACKGROUND_JOB_TYPES = [
   "trusted_reminder_delivery",
   "contract_import_processing",
+  "contract_pdf_extraction",
   "audit_event_flush",
   "webhook_dispatch",
   "revenue_intelligence_refresh",
@@ -39,6 +40,7 @@ export type BackgroundJob = {
   scheduled_for: string;
   locked_at: string | null;
   locked_by: string | null;
+  lease_expires_at: string | null;
   last_error_code: string | null;
   last_error_message: string | null;
   completed_at: string | null;

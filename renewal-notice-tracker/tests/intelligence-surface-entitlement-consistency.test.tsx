@@ -24,6 +24,7 @@ const auditFinancialIntelligenceViewed = vi.fn();
 const auditProcurementAnalyticsViewed = vi.fn();
 const getSaasOptOutStatusForContract = vi.fn();
 const getSaasOptOutStatusesForContracts = vi.fn();
+const getSaasActivationCandidates = vi.fn();
 const getContractAuditTimeline = vi.fn();
 const listContractExtractionRuns = vi.fn();
 const listContractExtractedFields = vi.fn();
@@ -93,7 +94,8 @@ vi.mock("@/lib/billing/entitlements", async () => {
 
 vi.mock("@/lib/saas/queries", () => ({
   getSaasOptOutStatusForContract,
-  getSaasOptOutStatusesForContracts
+  getSaasOptOutStatusesForContracts,
+  getSaasActivationCandidates
 }));
 
 vi.mock("@/lib/enterprise-audit/audit-queries", () => ({
@@ -618,6 +620,7 @@ beforeEach(() => {
   getProcurementAnalyticsDashboard.mockResolvedValue(makeProcurementDashboard());
   getSaasOptOutStatusForContract.mockResolvedValue(null);
   getSaasOptOutStatusesForContracts.mockResolvedValue({});
+  getSaasActivationCandidates.mockResolvedValue([]);
   getContractAuditTimeline.mockResolvedValue([]);
   listContractExtractionRuns.mockResolvedValue([]);
   listContractExtractedFields.mockResolvedValue([]);

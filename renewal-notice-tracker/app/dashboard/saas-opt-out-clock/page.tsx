@@ -17,6 +17,7 @@ import {
 } from "@/lib/actions/saas-renewal-defense";
 import { getOrganizationMembers } from "@/lib/contracts/kernel-queries";
 import {
+  getSaasContractsAwaitingActivation,
   getSaasOptOutClock,
   getSaasRenewalImportReviewQueue,
   type SaasOptOutClockItem,
@@ -76,10 +77,11 @@ function rowsForGroup(rows: SaasRenewalImportReviewRow[], statuses: readonly str
 
 export default async function SaasOptOutClockPage() {
   const context = await requireOrganization();
-  const [clock, members, importBatches] = await Promise.all([
+  const [clock, members, importBatches, awaitingActivation] = await Promise.all([
     getSaasOptOutClock(context.organizationId),
     getOrganizationMembers(context.organizationId),
-    getSaasRenewalImportReviewQueue(context.organizationId)
+    getSaasRenewalImportReviewQueue(context.organizationId),
+    getSaasContractsAwaitingActivation(context.organizationId)
   ]);
   const canWrite = ["admin", "operator"].includes(context.role);
   const canResolveConflict = (item: SaasOptOutClockItem) =>
@@ -122,6 +124,8 @@ export default async function SaasOptOutClockPage() {
         <MetricCard label="Due within 60 days" value={clock.metrics.dueIn60DaysCount} accent="bg-brand-600" />
         <MetricCard label="Assigned owners" value={clock.metrics.assignedOwnerCount} accent="bg-success" />
         <MetricCard label="Unassigned owners" value={clock.metrics.unassignedOwnerCount} accent="bg-critical" />
+        <MetricCard label="Auto-renewal deadlines" value={clock.metrics.autoRenewalDeadlineCount} accent="bg-urgent" />
+        <MetricCard label="Notice-only deadlines" value={clock.metrics.noticeOnlyDeadlineCount} accent="bg-brand-600" />
       </section>
 
       {canWrite ? (
@@ -402,6 +406,40 @@ export default async function SaasOptOutClockPage() {
         </section>
       ) : null}
 
+      {awaitingActivation.length > 0 ? (
+        <section className="panel p-5" aria-labelledby="awaiting-clock-activation">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 id="awaiting-clock-activation" className="text-lg font-semibold text-slate-900">
+                Awaiting Opt-Out Clock activation
+              </h2>
+              <p className="mt-1 text-sm text-muted">
+                Human-reviewed contracts stay outside the operational clock until an admin or operator activates them.
+              </p>
+            </div>
+            <span className="rounded-full bg-warning/15 px-3 py-1 text-sm font-semibold text-amber-900">
+              {awaitingActivation.length} waiting
+            </span>
+          </div>
+          <ul className="mt-4 divide-y divide-slate-200">
+            {awaitingActivation.map((contract) => (
+              <li key={contract.contractId} className="flex flex-wrap items-center justify-between gap-3 py-3">
+                <div>
+                  <p className="font-medium text-slate-900">{contract.contractTitle}</p>
+                  <p className="text-sm text-slate-600">
+                    {contract.counterpartyName} | {contract.noticeDeadlineDate} |{" "}
+                    {contract.deadlineClassification === "notice_only" ? "Notice only" : "Auto-renewal"}
+                  </p>
+                </div>
+                <Button asChild variant="secondary">
+                  <Link href={`/dashboard/contracts/${contract.contractId}`}>Review activation</Link>
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="panel overflow-hidden p-0">
         <div className="border-b border-slate-200 p-5">
           <h2 className="text-lg font-semibold text-slate-900">Opt-out queue</h2>
@@ -438,6 +476,9 @@ export default async function SaasOptOutClockPage() {
                     </td>
                     <td className="px-5 py-4 text-slate-700">
                       <p>{item.optOutWindow?.opt_out_deadline ?? item.latestTerm?.notice_deadline_date ?? "Missing"}</p>
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        {item.deadlineClassification === "notice_only" ? "Notice-only deadline" : "Auto-renewal deadline"}
+                      </p>
                       <p className="text-xs text-slate-500">{item.daysUntilOptOut ?? "-"} days</p>
                     </td>
                     <td className="px-5 py-4">

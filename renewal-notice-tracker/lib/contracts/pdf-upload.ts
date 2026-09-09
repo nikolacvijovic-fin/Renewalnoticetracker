@@ -36,6 +36,9 @@ export type PdfContractUploadActionResult =
       reviewReasons: string[];
       safeMessage: string;
       uploadAttemptId?: string;
+      jobId?: string;
+      fileName?: string;
+      fileSize?: number;
       recovered?: boolean;
     }
   | {
@@ -54,7 +57,9 @@ export type PdfUploadAttemptStatus =
   | "processing"
   | "needs_review"
   | "extraction_failed"
-  | "failed";
+  | "failed"
+  | "abandoned"
+  | "cleaned";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

@@ -396,4 +396,24 @@ describe("bulk calendar exports", () => {
     expect(events[0]?.summary).toBe("Opt-out deadline: Acme SaaS");
     expect(events[0]?.description).toContain("/dashboard/saas-opt-out-clock");
   });
+
+  it("labels a verified non-auto-renewal deadline as notice-only in ICS", () => {
+    const item = {
+      software: { id: "software-notice", name: "Support Agreement", vendor_name: "Acme" },
+      effectiveOptOutDeadline: "2026-08-20",
+      workflowStatus: "open",
+      ownerLabel: "Finance Owner",
+      spendAtRiskAmount: 12000,
+      spendAtRiskCurrency: "EUR",
+      contractId: "contract-notice",
+      metadataConflicts: [],
+      deadlineClassification: "notice_only"
+    } as unknown as SaasOptOutClockItem;
+
+    const events = buildSaasOptOutCalendarEvents({ appUrl, items: [item] });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.summary).toBe("Notice-only deadline: Acme - Support Agreement");
+    expect(events[0]?.description).toContain("Deadline classification: Notice only.");
+  });
 });

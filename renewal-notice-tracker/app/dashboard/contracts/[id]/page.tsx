@@ -58,7 +58,10 @@ import {
   listQuoteFindings,
   listSavingsOpportunities
 } from "@/lib/quote-comparison/quote-comparison";
-import { getSaasOptOutStatusForContract } from "@/lib/saas/queries";
+import {
+  getSaasActivationCandidates,
+  getSaasOptOutStatusForContract
+} from "@/lib/saas/queries";
 import { SaasClockActivationPanel } from "@/components/contracts/saas-clock-activation-panel";
 import { evaluateSaasContractActivationReadiness } from "@/lib/saas/contract-activation";
 
@@ -163,6 +166,13 @@ export default async function ContractDetailPage({
     contractValueAmount: activationMetadata?.contract_value_amount ?? null,
     contractValueCurrency: activationMetadata?.contract_value_currency ?? null
   });
+  const saasActivationCandidates = saasOptOutStatus
+    ? []
+    : await getSaasActivationCandidates({
+        organizationId,
+        contractTitle: activationMetadata?.contract_title ?? null,
+        counterpartyName: activationMetadata?.counterparty_name ?? null
+      });
   if (riskBadgeAccess.allowed) {
     await auditRiskBadgeViewed({
       organizationId,
@@ -463,7 +473,8 @@ export default async function ContractDetailPage({
                               : "warning"
                         }
                       >
-                        SaaS opt-out {saasOptOutStatus.deadlineWindow.replaceAll("_", " ")}
+                        {saasOptOutStatus.deadlineClassification === "notice_only" ? "Notice-only" : "SaaS opt-out"}{" "}
+                        {saasOptOutStatus.deadlineWindow.replaceAll("_", " ")}
                       </Badge>
                       <Badge>{saasOptOutStatus.workflowStatus.replaceAll("_", " ")}</Badge>
                     </div>
@@ -506,7 +517,8 @@ export default async function ContractDetailPage({
                   <SaasClockActivationPanel
                     contractId={contract.id}
                     readiness={saasActivationReadiness}
-                    canActivate={canReviewExtraction}
+                    canActivate={hasRequiredRole(context.role, ["admin", "operator"])}
+                    candidates={saasActivationCandidates}
                   />
                 )}
               </div>
