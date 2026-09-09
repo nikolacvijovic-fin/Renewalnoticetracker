@@ -208,7 +208,7 @@ select throws_ok(
   'another organization cannot reuse an existing attempt identifier'
 );
 
-select like(
+select alike(
   pg_get_functiondef('public.claim_saas_pdf_contract_upload(uuid,uuid,text,uuid)'::regprocedure),
   '%pg_advisory_xact_lock%contract-capacity:%',
   'capacity enforcement is serialized inside the claim transaction'
