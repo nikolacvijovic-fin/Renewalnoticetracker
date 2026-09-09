@@ -227,7 +227,7 @@ export async function cleanAdminPdfUploadStorage(input: {
     .from("contracts")
     .update({
       status: "archived",
-      status_tag: "archived",
+      status_tag: "terminated",
       pdf_upload_attempt_status: "cleaned",
       pdf_upload_cleaned_at: input.cleanedAt,
       pdf_upload_failure_code: "upload_attempt_cleaned"

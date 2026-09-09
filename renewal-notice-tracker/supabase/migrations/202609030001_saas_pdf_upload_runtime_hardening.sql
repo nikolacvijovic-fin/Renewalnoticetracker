@@ -307,7 +307,7 @@ begin
       pdf_upload_abandoned_at = v_now,
       pdf_upload_failure_code = 'upload_abandoned_by_user',
       status = 'archived',
-      status_tag = 'archived',
+      status_tag = 'terminated',
       updated_at = v_now
   where id = v_contract.id;
 
