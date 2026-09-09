@@ -11,6 +11,15 @@ values
   ('00000000-0000-4000-8000-00000000d105', 'pdf-operator-a@example.test')
 on conflict (id) do nothing;
 
+insert into public.users (id, full_name)
+values
+  ('00000000-0000-4000-8000-00000000d101', 'PDF Admin A'),
+  ('00000000-0000-4000-8000-00000000d102', 'PDF Reviewer A'),
+  ('00000000-0000-4000-8000-00000000d103', 'PDF Owner A'),
+  ('00000000-0000-4000-8000-00000000d104', 'PDF Admin B'),
+  ('00000000-0000-4000-8000-00000000d105', 'PDF Operator A')
+on conflict (id) do nothing;
+
 insert into public.organizations (id, name, slug, created_by)
 values
   (
