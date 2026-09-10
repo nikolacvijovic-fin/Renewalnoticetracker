@@ -376,7 +376,7 @@ select is(
   'an admin explicitly creates the SaaS projection for one fully reviewed contract'
 );
 
-select is_deeply(
+select is(
   array[
     (select count(*)::integer from public.saas_software_inventory where organization_id = '00000000-0000-4000-8000-00000000d111'),
     (select count(*)::integer from public.saas_contract_terms where organization_id = '00000000-0000-4000-8000-00000000d111'),
@@ -421,7 +421,7 @@ select is(
   'repeated activation returns an idempotent replay even when the original create-new intent is repeated'
 );
 
-select is_deeply(
+select is(
   array[
     (select count(*)::integer from public.saas_software_inventory where organization_id = '00000000-0000-4000-8000-00000000d111'),
     (select count(*)::integer from public.saas_contract_terms where organization_id = '00000000-0000-4000-8000-00000000d111'),
