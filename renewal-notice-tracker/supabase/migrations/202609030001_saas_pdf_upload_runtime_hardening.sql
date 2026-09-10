@@ -141,6 +141,20 @@ begin
         'claimed', false
       );
     end if;
+    if exists (
+         select 1 from public.contract_metadata m
+         where m.contract_id = v_contract.id and m.reviewed_at is not null
+       ) or exists (
+         select 1 from public.saas_contract_terms t
+         where t.organization_id = p_organization_id and t.contract_id = v_contract.id
+       ) then
+      return jsonb_build_object(
+        'contractId', v_contract.id,
+        'status', coalesce(v_contract.pdf_upload_attempt_status, 'needs_review'),
+        'isNew', false,
+        'claimed', false
+      );
+    end if;
     if v_contract.pdf_upload_attempt_status not in ('failed', 'extraction_failed')
        and not (
          v_contract.pdf_upload_attempt_status = 'processing'
@@ -391,7 +405,27 @@ begin
     and c.organization_id = p_organization_id
   for update;
 
-  if v_contract.latest_file_id is distinct from p_contract_file_id
+  if (v_contract.latest_file_id is not null
+      and v_contract.latest_file_id is distinct from p_contract_file_id)
+     or (v_contract.latest_file_id is null and p_contract_file_id is null and exists (
+       select 1 from public.contract_files f
+       where f.contract_id = v_contract.id and f.storage_deleted_at is null
+     ))
+     or (v_contract.latest_file_id is null and p_contract_file_id is not null and (
+       select count(*)
+       from public.contract_files f
+       where f.contract_id = v_contract.id and f.storage_deleted_at is null
+     ) <> 1)
+     or (v_contract.latest_file_id is null and p_contract_file_id is not null and not exists (
+       select 1 from public.contract_files f
+       where f.id = p_contract_file_id
+         and f.contract_id = v_contract.id
+         and f.storage_deleted_at is null
+     ))
+     or (v_contract.latest_file_id is not null and p_contract_file_id is not null and not exists (
+       select 1 from public.contract_files f
+       where f.id = p_contract_file_id and f.contract_id = v_contract.id
+     ))
      or exists (
        select 1 from public.contract_metadata m
        where m.contract_id = v_contract.id and m.reviewed_at is not null

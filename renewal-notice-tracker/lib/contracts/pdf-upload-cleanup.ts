@@ -41,7 +41,10 @@ export async function cleanupStalePdfUploadAttempts(input: {
       protectedCount += 1;
       continue;
     }
-    const file = (row.contract_files ?? []).find((candidate) => candidate.id === row.latest_file_id) ?? null;
+    const contractFiles = row.contract_files ?? [];
+    const undeletedFiles = contractFiles.filter((candidate) => !candidate.storage_deleted_at);
+    const file = contractFiles.find((candidate) => candidate.id === row.latest_file_id) ??
+      (row.latest_file_id === null && undeletedFiles.length === 1 ? undeletedFiles[0] : null);
     const cleanup = await cleanAdminPdfUploadStorage({
       organizationId: row.organization_id,
       contractId: row.id,

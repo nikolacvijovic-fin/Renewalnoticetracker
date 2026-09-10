@@ -114,7 +114,7 @@ export function pdfUploadAttemptResultFromRow(input: {
     ? metadata.pdf_renewal_review_reasons.map(String)
     : [];
 
-  if (status === "processing" && !metadata) {
+  if (status === "processing") {
     return {
       ok: true,
       contractId: input.row.id,

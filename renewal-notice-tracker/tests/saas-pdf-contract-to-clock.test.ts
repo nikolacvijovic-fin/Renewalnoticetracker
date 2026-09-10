@@ -228,6 +228,9 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(migration).toContain("pdf_upload_attempt_status = 'cleanup_processing'");
     expect(migration).toContain("v_wrapper_created_software := true");
     expect(migration).toContain("v_wrapper_created_term := true");
+    expect(migration).toContain("where m.contract_id = v_contract.id and m.reviewed_at is not null");
+    expect(migration).toContain("where t.organization_id = p_organization_id and t.contract_id = v_contract.id");
+    expect(migration).toContain("f.contract_id = v_contract.id and f.storage_deleted_at is null");
     expect(cleanupRepository).toContain('status_tag: "terminated"');
     expect(cleanupRepository).not.toContain('status_tag: "archived"');
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.");

@@ -109,6 +109,22 @@ describe("PDF upload attempt cleanup", () => {
     });
   });
 
+  it("cleans the sole unlinked stored file after latest-file persistence failed", async () => {
+    mocks.listAdminStalePdfUploadAttempts.mockResolvedValue({
+      data: [candidate({ latest_file_id: null })],
+      error: null
+    });
+
+    await cleanupStalePdfUploadAttempts({
+      now: new Date("2030-01-04T00:00:00.000Z")
+    });
+
+    expect(mocks.cleanAdminPdfUploadStorage).toHaveBeenCalledWith(expect.objectContaining({
+      contractId: "contract-1",
+      contractFileId: "file-1"
+    }));
+  });
+
   it("counts failed cleanup attempts without recording a false cleanup audit", async () => {
     mocks.listAdminStalePdfUploadAttempts.mockResolvedValue({ data: [candidate()], error: null });
     mocks.cleanAdminPdfUploadStorage.mockResolvedValue({

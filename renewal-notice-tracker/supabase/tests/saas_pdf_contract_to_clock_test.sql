@@ -1,6 +1,6 @@
 begin;
 
-select plan(48);
+select plan(49);
 
 insert into auth.users (id, email)
 values
@@ -772,6 +772,26 @@ select is(
   'activation audit metadata excludes sensitive content fields'
 );
 
+update public.contracts
+set pdf_upload_attempt_status = 'extraction_failed'
+where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121';
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d121',
+    'Protected reviewed contract',
+    null
+  )->>'claimed',
+  'false',
+  'a reviewed and activated contract cannot be reclaimed for extraction'
+);
+
+reset role;
+
 insert into public.contracts (
   id, organization_id, created_by, status, source_type, status_tag,
   pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at
@@ -787,6 +807,18 @@ insert into public.contracts (
   timezone('utc', now()) - interval '4 days'
 );
 
+insert into public.contract_files (
+  id, contract_id, storage_path, file_name, mime_type, size_bytes, uploaded_by
+) values (
+  '00000000-0000-4000-8000-00000000d162',
+  '00000000-0000-4000-8000-00000000d142',
+  '00000000-0000-4000-8000-00000000d111/orphaned.pdf',
+  'orphaned.pdf',
+  'application/pdf',
+  1024,
+  '00000000-0000-4000-8000-00000000d101'
+);
+
 set local role service_role;
 set local request.jwt.claim.role = 'service_role';
 
@@ -794,7 +826,7 @@ select is(
   public.claim_saas_pdf_upload_cleanup(
     '00000000-0000-4000-8000-00000000d111',
     '00000000-0000-4000-8000-00000000d142',
-    null,
+    '00000000-0000-4000-8000-00000000d162',
     timezone('utc', now()) - interval '3 days'
   )->>'claimed',
   'true',

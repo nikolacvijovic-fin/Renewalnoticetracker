@@ -71,4 +71,19 @@ describe("PDF upload attempt recovery", () => {
       safeMessage: expect.stringContaining("abandoned")
     });
   });
+
+  it("reports processing until the terminal transition even when metadata already exists", () => {
+    expect(pdfUploadAttemptResultFromRow({
+      row: {
+        ...baseRow,
+        pdf_upload_attempt_status: "processing"
+      },
+      uploadAttemptId: baseRow.pdf_upload_attempt_id,
+      recovered: true
+    })).toMatchObject({
+      ok: true,
+      extractionStatus: "processing",
+      reviewReasons: []
+    });
+  });
 });
