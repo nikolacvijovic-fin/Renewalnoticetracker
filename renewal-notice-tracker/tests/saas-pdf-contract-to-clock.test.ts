@@ -215,8 +215,13 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(migration).not.toContain("status_tag = 'archived'");
     expect(migration).toContain("terminal_pdf_attempts");
     expect(migration).toContain("pdf_upload_failure_code = 'background_job_retry_exhausted'");
+    expect(migration).toContain("and s.status = 'active'");
+    expect(migration).toContain("returning id into v_selected_software_id");
     expect(cleanupRepository).toContain('status_tag: "terminated"');
     expect(cleanupRepository).not.toContain('status_tag: "archived"');
+    expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.");
+    expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.");
+    expect(cleanupRepository).not.toContain("pdf_upload_claimed_at.lt.${input.staleBeforeIso},pdf_upload_abandoned_at.lt.");
     expect(queries).toContain("normalizeSaasActivationMatchKey(candidate.name)");
     expect(queries).not.toContain("normalizeCounterpartyName(candidate.name)");
     expect(migration).toContain("and f.finding_type = 'auto_renewal'");

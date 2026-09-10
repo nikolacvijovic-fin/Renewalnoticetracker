@@ -444,6 +444,7 @@ declare
   v_existing_term public.saas_contract_terms%rowtype;
   v_result jsonb;
   v_classification text;
+  v_selected_software_id uuid;
 begin
   select m.role into v_role
   from public.memberships m
@@ -484,6 +485,7 @@ begin
     select count(*)::integer into v_match_count
     from public.saas_software_inventory s
     where s.organization_id = p_organization_id
+      and s.status = 'active'
       and regexp_replace(lower(btrim(s.name)), '[^a-z0-9]+', '', 'g') =
           regexp_replace(lower(btrim(v_metadata.contract_title)), '[^a-z0-9]+', '', 'g')
       and regexp_replace(lower(btrim(coalesce(s.vendor_name, ''))), '[^a-z0-9]+', '', 'g') =
@@ -494,6 +496,7 @@ begin
         select 1 from public.saas_software_inventory s
         where s.id = p_software_id
           and s.organization_id = p_organization_id
+          and s.status = 'active'
           and regexp_replace(lower(btrim(s.name)), '[^a-z0-9]+', '', 'g') =
               regexp_replace(lower(btrim(v_metadata.contract_title)), '[^a-z0-9]+', '', 'g')
           and regexp_replace(lower(btrim(coalesce(s.vendor_name, ''))), '[^a-z0-9]+', '', 'g') =
@@ -508,6 +511,38 @@ begin
     elsif v_match_count = 1 and p_create_new then
       raise exception 'A matching SaaS product already exists; select it instead.' using errcode = '55000';
     end if;
+
+    if p_software_id is not null then
+      v_selected_software_id := p_software_id;
+    elsif v_match_count = 1 then
+      select s.id into v_selected_software_id
+      from public.saas_software_inventory s
+      where s.organization_id = p_organization_id
+        and s.status = 'active'
+        and regexp_replace(lower(btrim(s.name)), '[^a-z0-9]+', '', 'g') =
+            regexp_replace(lower(btrim(v_metadata.contract_title)), '[^a-z0-9]+', '', 'g')
+        and regexp_replace(lower(btrim(coalesce(s.vendor_name, ''))), '[^a-z0-9]+', '', 'g') =
+            regexp_replace(lower(btrim(v_metadata.counterparty_name)), '[^a-z0-9]+', '', 'g')
+      limit 1;
+    elsif p_create_new then
+      insert into public.saas_software_inventory (
+        organization_id,
+        name,
+        vendor_name,
+        owner_user_id,
+        status,
+        source_contract_id,
+        created_by
+      ) values (
+        p_organization_id,
+        btrim(v_metadata.contract_title),
+        btrim(v_metadata.counterparty_name),
+        v_contract.owner_user_id,
+        'active',
+        p_contract_id,
+        v_actor
+      ) returning id into v_selected_software_id;
+    end if;
   elsif p_software_id is not null and v_existing_term.software_id <> p_software_id then
     raise exception 'The reviewed contract is already linked to a different SaaS product.' using errcode = '55000';
   end if;
@@ -515,7 +550,7 @@ begin
   -- Bind an explicit organization-scoped selection before delegating to the
   -- original transactional projection. The delegated function then treats the
   -- term as an existing link and cannot silently select another product.
-  if v_existing_term.id is null and p_software_id is not null then
+  if v_existing_term.id is null and v_selected_software_id is not null then
     insert into public.saas_contract_terms (
       organization_id,
       software_id,
@@ -532,7 +567,7 @@ begin
       created_by
     ) values (
       p_organization_id,
-      p_software_id,
+      v_selected_software_id,
       p_contract_id,
       v_metadata.renewal_date,
       v_metadata.expiration_date,

@@ -167,7 +167,10 @@ export async function listAdminStalePdfUploadAttempts(input: {
     .from("contracts")
     .select("id, organization_id, latest_file_id, pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at, pdf_upload_abandoned_at, contract_metadata(id, reviewed_at), saas_contract_terms(id), contract_files(id, storage_deleted_at)")
     .in("pdf_upload_attempt_status", ["failed", "abandoned"])
-    .or(`pdf_upload_claimed_at.lt.${input.staleBeforeIso},pdf_upload_abandoned_at.lt.${input.staleBeforeIso}`)
+    .or([
+      `and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.${input.staleBeforeIso})`,
+      `and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.${input.staleBeforeIso})`
+    ].join(","))
     .order("pdf_upload_claimed_at", { ascending: true, nullsFirst: true })
     .limit(input.limit);
 }

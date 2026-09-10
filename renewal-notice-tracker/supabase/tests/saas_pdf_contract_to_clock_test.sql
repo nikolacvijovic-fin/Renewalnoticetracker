@@ -1,6 +1,6 @@
 begin;
 
-select plan(39);
+select plan(40);
 
 insert into auth.users (id, email)
 values
@@ -428,6 +428,24 @@ insert into public.contract_metadata (
   timezone('utc', now())
 );
 
+insert into public.saas_software_inventory (
+  id,
+  organization_id,
+  name,
+  vendor_name,
+  owner_user_id,
+  status,
+  created_by
+) values (
+  '00000000-0000-4000-8000-00000000d161',
+  '00000000-0000-4000-8000-00000000d111',
+  'Acme Cloud Subscription',
+  'Acme Cloud',
+  '00000000-0000-4000-8000-00000000d103',
+  'inactive',
+  '00000000-0000-4000-8000-00000000d101'
+);
+
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
 
@@ -454,8 +472,23 @@ select is(
     (select count(*)::integer from public.saas_contract_terms where organization_id = '00000000-0000-4000-8000-00000000d111'),
     (select count(*)::integer from public.saas_opt_out_windows where organization_id = '00000000-0000-4000-8000-00000000d111')
   ],
-  array[1, 1, 1],
+  array[2, 1, 1],
   'activation creates one complete SaaS clock graph'
+);
+
+select is(
+  (
+    select s.status
+    from public.saas_contract_terms t
+    join public.saas_software_inventory s on s.id = t.software_id
+    where t.organization_id = '00000000-0000-4000-8000-00000000d111'
+      and t.contract_id = (
+        select id from public.contracts
+        where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121'
+      )
+  ),
+  'active',
+  'activation does not link a matching inactive inventory record'
 );
 
 select is(
@@ -500,7 +533,7 @@ select is(
     (select count(*)::integer from public.saas_opt_out_windows where organization_id = '00000000-0000-4000-8000-00000000d111'),
     (select count(*)::integer from public.audit_logs where organization_id = '00000000-0000-4000-8000-00000000d111' and action = 'saas.contract_activated_for_opt_out_clock')
   ],
-  array[1, 1, 1, 1],
+  array[2, 1, 1, 1],
   'activation replay creates no duplicate records or audit claims'
 );
 
