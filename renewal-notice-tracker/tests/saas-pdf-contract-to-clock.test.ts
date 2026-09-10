@@ -3,6 +3,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateSaasContractActivationReadiness,
+  normalizeSaasActivationMatchKey,
   parseSaasContractActivationResult
 } from "@/lib/saas/contract-activation";
 
@@ -179,10 +180,19 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     })).toMatchObject({ deadlineClassification: "notice_only" });
   });
 
+  it("uses the activation RPC match key without broader legal-suffix matching", () => {
+    expect(normalizeSaasActivationMatchKey(" Acme, Inc. ")).toBe("acmeinc");
+    expect(normalizeSaasActivationMatchKey("Acme Inc")).toBe("acmeinc");
+    expect(normalizeSaasActivationMatchKey("Acme")).not.toBe(
+      normalizeSaasActivationMatchKey("Acme, Inc.")
+    );
+  });
+
   it("locks upload and activation idempotency, tenant checks, and audit safety in the migration", () => {
     const originalMigration = source("supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql");
     const migration = source("supabase/migrations/202609030001_saas_pdf_upload_runtime_hardening.sql");
     const cleanupRepository = source("lib/contracts/repositories/admin-pdf-upload-repository.ts");
+    const queries = source("lib/saas/queries.ts");
 
     expect(originalMigration).toContain("contracts_pdf_upload_attempt_id_unique_idx");
     expect(migration).toContain("pg_advisory_xact_lock");
@@ -203,8 +213,12 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(migration).toContain("'notice_only'");
     expect(migration).toContain("status_tag = 'terminated'");
     expect(migration).not.toContain("status_tag = 'archived'");
+    expect(migration).toContain("terminal_pdf_attempts");
+    expect(migration).toContain("pdf_upload_failure_code = 'background_job_retry_exhausted'");
     expect(cleanupRepository).toContain('status_tag: "terminated"');
     expect(cleanupRepository).not.toContain('status_tag: "archived"');
+    expect(queries).toContain("normalizeSaasActivationMatchKey(candidate.name)");
+    expect(queries).not.toContain("normalizeCounterpartyName(candidate.name)");
     expect(migration).toContain("and f.finding_type = 'auto_renewal'");
     expect(migration).toContain("revoke all on function public.claim_saas_pdf_contract_upload");
     expect(migration).toContain("revoke all on function public.activate_reviewed_contract_for_saas_clock");

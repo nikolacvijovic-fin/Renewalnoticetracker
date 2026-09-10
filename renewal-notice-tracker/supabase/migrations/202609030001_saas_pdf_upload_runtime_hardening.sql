@@ -366,31 +366,51 @@ begin
   end if;
 
   return query
-  update public.background_jobs j
-  set attempts = j.attempts + 1,
-      status = case
-        when j.attempts + 1 >= j.max_attempts then 'dead_lettered'
-        else 'retry_scheduled'
-      end,
-      scheduled_for = case
-        when j.attempts + 1 >= j.max_attempts then j.scheduled_for
-        else p_now + make_interval(secs => least(300, 15 * power(2, j.attempts)::integer))
-      end,
-      locked_at = null,
-      locked_by = null,
-      lease_expires_at = null,
-      last_error_code = 'background_job_stale_lease',
-      last_error_message = 'Background job lease expired and was recovered safely.',
-      dead_lettered_at = case
-        when j.attempts + 1 >= j.max_attempts then p_now
-        else j.dead_lettered_at
-      end,
-      updated_at = p_now
-  where j.status = 'processing'
-    and j.lease_expires_at is not null
-    and j.lease_expires_at <= p_now
-    and (p_job_types is null or j.job_type = any(p_job_types))
-  returning j.*;
+  with rescued as (
+    update public.background_jobs j
+    set attempts = j.attempts + 1,
+        status = case
+          when j.attempts + 1 >= j.max_attempts then 'dead_lettered'
+          else 'retry_scheduled'
+        end,
+        scheduled_for = case
+          when j.attempts + 1 >= j.max_attempts then j.scheduled_for
+          else p_now + make_interval(secs => least(300, 15 * power(2, j.attempts)::integer))
+        end,
+        locked_at = null,
+        locked_by = null,
+        lease_expires_at = null,
+        last_error_code = 'background_job_stale_lease',
+        last_error_message = 'Background job lease expired and was recovered safely.',
+        dead_lettered_at = case
+          when j.attempts + 1 >= j.max_attempts then p_now
+          else j.dead_lettered_at
+        end,
+        updated_at = p_now
+    where j.status = 'processing'
+      and j.lease_expires_at is not null
+      and j.lease_expires_at <= p_now
+      and (p_job_types is null or j.job_type = any(p_job_types))
+    returning j.*
+  ), terminal_pdf_attempts as (
+    update public.contracts c
+    set status = 'extraction_failed',
+        pdf_upload_attempt_status = 'extraction_failed',
+        pdf_upload_completed_at = p_now,
+        pdf_upload_failure_code = 'background_job_retry_exhausted',
+        updated_at = p_now
+    from rescued r
+    where r.status = 'dead_lettered'
+      and r.job_type = 'contract_pdf_extraction'
+      and c.id = r.contract_id
+      and c.organization_id = r.organization_id
+      and c.pdf_extraction_job_id = r.id
+      and c.pdf_upload_attempt_status = 'processing'
+    returning c.id
+  )
+  select r.*
+  from rescued r
+  cross join (select count(*) from terminal_pdf_attempts) terminal_state;
 end;
 $$;
 

@@ -20,7 +20,7 @@ import type {
   NormalizedSaasRenewalImportRow,
   SaasRenewalImportCleanupIssue
 } from "@/lib/saas/import-cleanup";
-import { normalizeCounterpartyName } from "@/lib/contracts/counterparty-normalization";
+import { normalizeSaasActivationMatchKey } from "@/lib/saas/contract-activation";
 
 export type SaasActivationCandidate = Pick<SaasSoftwareRow, "id" | "name" | "vendor_name">;
 
@@ -201,8 +201,8 @@ export async function getSaasActivationCandidates(input: {
   contractTitle: string | null;
   counterpartyName: string | null;
 }): Promise<SaasActivationCandidate[]> {
-  const title = normalizeCounterpartyName(input.contractTitle ?? "");
-  const vendor = normalizeCounterpartyName(input.counterpartyName ?? "");
+  const title = normalizeSaasActivationMatchKey(input.contractTitle ?? "");
+  const vendor = normalizeSaasActivationMatchKey(input.counterpartyName ?? "");
   if (!title || !vendor) return [];
 
   const supabase = createServerSupabaseClient();
@@ -215,8 +215,8 @@ export async function getSaasActivationCandidates(input: {
   if (error) throw error;
 
   return (data ?? []).filter((candidate) =>
-    normalizeCounterpartyName(candidate.name) === title &&
-    normalizeCounterpartyName(candidate.vendor_name ?? "") === vendor
+    normalizeSaasActivationMatchKey(candidate.name) === title &&
+    normalizeSaasActivationMatchKey(candidate.vendor_name ?? "") === vendor
   );
 }
 

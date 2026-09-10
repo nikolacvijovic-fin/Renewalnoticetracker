@@ -24,6 +24,10 @@ export type SaasContractActivationResult = {
   deadlineClassification: "auto_renewal" | "notice_only";
 };
 
+export function normalizeSaasActivationMatchKey(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
 export function evaluateSaasContractActivationReadiness(input: {
   needsReview: boolean;
   reviewedAt: string | null;

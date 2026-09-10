@@ -1,6 +1,6 @@
 begin;
 
-select plan(36);
+select plan(39);
 
 insert into auth.users (id, email)
 values
@@ -318,6 +318,78 @@ select is(
 );
 
 reset role;
+
+insert into public.background_jobs (
+  id,
+  organization_id,
+  contract_id,
+  job_type,
+  status,
+  idempotency_key,
+  payload,
+  attempts,
+  max_attempts,
+  locked_at,
+  locked_by,
+  lease_expires_at
+) select
+  '00000000-0000-4000-8000-00000000d151',
+  '00000000-0000-4000-8000-00000000d111',
+  c.id,
+  'contract_pdf_extraction',
+  'processing',
+  'contract_pdf_extraction:00000000-0000-4000-8000-00000000d122',
+  jsonb_build_object('upload_attempt_id', '00000000-0000-4000-8000-00000000d122'),
+  2,
+  3,
+  timezone('utc', now()) - interval '2 minutes',
+  'expired-worker',
+  timezone('utc', now()) - interval '1 minute'
+from public.contracts c
+where c.pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d122';
+
+update public.contracts
+set pdf_extraction_job_id = '00000000-0000-4000-8000-00000000d151'
+where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d122';
+
+set local role service_role;
+set local request.jwt.claim.role = 'service_role';
+
+select is(
+  (
+    select status
+    from public.rescue_stale_background_jobs(
+      array['contract_pdf_extraction'],
+      timezone('utc', now())
+    )
+    where id = '00000000-0000-4000-8000-00000000d151'
+  ),
+  'dead_lettered',
+  'an extraction job with an expired final lease is dead-lettered'
+);
+
+select is(
+  (
+    select pdf_upload_attempt_status
+    from public.contracts
+    where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d122'
+  ),
+  'extraction_failed',
+  'dead-letter rescue atomically releases the linked upload from processing'
+);
+
+select is(
+  (
+    select pdf_upload_failure_code
+    from public.contracts
+    where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d122'
+  ),
+  'background_job_retry_exhausted',
+  'dead-letter rescue records a safe terminal failure code'
+);
+
+reset role;
+set local request.jwt.claim.role = '';
 
 update public.contracts
 set owner_user_id = '00000000-0000-4000-8000-00000000d103'
