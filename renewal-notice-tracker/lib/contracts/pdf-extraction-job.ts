@@ -5,10 +5,9 @@ import { buildEvidenceRows } from "@/lib/contracts/evidence";
 import { preparePdfRenewalExtractionForReview } from "@/lib/contracts/pdf-renewal-control";
 import {
   getAdminPdfExtractionContext,
-  replaceAdminPdfEvidenceRows,
+  persistAdminPdfExtractionForReview,
   transitionAdminPdfUploadAttempt,
-  updateAdminPdfExtractionFile,
-  upsertAdminPdfContractMetadata
+  updateAdminPdfExtractionFile
 } from "@/lib/contracts/repositories/admin-pdf-upload-repository";
 import { createAuditLog } from "@/lib/audit";
 import { trackServerAnalyticsEvent } from "@/lib/analytics/events";
@@ -172,10 +171,14 @@ export async function processContractPdfExtractionBackgroundJob(input: {
   const reviewReasons = metadata.pdf_renewal_review_reasons;
   const metadataValues: Record<string, unknown> = { ...metadata };
 
-  const metadataResult = await upsertAdminPdfContractMetadata({
+  const completedAt = new Date().toISOString();
+  const persistence = await persistAdminPdfExtractionForReview({
     organizationId: input.job.organization_id,
     contractId,
-    values: {
+    contractFileId: payload.contractFileId,
+    uploadAttemptId: payload.uploadAttemptId,
+    jobId: input.job.id,
+    metadata: {
       ...metadataValues,
       needs_review: true,
       review_mode: "exception_review",
@@ -187,64 +190,24 @@ export async function processContractPdfExtractionBackgroundJob(input: {
       is_manual_without_evidence: false,
       changes_previously_verified_p0: false,
       accepted_unverified_risk_requested: false
-    }
+    },
+    evidence: buildEvidenceRows(metadata.field_source_snippets, metadata.field_confidence, "extraction"),
+    ocrStatus: extraction.run?.status === "partial" ? "partial" : "completed",
+    completedAt
   });
-  if (metadataResult.error || !metadataResult.data?.id) {
+  if (persistence.error) {
     throw new PdfExtractionJobError(
-      "Extracted contract metadata could not be persisted.",
+      "Extracted contract review state could not be persisted atomically.",
       "ERR_PDF_EXTRACTION_METADATA_001",
       true
     );
   }
-
-  const evidence = await replaceAdminPdfEvidenceRows({
-    organizationId: input.job.organization_id,
-    contractId,
-    metadataId: metadataResult.data.id,
-    rows: buildEvidenceRows(metadata.field_source_snippets, metadata.field_confidence, "extraction")
-  });
-  if (evidence.error) {
+  const persistenceResult = persistence.data && typeof persistence.data === "object" && !Array.isArray(persistence.data)
+    ? persistence.data as Record<string, unknown>
+    : {};
+  if (persistenceResult.persisted !== true) {
     throw new PdfExtractionJobError(
-      "Extracted field evidence could not be persisted.",
-      "ERR_PDF_EXTRACTION_EVIDENCE_001",
-      true
-    );
-  }
-
-  const file = await updateAdminPdfExtractionFile({
-    organizationId: input.job.organization_id,
-    contractId,
-    contractFileId: payload.contractFileId,
-    values: {
-      extraction_error: null,
-      extraction_source: "page_aware",
-      ocr_status: extraction.run?.status === "partial" ? "partial" : "completed"
-    }
-  });
-  if (file.error || !file.data) {
-    throw new PdfExtractionJobError(
-      "PDF extraction file state could not be persisted.",
-      "ERR_PDF_EXTRACTION_FILE_STATE_001",
-      true
-    );
-  }
-
-  const completedAt = new Date().toISOString();
-  const attempt = await transitionAdminPdfUploadAttempt({
-    organizationId: input.job.organization_id,
-    contractId,
-    uploadAttemptId: payload.uploadAttemptId,
-    allowedStatuses: ["processing"],
-    values: {
-      status: "needs_review",
-      pdf_upload_attempt_status: "needs_review",
-      pdf_upload_completed_at: completedAt,
-      pdf_upload_failure_code: null
-    }
-  });
-  if (attempt.error || !attempt.data) {
-    throw new PdfExtractionJobError(
-      "PDF upload attempt state changed before completion.",
+      "PDF upload attempt changed before extraction could be persisted.",
       "ERR_PDF_EXTRACTION_STATE_CONFLICT_001",
       false
     );

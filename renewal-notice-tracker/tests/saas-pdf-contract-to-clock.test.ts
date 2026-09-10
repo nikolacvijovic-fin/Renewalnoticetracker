@@ -197,6 +197,8 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
   it("locks upload and activation idempotency, tenant checks, and audit safety in the migration", () => {
     const originalMigration = source("supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql");
     const migration = source("supabase/migrations/202609030001_saas_pdf_upload_runtime_hardening.sql");
+    const persistenceGuard = source("supabase/migrations/202609040001_saas_pdf_review_persistence_guard.sql");
+    const extractionWorker = source("lib/contracts/pdf-extraction-job.ts");
     const cleanupRepository = source("lib/contracts/repositories/admin-pdf-upload-repository.ts");
     const queries = source("lib/saas/queries.ts");
     const uploadActions = source("lib/actions/contracts/legacy.ts");
@@ -237,6 +239,17 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.");
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.cleanup_processing,pdf_upload_cleaned_at.lt.");
     expect(cleanupRepository).toContain('client.rpc("claim_saas_pdf_upload_cleanup"');
+    expect(cleanupRepository).toContain('rpc("persist_saas_pdf_extraction_for_review"');
+    expect(extractionWorker).toContain("persistAdminPdfExtractionForReview");
+    expect(extractionWorker).not.toContain("upsertAdminPdfContractMetadata");
+    expect(extractionWorker).not.toContain("replaceAdminPdfEvidenceRows");
+    expect(persistenceGuard).toContain("pg_advisory_xact_lock");
+    expect(persistenceGuard).toContain("v_existing_metadata.reviewed_at is not null");
+    expect(persistenceGuard).toContain("'contract_activated'");
+    expect(persistenceGuard).toContain("pdf_extraction_job_id is distinct from p_job_id");
+    expect(persistenceGuard).toContain("to service_role");
+    expect(persistenceGuard).toContain("v_contract.status_tag = 'terminated'");
+    expect(queries).toContain('.neq("status_tag", "terminated")');
     expect(cleanupRepository).not.toContain("pdf_upload_claimed_at.lt.${input.staleBeforeIso},pdf_upload_abandoned_at.lt.");
     expect(queries).toContain("normalizeSaasActivationMatchKey(candidate.name)");
     expect(queries).toContain("hasCountableSaasDeadline(item) && item.deadlineClassification");

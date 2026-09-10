@@ -470,6 +470,10 @@ export type Database = {
         Args: { p_organization_id: string; p_contract_id: string; p_contract_file_id: string | null; p_stale_before: string };
         Returns: Json;
       };
+      persist_saas_pdf_extraction_for_review: {
+        Args: { p_organization_id: string; p_contract_id: string; p_contract_file_id: string; p_upload_attempt_id: string; p_job_id: string; p_metadata: Json; p_evidence: Json; p_ocr_status: string; p_completed_at: string };
+        Returns: Json;
+      };
       abandon_saas_pdf_contract_upload: {
         Args: { p_organization_id: string; p_upload_attempt_id: string };
         Returns: Json;

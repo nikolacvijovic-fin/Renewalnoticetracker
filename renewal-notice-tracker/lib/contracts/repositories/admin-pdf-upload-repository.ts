@@ -1,5 +1,6 @@
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { getAppConfig } from "@/lib/config";
+import type { Json } from "@/lib/supabase/database.types";
 
 function admin() {
   return createAdminSupabaseClient();
@@ -156,6 +157,30 @@ export async function replaceAdminPdfEvidenceRows(input: {
   return client.from("extracted_field_evidence").insert(
     input.rows.map((row) => ({ contract_metadata_id: input.metadataId, ...row }))
   );
+}
+
+export async function persistAdminPdfExtractionForReview(input: {
+  organizationId: string;
+  contractId: string;
+  contractFileId: string;
+  uploadAttemptId: string;
+  jobId: string;
+  metadata: Record<string, unknown>;
+  evidence: Array<{ field_name: string; snippet: string; confidence: number | null; source: string }>;
+  ocrStatus: "completed" | "partial";
+  completedAt: string;
+}) {
+  return admin().rpc("persist_saas_pdf_extraction_for_review", {
+    p_organization_id: input.organizationId,
+    p_contract_id: input.contractId,
+    p_contract_file_id: input.contractFileId,
+    p_upload_attempt_id: input.uploadAttemptId,
+    p_job_id: input.jobId,
+    p_metadata: input.metadata as Json,
+    p_evidence: input.evidence as Json,
+    p_ocr_status: input.ocrStatus,
+    p_completed_at: input.completedAt
+  });
 }
 
 export async function transitionAdminPdfUploadAttempt(input: {

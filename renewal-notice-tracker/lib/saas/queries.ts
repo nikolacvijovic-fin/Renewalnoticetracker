@@ -251,7 +251,7 @@ export async function getSaasContractsAwaitingActivation(
     `)
     .eq("organization_id", organizationId)
     .neq("status", "archived")
-    .neq("status_tag", "archived")
+    .neq("status_tag", "terminated")
     .order("updated_at", { ascending: false });
   if (error) throw error;
 

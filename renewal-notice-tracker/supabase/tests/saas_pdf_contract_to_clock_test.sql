@@ -1,6 +1,6 @@
 begin;
 
-select plan(49);
+select plan(56);
 
 insert into auth.users (id, email)
 values
@@ -151,6 +151,36 @@ select is(
   ),
   true,
   'only the service worker can claim PDF storage cleanup'
+);
+
+select is(
+  has_function_privilege(
+    'anon',
+    'public.persist_saas_pdf_extraction_for_review(uuid,uuid,uuid,uuid,uuid,jsonb,jsonb,text,timestamptz)',
+    'execute'
+  ),
+  false,
+  'anonymous callers cannot persist PDF extraction review state'
+);
+
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.persist_saas_pdf_extraction_for_review(uuid,uuid,uuid,uuid,uuid,jsonb,jsonb,text,timestamptz)',
+    'execute'
+  ),
+  false,
+  'customer sessions cannot invoke service extraction persistence directly'
+);
+
+select is(
+  has_function_privilege(
+    'service_role',
+    'public.persist_saas_pdf_extraction_for_review(uuid,uuid,uuid,uuid,uuid,jsonb,jsonb,text,timestamptz)',
+    'execute'
+  ),
+  true,
+  'only the service worker can persist guarded PDF extraction review state'
 );
 
 set local role authenticated;
@@ -845,6 +875,154 @@ select is(
   )->>'claimed',
   'false',
   'a customer retry cannot reclaim an upload after cleanup owns it'
+);
+
+reset role;
+
+insert into public.contracts (
+  id, organization_id, created_by, status, source_type, status_tag,
+  pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at
+) values (
+  '00000000-0000-4000-8000-00000000d143',
+  '00000000-0000-4000-8000-00000000d111',
+  '00000000-0000-4000-8000-00000000d101',
+  'extracting_text',
+  'upload',
+  'active',
+  '00000000-0000-4000-8000-00000000d124',
+  'processing',
+  timezone('utc', now())
+);
+
+insert into public.contract_files (
+  id, contract_id, storage_path, file_name, mime_type, size_bytes, uploaded_by
+) values (
+  '00000000-0000-4000-8000-00000000d163',
+  '00000000-0000-4000-8000-00000000d143',
+  '00000000-0000-4000-8000-00000000d111/guarded.pdf',
+  'guarded.pdf',
+  'application/pdf',
+  1024,
+  '00000000-0000-4000-8000-00000000d101'
+);
+
+insert into public.background_jobs (
+  id, organization_id, contract_id, job_type, status, idempotency_key, payload,
+  attempts, max_attempts, locked_at, locked_by, lease_expires_at
+) values (
+  '00000000-0000-4000-8000-00000000d152',
+  '00000000-0000-4000-8000-00000000d111',
+  '00000000-0000-4000-8000-00000000d143',
+  'contract_pdf_extraction',
+  'processing',
+  'contract_pdf_extraction:00000000-0000-4000-8000-00000000d124',
+  jsonb_build_object('upload_attempt_id', '00000000-0000-4000-8000-00000000d124'),
+  0,
+  3,
+  timezone('utc', now()),
+  'guarded-worker',
+  timezone('utc', now()) + interval '10 minutes'
+);
+
+update public.contracts
+set latest_file_id = '00000000-0000-4000-8000-00000000d163',
+    pdf_extraction_job_id = '00000000-0000-4000-8000-00000000d152'
+where id = '00000000-0000-4000-8000-00000000d143';
+
+set local role service_role;
+set local request.jwt.claim.role = 'service_role';
+
+select is(
+  public.persist_saas_pdf_extraction_for_review(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d143',
+    '00000000-0000-4000-8000-00000000d163',
+    '00000000-0000-4000-8000-00000000d124',
+    '00000000-0000-4000-8000-00000000d152',
+    jsonb_build_object(
+      'contract_title', 'Guarded extraction proposal',
+      'counterparty_name', 'Guarded Vendor',
+      'needs_review', true,
+      'field_confidence', jsonb_build_object('contract_title', 0.9),
+      'field_source_snippets', jsonb_build_object('contract_title', 'Guarded extraction proposal'),
+      'pdf_renewal_review_reasons', jsonb_build_array('weak_evidence')
+    ),
+    jsonb_build_array(jsonb_build_object(
+      'field_name', 'contract_title',
+      'snippet', 'Guarded extraction proposal',
+      'confidence', 0.9,
+      'source', 'extraction'
+    )),
+    'completed',
+    timezone('utc', now())
+  )->>'persisted',
+  'true',
+  'the service worker atomically persists one unreviewed extraction result'
+);
+
+reset role;
+set local request.jwt.claim.role = '';
+
+update public.contract_metadata
+set contract_title = 'Human reviewed title',
+    reviewed_at = timezone('utc', now()),
+    reviewed_by = '00000000-0000-4000-8000-00000000d102'
+where contract_id = '00000000-0000-4000-8000-00000000d143';
+
+update public.contracts
+set status = 'extracting_text',
+    pdf_upload_attempt_status = 'processing'
+where id = '00000000-0000-4000-8000-00000000d143';
+
+set local role service_role;
+set local request.jwt.claim.role = 'service_role';
+
+select is(
+  public.persist_saas_pdf_extraction_for_review(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d143',
+    '00000000-0000-4000-8000-00000000d163',
+    '00000000-0000-4000-8000-00000000d124',
+    '00000000-0000-4000-8000-00000000d152',
+    jsonb_build_object('contract_title', 'Unsafe retry overwrite'),
+    '[]'::jsonb,
+    'completed',
+    timezone('utc', now())
+  )->>'reason',
+  'contract_reviewed',
+  'a delayed retry is rejected after human review wins'
+);
+
+select is(
+  (
+    select contract_title
+    from public.contract_metadata
+    where contract_id = '00000000-0000-4000-8000-00000000d143'
+  ),
+  'Human reviewed title',
+  'guarded retry never overwrites human-reviewed contract metadata'
+);
+
+reset role;
+set local request.jwt.claim.role = '';
+
+update public.contracts
+set status_tag = 'terminated'
+where id = '00000000-0000-4000-8000-00000000d141';
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d105';
+
+select throws_ok(
+  $$select public.activate_reviewed_contract_for_saas_clock_v2(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d141',
+    null,
+    false
+  )$$,
+  '55000',
+  'Terminated contracts cannot be activated for the Opt-Out Clock.',
+  'the activation boundary rejects the canonical terminated contract state'
 );
 
 reset role;

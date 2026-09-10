@@ -6,10 +6,9 @@ const mocks = vi.hoisted(() => ({
   preparePdfRenewalExtractionForReview: vi.fn(),
   buildEvidenceRows: vi.fn(),
   getAdminPdfExtractionContext: vi.fn(),
-  replaceAdminPdfEvidenceRows: vi.fn(),
+  persistAdminPdfExtractionForReview: vi.fn(),
   transitionAdminPdfUploadAttempt: vi.fn(),
   updateAdminPdfExtractionFile: vi.fn(),
-  upsertAdminPdfContractMetadata: vi.fn(),
   createAuditLog: vi.fn(),
   trackServerAnalyticsEvent: vi.fn(),
   recalculateEvidenceReadiness: vi.fn(),
@@ -28,10 +27,9 @@ vi.mock("@/lib/contracts/pdf-renewal-control", () => ({
 vi.mock("@/lib/contracts/evidence", () => ({ buildEvidenceRows: mocks.buildEvidenceRows }));
 vi.mock("@/lib/contracts/repositories/admin-pdf-upload-repository", () => ({
   getAdminPdfExtractionContext: mocks.getAdminPdfExtractionContext,
-  replaceAdminPdfEvidenceRows: mocks.replaceAdminPdfEvidenceRows,
+  persistAdminPdfExtractionForReview: mocks.persistAdminPdfExtractionForReview,
   transitionAdminPdfUploadAttempt: mocks.transitionAdminPdfUploadAttempt,
-  updateAdminPdfExtractionFile: mocks.updateAdminPdfExtractionFile,
-  upsertAdminPdfContractMetadata: mocks.upsertAdminPdfContractMetadata
+  updateAdminPdfExtractionFile: mocks.updateAdminPdfExtractionFile
 }));
 vi.mock("@/lib/audit", () => ({ createAuditLog: mocks.createAuditLog }));
 vi.mock("@/lib/analytics/events", () => ({
@@ -106,8 +104,10 @@ describe("contract PDF extraction background job", () => {
       pdf_renewal_review_reasons: ["weak_evidence"]
     });
     mocks.buildEvidenceRows.mockReturnValue([]);
-    mocks.upsertAdminPdfContractMetadata.mockResolvedValue({ data: { id: "metadata-1" }, error: null });
-    mocks.replaceAdminPdfEvidenceRows.mockResolvedValue({ error: null });
+    mocks.persistAdminPdfExtractionForReview.mockResolvedValue({
+      data: { persisted: true, metadataId: "metadata-1", status: "needs_review" },
+      error: null
+    });
     mocks.updateAdminPdfExtractionFile.mockResolvedValue({ data: { id: contractFileId }, error: null });
     mocks.createAuditLog.mockResolvedValue(undefined);
     mocks.trackServerAnalyticsEvent.mockResolvedValue(undefined);
@@ -131,17 +131,21 @@ describe("contract PDF extraction background job", () => {
       contractFileId,
       uploadAttemptId
     });
-    expect(mocks.transitionAdminPdfUploadAttempt).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(mocks.transitionAdminPdfUploadAttempt).toHaveBeenCalledWith(expect.objectContaining({
       organizationId,
       contractId,
       uploadAttemptId,
       allowedStatuses: ["processing"],
-      values: expect.objectContaining({ pdf_upload_attempt_status: "needs_review" })
+      values: { status: "extracting_text" }
     }));
-    expect(mocks.replaceAdminPdfEvidenceRows).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.persistAdminPdfExtractionForReview).toHaveBeenCalledWith(expect.objectContaining({
       organizationId,
       contractId,
-      metadataId: "metadata-1"
+      contractFileId,
+      uploadAttemptId,
+      jobId: job().id,
+      metadata: expect.objectContaining({ needs_review: true }),
+      evidence: []
     }));
     const serialized = JSON.stringify([
       mocks.createAuditLog.mock.calls,
@@ -152,7 +156,7 @@ describe("contract PDF extraction background job", () => {
   });
 
   it("fails closed when extracted metadata cannot be persisted", async () => {
-    mocks.upsertAdminPdfContractMetadata.mockResolvedValue({
+    mocks.persistAdminPdfExtractionForReview.mockResolvedValue({
       data: null,
       error: new Error("database unavailable")
     });
@@ -164,8 +168,23 @@ describe("contract PDF extraction background job", () => {
       code: "ERR_PDF_EXTRACTION_METADATA_001",
       retryable: true
     });
-    expect(mocks.replaceAdminPdfEvidenceRows).not.toHaveBeenCalled();
     expect(mocks.createAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a review or activation wins before atomic persistence", async () => {
+    mocks.persistAdminPdfExtractionForReview.mockResolvedValue({
+      data: { persisted: false, reason: "contract_reviewed" },
+      error: null
+    });
+
+    await expect(
+      processContractPdfExtractionBackgroundJob({ job: job(), workerId: "worker-1" })
+    ).rejects.toMatchObject({
+      code: "ERR_PDF_EXTRACTION_STATE_CONFLICT_001",
+      retryable: false
+    });
+    expect(mocks.createAuditLog).not.toHaveBeenCalled();
+    expect(mocks.trackServerAnalyticsEvent).not.toHaveBeenCalled();
   });
 
   it("does not persist provider output after the upload is abandoned", async () => {
@@ -179,8 +198,7 @@ describe("contract PDF extraction background job", () => {
       code: "ERR_PDF_EXTRACTION_STATE_CONFLICT_001",
       retryable: false
     });
-    expect(mocks.upsertAdminPdfContractMetadata).not.toHaveBeenCalled();
-    expect(mocks.replaceAdminPdfEvidenceRows).not.toHaveBeenCalled();
+    expect(mocks.persistAdminPdfExtractionForReview).not.toHaveBeenCalled();
     expect(mocks.createAuditLog).not.toHaveBeenCalled();
   });
 
@@ -196,7 +214,7 @@ describe("contract PDF extraction background job", () => {
       code: "ERR_PDF_EXTRACTION_PROVIDER_001",
       retryable: true
     } satisfies Partial<PdfExtractionJobError>));
-    expect(mocks.upsertAdminPdfContractMetadata).not.toHaveBeenCalled();
+    expect(mocks.persistAdminPdfExtractionForReview).not.toHaveBeenCalled();
   });
 
   it("marks terminal failure once and writes only safe identifiers", async () => {
