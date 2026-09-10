@@ -56,4 +56,19 @@ describe("PDF upload attempt recovery", () => {
       fileSize: undefined
     });
   });
+
+  it("does not offer recovery while storage cleanup owns the attempt", () => {
+    expect(pdfUploadAttemptResultFromRow({
+      row: {
+        ...baseRow,
+        pdf_upload_attempt_status: "cleanup_processing"
+      },
+      uploadAttemptId: baseRow.pdf_upload_attempt_id,
+      recovered: true
+    })).toMatchObject({
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: expect.stringContaining("abandoned")
+    });
+  });
 });

@@ -1,6 +1,6 @@
 begin;
 
-select plan(40);
+select plan(48);
 
 insert into auth.users (id, email)
 values
@@ -121,6 +121,36 @@ select is(
   ),
   true,
   'authenticated sessions can reach the hardened role-checked activation boundary'
+);
+
+select is(
+  has_function_privilege(
+    'anon',
+    'public.claim_saas_pdf_upload_cleanup(uuid,uuid,uuid,timestamptz)',
+    'execute'
+  ),
+  false,
+  'anonymous callers cannot claim PDF storage cleanup'
+);
+
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.claim_saas_pdf_upload_cleanup(uuid,uuid,uuid,timestamptz)',
+    'execute'
+  ),
+  false,
+  'customer sessions cannot claim PDF storage cleanup'
+);
+
+select is(
+  has_function_privilege(
+    'service_role',
+    'public.claim_saas_pdf_upload_cleanup(uuid,uuid,uuid,timestamptz)',
+    'execute'
+  ),
+  true,
+  'only the service worker can claim PDF storage cleanup'
 );
 
 set local role authenticated;
@@ -449,8 +479,9 @@ insert into public.saas_software_inventory (
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
 
-select is(
-  public.activate_reviewed_contract_for_saas_clock_v2(
+create temporary table pdf_activation_result (result jsonb) on commit drop;
+insert into pdf_activation_result (result)
+select public.activate_reviewed_contract_for_saas_clock_v2(
     '00000000-0000-4000-8000-00000000d111',
     (
       select id from public.contracts
@@ -458,12 +489,27 @@ select is(
     ),
     null,
     true
-  )->>'contractId',
+  );
+
+select is(
+  (select result->>'contractId' from pdf_activation_result),
   (
     select id::text from public.contracts
     where pdf_upload_attempt_id = '00000000-0000-4000-8000-00000000d121'
   ),
   'an admin explicitly creates the SaaS projection for one fully reviewed contract'
+);
+
+select is(
+  (select result->>'createdSoftware' from pdf_activation_result),
+  'true',
+  'create-new activation reports that the wrapper created software inventory'
+);
+
+select is(
+  (select result->>'createdTerm' from pdf_activation_result),
+  'true',
+  'create-new activation reports that the wrapper created the contract term'
 );
 
 select is(
@@ -500,6 +546,18 @@ select is(
   ),
   1,
   'activation records one customer audit event'
+);
+
+select is(
+  (
+    select (details->>'createdSoftware')::boolean and (details->>'createdTerm')::boolean
+    from public.audit_logs
+    where organization_id = '00000000-0000-4000-8000-00000000d111'
+      and action = 'saas.contract_activated_for_opt_out_clock'
+    limit 1
+  ),
+  true,
+  'activation audit records wrapper-created software and term accurately'
 );
 
 select is(
@@ -713,6 +771,51 @@ select is(
   false,
   'activation audit metadata excludes sensitive content fields'
 );
+
+insert into public.contracts (
+  id, organization_id, created_by, status, source_type, status_tag,
+  pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at
+) values (
+  '00000000-0000-4000-8000-00000000d142',
+  '00000000-0000-4000-8000-00000000d111',
+  '00000000-0000-4000-8000-00000000d101',
+  'extraction_failed',
+  'upload',
+  'active',
+  '00000000-0000-4000-8000-00000000d123',
+  'failed',
+  timezone('utc', now()) - interval '4 days'
+);
+
+set local role service_role;
+set local request.jwt.claim.role = 'service_role';
+
+select is(
+  public.claim_saas_pdf_upload_cleanup(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d142',
+    null,
+    timezone('utc', now()) - interval '3 days'
+  )->>'claimed',
+  'true',
+  'cleanup atomically claims a stale failed upload before storage work'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
+
+select is(
+  public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d111',
+    '00000000-0000-4000-8000-00000000d123',
+    'Cleanup-owned attempt',
+    null
+  )->>'claimed',
+  'false',
+  'a customer retry cannot reclaim an upload after cleanup owns it'
+);
+
+reset role;
 
 select * from finish();
 rollback;

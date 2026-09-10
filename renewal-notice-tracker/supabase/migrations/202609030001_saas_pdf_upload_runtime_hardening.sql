@@ -24,6 +24,7 @@ alter table public.contracts
       'extraction_failed',
       'failed',
       'abandoned',
+      'cleanup_processing',
       'cleaned'
     )
   );
@@ -351,6 +352,99 @@ revoke all on function public.abandon_saas_pdf_contract_upload(uuid, uuid)
 grant execute on function public.abandon_saas_pdf_contract_upload(uuid, uuid)
   to authenticated;
 
+create or replace function public.claim_saas_pdf_upload_cleanup(
+  p_organization_id uuid,
+  p_contract_id uuid,
+  p_contract_file_id uuid,
+  p_stale_before timestamptz
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_contract public.contracts%rowtype;
+  v_from_status text;
+  v_now timestamptz := timezone('utc', now());
+begin
+  if auth.role() <> 'service_role' then
+    raise exception 'Service role required.' using errcode = '42501';
+  end if;
+
+  select c.* into v_contract
+  from public.contracts c
+  where c.id = p_contract_id
+    and c.organization_id = p_organization_id;
+  if v_contract.id is null or v_contract.pdf_upload_attempt_id is null then
+    return jsonb_build_object('claimed', false);
+  end if;
+
+  -- Use the same attempt lock as customer retries, then make the cleanup claim
+  -- durable before the storage object is removed outside this transaction.
+  perform pg_advisory_xact_lock(
+    hashtextextended('saas-pdf-upload:' || v_contract.pdf_upload_attempt_id::text, 0)
+  );
+  select c.* into v_contract
+  from public.contracts c
+  where c.id = p_contract_id
+    and c.organization_id = p_organization_id
+  for update;
+
+  if v_contract.latest_file_id is distinct from p_contract_file_id
+     or exists (
+       select 1 from public.contract_metadata m
+       where m.contract_id = v_contract.id and m.reviewed_at is not null
+     )
+     or exists (
+       select 1 from public.saas_contract_terms t
+       where t.organization_id = p_organization_id and t.contract_id = v_contract.id
+     ) then
+    return jsonb_build_object('claimed', false);
+  end if;
+
+  if v_contract.pdf_upload_attempt_status = 'cleanup_processing' then
+    if v_contract.pdf_upload_cleaned_at is null or v_contract.pdf_upload_cleaned_at >= p_stale_before then
+      return jsonb_build_object('claimed', false);
+    end if;
+    return jsonb_build_object(
+      'claimed', true,
+      'contractId', v_contract.id,
+      'contractFileId', v_contract.latest_file_id,
+      'fromStatus', 'cleanup_processing'
+    );
+  end if;
+  if v_contract.pdf_upload_attempt_status not in ('failed', 'abandoned') then
+    return jsonb_build_object('claimed', false);
+  end if;
+  if (v_contract.pdf_upload_attempt_status = 'failed'
+      and (v_contract.pdf_upload_claimed_at is null or v_contract.pdf_upload_claimed_at >= p_stale_before))
+     or (v_contract.pdf_upload_attempt_status = 'abandoned'
+      and (v_contract.pdf_upload_abandoned_at is null or v_contract.pdf_upload_abandoned_at >= p_stale_before)) then
+    return jsonb_build_object('claimed', false);
+  end if;
+
+  v_from_status := v_contract.pdf_upload_attempt_status;
+  update public.contracts
+  set pdf_upload_attempt_status = 'cleanup_processing',
+      pdf_upload_cleaned_at = v_now,
+      updated_at = v_now
+  where id = v_contract.id;
+
+  return jsonb_build_object(
+    'claimed', true,
+    'contractId', v_contract.id,
+    'contractFileId', v_contract.latest_file_id,
+    'fromStatus', v_from_status
+  );
+end;
+$$;
+
+revoke all on function public.claim_saas_pdf_upload_cleanup(uuid, uuid, uuid, timestamptz)
+  from public, anon, authenticated;
+grant execute on function public.claim_saas_pdf_upload_cleanup(uuid, uuid, uuid, timestamptz)
+  to service_role;
+
 create or replace function public.rescue_stale_background_jobs(
   p_job_types text[],
   p_now timestamptz default timezone('utc', now())
@@ -445,6 +539,8 @@ declare
   v_result jsonb;
   v_classification text;
   v_selected_software_id uuid;
+  v_wrapper_created_software boolean := false;
+  v_wrapper_created_term boolean := false;
 begin
   select m.role into v_role
   from public.memberships m
@@ -542,6 +638,7 @@ begin
         p_contract_id,
         v_actor
       ) returning id into v_selected_software_id;
+      v_wrapper_created_software := true;
     end if;
   elsif p_software_id is not null and v_existing_term.software_id <> p_software_id then
     raise exception 'The reviewed contract is already linked to a different SaaS product.' using errcode = '55000';
@@ -580,6 +677,7 @@ begin
       upper(v_metadata.contract_value_currency),
       v_actor
     ) returning * into v_existing_term;
+    v_wrapper_created_term := true;
   end if;
 
   v_result := public.activate_reviewed_contract_for_saas_clock(p_organization_id, p_contract_id);
@@ -600,14 +698,20 @@ begin
 
   update public.audit_logs a
   set details = coalesce(a.details, '{}'::jsonb) || jsonb_build_object(
-    'deadlineClassification', v_classification
+    'deadlineClassification', v_classification,
+    'createdSoftware', coalesce((a.details->>'createdSoftware')::boolean, false) or v_wrapper_created_software,
+    'createdTerm', coalesce((a.details->>'createdTerm')::boolean, false) or v_wrapper_created_term
   )
   where a.organization_id = p_organization_id
     and a.contract_id = p_contract_id
     and a.action = 'saas.contract_activated_for_opt_out_clock'
     and a.entity_id = (v_result->>'saasTermId')::uuid;
 
-  return v_result || jsonb_build_object('deadlineClassification', v_classification);
+  return v_result || jsonb_build_object(
+    'deadlineClassification', v_classification,
+    'createdSoftware', coalesce((v_result->>'createdSoftware')::boolean, false) or v_wrapper_created_software,
+    'createdTerm', coalesce((v_result->>'createdTerm')::boolean, false) or v_wrapper_created_term
+  );
 end;
 $$;
 
@@ -620,6 +724,8 @@ comment on function public.claim_saas_pdf_contract_upload(uuid, uuid, text, uuid
   'Atomically enforces canonical organization contract capacity and claims one idempotent SaaS PDF upload attempt.';
 comment on function public.abandon_saas_pdf_contract_upload(uuid, uuid) is
   'Archives an unreviewed processing or failed PDF placeholder and cancels queued extraction without deleting customer-reviewed data.';
+comment on function public.claim_saas_pdf_upload_cleanup(uuid, uuid, uuid, timestamptz) is
+  'Service-only atomic cleanup claim serialized with customer PDF upload retries.';
 comment on function public.rescue_stale_background_jobs(text[], timestamptz) is
   'Service-only stale-lease recovery with bounded retry and dead-letter behavior.';
 comment on function public.activate_reviewed_contract_for_saas_clock_v2(uuid, uuid, uuid, boolean) is

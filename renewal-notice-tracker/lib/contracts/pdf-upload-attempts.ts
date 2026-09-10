@@ -57,7 +57,7 @@ export function parsePdfUploadAttemptClaim(value: Json | null): PdfUploadAttempt
   const status = String(object.status ?? "");
   if (
     typeof object.contractId !== "string" ||
-    !["processing", "needs_review", "extraction_failed", "failed", "abandoned", "cleaned"].includes(status)
+    !["processing", "needs_review", "extraction_failed", "failed", "abandoned", "cleanup_processing", "cleaned"].includes(status)
   ) {
     throw new Error("PDF upload attempt claim returned an invalid state.");
   }
@@ -137,6 +137,14 @@ export function pdfUploadAttemptResultFromRow(input: {
       ok: false,
       errorCode: "upload_failed",
       safeMessage: "The saved PDF upload needs a safe retry. No duplicate contract was created."
+    };
+  }
+
+  if (status === "cleanup_processing") {
+    return {
+      ok: false,
+      errorCode: "upload_failed",
+      safeMessage: "This abandoned PDF upload is being cleaned safely. Start a new upload when you are ready."
     };
   }
 

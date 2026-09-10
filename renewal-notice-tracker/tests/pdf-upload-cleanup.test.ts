@@ -70,7 +70,8 @@ describe("PDF upload attempt cleanup", () => {
       organizationId: "org-1",
       contractId: "contract-1",
       contractFileId: "file-1",
-      cleanedAt: "2030-01-04T00:00:00.000Z"
+      cleanedAt: "2030-01-04T00:00:00.000Z",
+      staleBeforeIso: "2030-01-01T00:00:00.000Z"
     }));
     expect(mocks.createAuditLog).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: "org-1",

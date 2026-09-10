@@ -6,6 +6,7 @@ import {
   normalizeSaasActivationMatchKey,
   parseSaasContractActivationResult
 } from "@/lib/saas/contract-activation";
+import { hasCountableSaasDeadline } from "@/lib/saas/queries";
 
 const mocks = vi.hoisted(() => ({
   requireOrganization: vi.fn(),
@@ -188,11 +189,17 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     );
   });
 
+  it("does not count inventory-only products as deadline records", () => {
+    expect(hasCountableSaasDeadline({ effectiveOptOutDeadline: null })).toBe(false);
+    expect(hasCountableSaasDeadline({ effectiveOptOutDeadline: "2026-10-01" })).toBe(true);
+  });
+
   it("locks upload and activation idempotency, tenant checks, and audit safety in the migration", () => {
     const originalMigration = source("supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql");
     const migration = source("supabase/migrations/202609030001_saas_pdf_upload_runtime_hardening.sql");
     const cleanupRepository = source("lib/contracts/repositories/admin-pdf-upload-repository.ts");
     const queries = source("lib/saas/queries.ts");
+    const uploadActions = source("lib/actions/contracts/legacy.ts");
 
     expect(originalMigration).toContain("contracts_pdf_upload_attempt_id_unique_idx");
     expect(migration).toContain("pg_advisory_xact_lock");
@@ -217,12 +224,19 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(migration).toContain("pdf_upload_failure_code = 'background_job_retry_exhausted'");
     expect(migration).toContain("and s.status = 'active'");
     expect(migration).toContain("returning id into v_selected_software_id");
+    expect(migration).toContain("claim_saas_pdf_upload_cleanup");
+    expect(migration).toContain("pdf_upload_attempt_status = 'cleanup_processing'");
+    expect(migration).toContain("v_wrapper_created_software := true");
+    expect(migration).toContain("v_wrapper_created_term := true");
     expect(cleanupRepository).toContain('status_tag: "terminated"');
     expect(cleanupRepository).not.toContain('status_tag: "archived"');
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.");
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.");
+    expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.cleanup_processing,pdf_upload_cleaned_at.lt.");
+    expect(cleanupRepository).toContain('client.rpc("claim_saas_pdf_upload_cleanup"');
     expect(cleanupRepository).not.toContain("pdf_upload_claimed_at.lt.${input.staleBeforeIso},pdf_upload_abandoned_at.lt.");
     expect(queries).toContain("normalizeSaasActivationMatchKey(candidate.name)");
+    expect(queries).toContain("hasCountableSaasDeadline(item) && item.deadlineClassification");
     expect(queries).not.toContain("normalizeCounterpartyName(candidate.name)");
     expect(migration).toContain("and f.finding_type = 'auto_renewal'");
     expect(migration).toContain("revoke all on function public.claim_saas_pdf_contract_upload");
@@ -232,5 +246,10 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
       /raw_contract_text|provider_payload|recipient_email|message_body|private_notes/i
     );
     expect(migration).not.toMatch(/insert into public\.reminders|notification_logs|send.*email/i);
+    expect(uploadActions).toContain("const linkedFile = await linkAdminPdfUploadFile");
+    expect(uploadActions).toContain("if (linkedFile.error || !linkedFile.data?.id)");
+    expect(uploadActions.indexOf("const linkedFile = await linkAdminPdfUploadFile")).toBeLessThan(
+      uploadActions.indexOf("const extractionJob = await enqueueContractPdfExtractionJob")
+    );
   });
 });

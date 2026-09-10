@@ -45,8 +45,9 @@ export async function cleanupStalePdfUploadAttempts(input: {
     const cleanup = await cleanAdminPdfUploadStorage({
       organizationId: row.organization_id,
       contractId: row.id,
-      contractFileId: file?.storage_deleted_at ? null : file?.id ?? null,
-      cleanedAt: now.toISOString()
+      contractFileId: file?.id ?? null,
+      cleanedAt: now.toISOString(),
+      staleBeforeIso
     });
     if (cleanup.error || !cleanup.data) {
       failedCount += 1;

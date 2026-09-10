@@ -96,6 +96,12 @@ export type SaasOptOutClock = {
   };
 };
 
+export function hasCountableSaasDeadline(
+  item: Pick<SaasOptOutClockItem, "effectiveOptOutDeadline">
+) {
+  return Boolean(item.effectiveOptOutDeadline);
+}
+
 export type SaasContractOptOutStatus = {
   softwareName: string;
   optOutDeadline: string | null;
@@ -524,8 +530,12 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       autoRenewalFindingCount: items.filter((item) =>
         item.openFindings.some((finding) => finding.finding_type === "auto_renewal")
       ).length,
-      autoRenewalDeadlineCount: items.filter((item) => item.deadlineClassification === "auto_renewal").length,
-      noticeOnlyDeadlineCount: items.filter((item) => item.deadlineClassification === "notice_only").length,
+      autoRenewalDeadlineCount: items.filter((item) =>
+        hasCountableSaasDeadline(item) && item.deadlineClassification === "auto_renewal"
+      ).length,
+      noticeOnlyDeadlineCount: items.filter((item) =>
+        hasCountableSaasDeadline(item) && item.deadlineClassification === "notice_only"
+      ).length,
       dueIn7DaysCount: items.filter((item) => item.deadlineWindow === "due_7_days").length,
       dueIn30DaysCount: items.filter((item) => item.deadlineWindow === "due_30_days").length,
       dueIn60DaysCount: items.filter((item) => item.deadlineWindow === "due_60_days").length,

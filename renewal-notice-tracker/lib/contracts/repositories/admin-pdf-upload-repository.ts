@@ -22,6 +22,23 @@ export async function linkAdminPdfExtractionJob(input: {
     .maybeSingle();
 }
 
+export async function linkAdminPdfUploadFile(input: {
+  organizationId: string;
+  contractId: string;
+  contractFileId: string;
+  uploadAttemptId: string;
+}) {
+  return admin()
+    .from("contracts")
+    .update({ latest_file_id: input.contractFileId })
+    .eq("id", input.contractId)
+    .eq("organization_id", input.organizationId)
+    .eq("pdf_upload_attempt_id", input.uploadAttemptId)
+    .eq("pdf_upload_attempt_status", "processing")
+    .select("id")
+    .maybeSingle();
+}
+
 export async function getAdminPdfExtractionContext(input: {
   organizationId: string;
   contractId: string;
@@ -165,11 +182,12 @@ export async function listAdminStalePdfUploadAttempts(input: {
 }) {
   return admin()
     .from("contracts")
-    .select("id, organization_id, latest_file_id, pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at, pdf_upload_abandoned_at, contract_metadata(id, reviewed_at), saas_contract_terms(id), contract_files(id, storage_deleted_at)")
-    .in("pdf_upload_attempt_status", ["failed", "abandoned"])
+    .select("id, organization_id, latest_file_id, pdf_upload_attempt_id, pdf_upload_attempt_status, pdf_upload_claimed_at, pdf_upload_abandoned_at, pdf_upload_cleaned_at, contract_metadata(id, reviewed_at), saas_contract_terms(id), contract_files(id, storage_deleted_at)")
+    .in("pdf_upload_attempt_status", ["failed", "abandoned", "cleanup_processing"])
     .or([
       `and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.${input.staleBeforeIso})`,
-      `and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.${input.staleBeforeIso})`
+      `and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.${input.staleBeforeIso})`,
+      `and(pdf_upload_attempt_status.eq.cleanup_processing,pdf_upload_cleaned_at.lt.${input.staleBeforeIso})`
     ].join(","))
     .order("pdf_upload_claimed_at", { ascending: true, nullsFirst: true })
     .limit(input.limit);
@@ -180,23 +198,36 @@ export async function cleanAdminPdfUploadStorage(input: {
   contractId: string;
   contractFileId: string | null;
   cleanedAt: string;
+  staleBeforeIso: string;
 }) {
   const client = admin();
-  const scoped = await client
-    .from("contracts")
-    .select("id, latest_file_id")
-    .eq("id", input.contractId)
-    .eq("organization_id", input.organizationId)
-    .in("pdf_upload_attempt_status", ["failed", "abandoned"])
-    .maybeSingle();
-  if (scoped.error || !scoped.data) {
-    return { data: null, error: scoped.error ?? new Error("Scoped cleanup candidate was not found.") };
+  const cleanupClaim = await client.rpc("claim_saas_pdf_upload_cleanup", {
+    p_organization_id: input.organizationId,
+    p_contract_id: input.contractId,
+    p_contract_file_id: input.contractFileId,
+    p_stale_before: input.staleBeforeIso
+  });
+  if (cleanupClaim.error) return { data: null, error: cleanupClaim.error };
+  const claim = cleanupClaim.data && typeof cleanupClaim.data === "object" && !Array.isArray(cleanupClaim.data)
+    ? cleanupClaim.data as Record<string, unknown>
+    : {};
+  if (claim.claimed !== true || claim.contractId !== input.contractId) {
+    return { data: null, error: new Error("Scoped cleanup candidate was not claimed.") };
   }
+  const fromStatus = claim.fromStatus === "failed" || claim.fromStatus === "abandoned"
+    ? claim.fromStatus
+    : null;
+  const releaseClaim = async () => {
+    if (!fromStatus) return;
+    await client
+      .from("contracts")
+      .update({ pdf_upload_attempt_status: fromStatus, pdf_upload_cleaned_at: null })
+      .eq("id", input.contractId)
+      .eq("organization_id", input.organizationId)
+      .eq("pdf_upload_attempt_status", "cleanup_processing");
+  };
 
   if (input.contractFileId) {
-    if (scoped.data.latest_file_id !== input.contractFileId) {
-      return { data: null, error: new Error("Scoped cleanup file did not match the contract.") };
-    }
     const fileRecord = await client
       .from("contract_files")
       .select("id, storage_path, storage_deleted_at")
@@ -204,13 +235,17 @@ export async function cleanAdminPdfUploadStorage(input: {
       .eq("contract_id", input.contractId)
       .maybeSingle();
     if (fileRecord.error || !fileRecord.data) {
+      await releaseClaim();
       return { data: null, error: fileRecord.error ?? new Error("Scoped cleanup file was not found.") };
     }
     if (!fileRecord.data.storage_deleted_at) {
       const removed = await client.storage
         .from(getAppConfig().supabase.storageBucket)
         .remove([fileRecord.data.storage_path]);
-      if (removed.error) return { data: null, error: removed.error };
+      if (removed.error) {
+        await releaseClaim();
+        return { data: null, error: removed.error };
+      }
       const file = await client
         .from("contract_files")
         .update({
@@ -237,7 +272,7 @@ export async function cleanAdminPdfUploadStorage(input: {
     })
     .eq("id", input.contractId)
     .eq("organization_id", input.organizationId)
-    .in("pdf_upload_attempt_status", ["failed", "abandoned"])
+    .eq("pdf_upload_attempt_status", "cleanup_processing")
     .select("id")
     .maybeSingle();
 }

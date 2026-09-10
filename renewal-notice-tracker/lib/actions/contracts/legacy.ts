@@ -124,7 +124,10 @@ import {
 import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
 import { recalculateEvidenceReadiness } from "@/lib/evidence-readiness/evidence-readiness-service";
 import { enqueueContractPdfExtractionJob } from "@/lib/background-jobs/job-queue";
-import { linkAdminPdfExtractionJob } from "@/lib/contracts/repositories/admin-pdf-upload-repository";
+import {
+  linkAdminPdfExtractionJob,
+  linkAdminPdfUploadFile
+} from "@/lib/contracts/repositories/admin-pdf-upload-repository";
 
 function fallbackMetadata(
   contractTitle: FormDataEntryValue | null,
@@ -920,14 +923,19 @@ async function createContractFromUpload(
     }
     contractFile = data;
 
-    await admin
-      .from("contracts")
-      .update({ latest_file_id: contractFile.id })
-      .eq("id", contract.id)
-      .eq("organization_id", organizationId);
   }
 
   if (uploadAttemptId) {
+    const linkedFile = await linkAdminPdfUploadFile({
+      organizationId,
+      contractId: contract.id,
+      contractFileId: contractFile.id,
+      uploadAttemptId
+    });
+    if (linkedFile.error || !linkedFile.data?.id) {
+      throw linkedFile.error ?? new Error("Stored PDF could not be linked to its upload attempt safely.");
+    }
+
     await transitionContractStatus(admin, contract.id, organizationId, "queued_for_text_extraction");
     const extractionJob = await enqueueContractPdfExtractionJob({
       organizationId,
@@ -962,6 +970,12 @@ async function createContractFromUpload(
       safeMessage: "The PDF is stored and extraction is running in the background. You can safely leave this page and return later."
     };
   }
+
+  await admin
+    .from("contracts")
+    .update({ latest_file_id: contractFile.id })
+    .eq("id", contract.id)
+    .eq("organization_id", organizationId);
 
   await transitionContractStatus(admin, contract.id, organizationId, "queued_for_text_extraction");
   await transitionContractStatus(admin, contract.id, organizationId, "extracting_text");
