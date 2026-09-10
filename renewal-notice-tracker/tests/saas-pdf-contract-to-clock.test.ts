@@ -196,6 +196,7 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(migration).toContain("PDF upload attempt is not available.");
     expect(migration).toContain("v_role is null or v_role not in ('admin', 'operator')");
     expect(migration).toContain("Only admins or operators can activate the Opt-Out Clock.");
+    expect(migration).toContain("Contract metadata must be extracted and reviewed before activation.");
     expect(migration).toContain("activate_reviewed_contract_for_saas_clock_v2");
     expect(migration).toContain("saas-clock-activation:");
     expect(migration).toContain("deadline_classification");

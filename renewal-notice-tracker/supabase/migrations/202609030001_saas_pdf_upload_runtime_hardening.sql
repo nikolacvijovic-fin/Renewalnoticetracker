@@ -450,7 +450,7 @@ begin
   from public.contract_metadata m
   where m.contract_id = p_contract_id;
   if v_metadata.id is null then
-    raise exception 'Contract is not available in the active organization.' using errcode = '42501';
+    raise exception 'Contract metadata must be extracted and reviewed before activation.' using errcode = '55000';
   end if;
 
   select t.* into v_existing_term
