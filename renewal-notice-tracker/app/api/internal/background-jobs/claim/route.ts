@@ -28,12 +28,18 @@ export const POST = createRouteHandler(
         : null
   },
   async ({ auth, input, json }) => {
+    const processInline = input.processClaimedJobs || input.processTrustedReminders;
+    // Legacy signed reminder callers remain supported. PDF jobs are executed
+    // only by the supervised PDF worker, never inside an HTTP claim lifetime.
+    if (processInline && input.jobTypes?.some((type) => type !== "trusted_reminder_delivery")) {
+      return json({ error: "Only trusted reminders support inline processing. Use the PDF worker for extraction." }, { status: 400 });
+    }
     const jobs = await claimBackgroundJobs({
       workerId: auth.workerId,
-      jobTypes: input.jobTypes as never,
+      jobTypes: (processInline ? ["trusted_reminder_delivery"] : input.jobTypes) as never,
       limit: input.limit
     });
-    const results = input.processClaimedJobs || input.processTrustedReminders
+    const results = processInline
       ? await Promise.all(jobs.map((job) => runClaimedBackgroundJob({ job, workerId: auth.workerId })))
       : [];
 

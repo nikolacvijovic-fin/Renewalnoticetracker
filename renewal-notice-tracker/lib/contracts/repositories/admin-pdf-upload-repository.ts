@@ -204,6 +204,7 @@ export async function transitionAdminPdfUploadAttempt(input: {
 export async function listAdminStalePdfUploadAttempts(input: {
   staleBeforeIso: string;
   limit: number;
+  nowIso?: string;
 }) {
   return admin()
     .from("contracts")
@@ -212,7 +213,7 @@ export async function listAdminStalePdfUploadAttempts(input: {
     .or([
       `and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.${input.staleBeforeIso})`,
       `and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.${input.staleBeforeIso})`,
-      `and(pdf_upload_attempt_status.eq.cleanup_processing,pdf_upload_cleaned_at.lt.${input.staleBeforeIso})`
+      `and(pdf_upload_attempt_status.eq.cleanup_processing,or(pdf_upload_cleanup_lease_expires_at.is.null,pdf_upload_cleanup_lease_expires_at.lte.${input.nowIso ?? new Date().toISOString()}))`
     ].join(","))
     .order("pdf_upload_claimed_at", { ascending: true, nullsFirst: true })
     .limit(input.limit);
@@ -239,67 +240,50 @@ export async function cleanAdminPdfUploadStorage(input: {
   if (claim.claimed !== true || claim.contractId !== input.contractId) {
     return { data: null, error: new Error("Scoped cleanup candidate was not claimed.") };
   }
-  const fromStatus = claim.fromStatus === "failed" || claim.fromStatus === "abandoned"
-    ? claim.fromStatus
-    : null;
-  const releaseClaim = async () => {
-    if (!fromStatus) return;
-    await client
-      .from("contracts")
-      .update({ pdf_upload_attempt_status: fromStatus, pdf_upload_cleaned_at: null })
-      .eq("id", input.contractId)
-      .eq("organization_id", input.organizationId)
-      .eq("pdf_upload_attempt_status", "cleanup_processing");
-  };
+  const cleanupToken = typeof claim.cleanupToken === "string" ? claim.cleanupToken : null;
+  if (!cleanupToken) return { data: null, error: new Error("Cleanup claim has no ownership token.") };
+  const finish = (storageRemoved: boolean) => client.rpc("finish_saas_pdf_upload_cleanup", {
+    p_organization_id: input.organizationId,
+    p_contract_id: input.contractId,
+    p_cleanup_token: cleanupToken,
+    p_storage_removed: storageRemoved
+  });
 
-  if (input.contractFileId) {
-    const fileRecord = await client
-      .from("contract_files")
-      .select("id, storage_path, storage_deleted_at")
-      .eq("id", input.contractFileId)
-      .eq("contract_id", input.contractId)
-      .maybeSingle();
-    if (fileRecord.error || !fileRecord.data) {
-      await releaseClaim();
-      return { data: null, error: fileRecord.error ?? new Error("Scoped cleanup file was not found.") };
-    }
-    if (!fileRecord.data.storage_deleted_at) {
-      const removed = await client.storage
-        .from(getAppConfig().supabase.storageBucket)
-        .remove([fileRecord.data.storage_path]);
-      if (removed.error) {
-        await releaseClaim();
-        return { data: null, error: removed.error };
-      }
-      const file = await client
+  let completed = false;
+  try {
+    if (input.contractFileId) {
+      const fileRecord = await client
         .from("contract_files")
-        .update({
-          storage_deleted_at: input.cleanedAt,
-          extracted_text: null,
-          extraction_error: "Upload attempt was cleaned after its retention window."
-        })
+        .select("id, storage_path, storage_deleted_at")
         .eq("id", input.contractFileId)
         .eq("contract_id", input.contractId)
-        .select("id")
         .maybeSingle();
-      if (file.error) return file;
+      if (fileRecord.error || !fileRecord.data) {
+        return { data: null, error: fileRecord.error ?? new Error("Scoped cleanup file was not found.") };
+      }
+      if (!fileRecord.data.storage_deleted_at) {
+        // Supabase removal is idempotent for an already absent object. Keep the
+        // claim exclusive even if the response is lost after actual deletion.
+        const removed = await client.storage
+          .from(getAppConfig().supabase.storageBucket)
+          .remove([fileRecord.data.storage_path]);
+        if (removed.error) return { data: null, error: removed.error };
+      }
+    }
+    const result = await finish(true);
+    const value = result.data as { finished?: boolean } | null;
+    if (result.error || value?.finished !== true) {
+      return { data: null, error: result.error ?? new Error("Cleanup ownership changed before completion.") };
+    }
+    completed = true;
+    return { data: { id: input.contractId }, error: null };
+  } finally {
+    if (!completed) {
+      // Release only this token's lease, never its cleanup state. If the DB is
+      // unavailable the five-minute lease still guarantees bounded recovery.
+      try { await finish(false); } catch { /* Lease expiry remains the fallback. */ }
     }
   }
-
-  return client
-    .from("contracts")
-    .update({
-      status: "archived",
-      status_tag: "terminated",
-      pdf_upload_attempt_status: "cleaned",
-      pdf_upload_cleaned_at: input.cleanedAt,
-      pdf_upload_failure_code: "upload_attempt_cleaned"
-    })
-    .eq("id", input.contractId)
-    .eq("organization_id", input.organizationId)
-    .eq("pdf_upload_attempt_status", "cleanup_processing")
-    .select("id")
-    .maybeSingle();
 }
 
 export async function getAdminPdfUploadAttemptMetrics() {

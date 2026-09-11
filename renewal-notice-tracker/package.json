@@ -64,7 +64,9 @@
     "e2e:saas-pdf-clock": "node scripts/run-saas-pdf-e2e.mjs",
     "e2e:saas-pdf-clock:required": "node scripts/run-saas-pdf-e2e.mjs --required",
     "smoke:staging": "node scripts/run-staging-smoke.mjs",
-    "load:staging:k6": "k6 run scripts/load/noticecontrol-staging-smoke.k6.js"
+    "load:staging:k6": "k6 run scripts/load/noticecontrol-staging-smoke.k6.js",
+    "worker:pdf:build": "node scripts/build-pdf-worker.mjs",
+    "worker:pdf": "node scripts/run-pdf-worker.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -99,6 +101,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "esbuild": "0.21.5",
     "eslint": "^8.57.1",
     "eslint-config-next": "15.5.24",
     "jsdom": "^25.0.1",

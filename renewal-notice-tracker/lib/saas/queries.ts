@@ -480,9 +480,9 @@ export async function getSaasOptOutClock(organizationId: string): Promise<SaasOp
       ],
       currentStatus: optOutWindow?.workflow_status as SaasOptOutWorkflowStatus | null | undefined
     });
-    const deadlineClassification = optOutWindow?.deadline_classification === "notice_only" || latestTerm?.auto_renewal === false
-      ? "notice_only" as const
-      : "auto_renewal" as const;
+    const deadlineClassification: "auto_renewal" | "notice_only" = optOutWindow
+      ? optOutWindow.deadline_classification as "auto_renewal" | "notice_only"
+      : latestTerm?.auto_renewal === false ? "notice_only" as const : "auto_renewal" as const;
 
     return {
       software,

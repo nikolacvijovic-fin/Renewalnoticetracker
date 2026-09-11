@@ -63,7 +63,8 @@ describe("PDF upload attempt cleanup", () => {
     expect(result).toEqual({ cleaned: 1, protectedCount: 2, failedCount: 0, candidateCount: 3, retentionHours: 72 });
     expect(mocks.listAdminStalePdfUploadAttempts).toHaveBeenCalledWith({
       staleBeforeIso: "2030-01-01T00:00:00.000Z",
-      limit: 50
+      limit: 50,
+      nowIso: "2030-01-04T00:00:00.000Z"
     });
     expect(mocks.cleanAdminPdfUploadStorage).toHaveBeenCalledTimes(1);
     expect(mocks.cleanAdminPdfUploadStorage).toHaveBeenCalledWith(expect.objectContaining({
@@ -147,6 +148,20 @@ describe("PDF upload attempt cleanup", () => {
         cleaned_count: 0,
         failed_count: 1
       })
+    }));
+  });
+
+  it("retries an interrupted cleanup candidate after its short cleanup lease", async () => {
+    mocks.listAdminStalePdfUploadAttempts.mockResolvedValue({
+      data: [candidate({ pdf_upload_attempt_status: "cleanup_processing" })],
+      error: null
+    });
+    await cleanupStalePdfUploadAttempts({ now: new Date("2030-01-04T00:00:00.000Z") });
+    expect(mocks.listAdminStalePdfUploadAttempts).toHaveBeenCalledWith(expect.objectContaining({
+      nowIso: "2030-01-04T00:00:00.000Z"
+    }));
+    expect(mocks.cleanAdminPdfUploadStorage).toHaveBeenCalledWith(expect.objectContaining({
+      contractId: "contract-1", contractFileId: "file-1"
     }));
   });
 });

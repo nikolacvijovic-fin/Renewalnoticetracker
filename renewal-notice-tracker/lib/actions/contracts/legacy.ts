@@ -756,10 +756,16 @@ async function createContractFromUpload(
   const existingAttempt = uploadAttemptId
     ? await getScopedPdfUploadAttemptResult({ organizationId, uploadAttemptId })
     : null;
-  if (existingAttempt?.ok) return existingAttempt;
+  // Processing is only a snapshot: the canonical claim decides whether its
+  // upload lease is still active or an interrupted intake can be reclaimed.
+  if (existingAttempt?.ok && existingAttempt.extractionStatus !== "processing") return existingAttempt;
 
   const billingSnapshot = await getBillingSnapshot(organizationId);
-  if (!existingAttempt) {
+  if (uploadAttemptId) {
+    // The atomic PDF claim owns capacity accounting, including failed
+    // placeholders and replays. Enforce beta write state for retries too.
+    await enforceDesignPartnerBetaMutation({ organizationId, action: "upload_contract" });
+  } else if (!existingAttempt) {
     const trackingCapacity = await enforceContractTrackingCapacityOrRedirect({
       organizationId,
       actorUserId: user.id,
@@ -1435,7 +1441,7 @@ export async function retrySaasOptOutClockPdfExtractionAction(
       safeMessage: "This PDF upload is not available in the active organization."
     };
   }
-  if (!existing.ok || existing.extractionStatus !== "extraction_failed") {
+  if (!existing.ok || !["extraction_failed", "processing"].includes(existing.extractionStatus)) {
     return existing;
   }
   if (!existing.contractFileId) {
@@ -1446,6 +1452,7 @@ export async function retrySaasOptOutClockPdfExtractionAction(
     };
   }
 
+  await enforceDesignPartnerBetaMutation({ organizationId, action: "upload_contract" });
   const claim = await claimSaasPdfUploadAttempt({
     organizationId,
     uploadAttemptId,

@@ -127,7 +127,7 @@ describe("background job internal routes", () => {
     expect(payload.results).toEqual([{ jobId: "job-1", status: "completed" }]);
   });
 
-  it("lets the signed worker process durable PDF extraction jobs", async () => {
+  it("rejects inline PDF extraction before claiming any jobs", async () => {
     const path = "/api/internal/background-jobs/claim";
     const body = JSON.stringify({
       limit: 1,
@@ -166,11 +166,25 @@ describe("background job internal routes", () => {
       }
     }));
 
-    expect(response.status).toBe(200);
-    expect(runClaimedBackgroundJob).toHaveBeenCalledWith({ job: claimedJob, workerId: "worker-1" });
-    await expect(response.json()).resolves.toMatchObject({
-      results: [{ jobId: "job-pdf-1", status: "completed" }]
-    });
+    expect(response.status).toBe(400);
+    expect(claimBackgroundJobs).not.toHaveBeenCalled();
+    expect(runClaimedBackgroundJob).not.toHaveBeenCalled();
+
+    // The same signed boundary still supports a fast, claim-only request.
+    const claimBody = JSON.stringify({ limit: 1, jobTypes: ["contract_pdf_extraction"] });
+    const claimSignature = signRequest({ method: "POST", path, timestamp, body: claimBody, secret: "test-worker-signing-secret" });
+    const claimResponse = await POST(new Request(`http://localhost${path}`, {
+      method: "POST", body: claimBody, headers: {
+        "content-type": "application/json",
+        "x-noticecontrol-worker-id": "worker-1",
+        "x-noticecontrol-timestamp": timestamp,
+        "x-noticecontrol-body-sha256": claimSignature.bodySha256,
+        "x-noticecontrol-signature": claimSignature.signature
+      }
+    }));
+    expect(claimResponse.status).toBe(200);
+    await expect(claimResponse.json()).resolves.toMatchObject({ jobs: [claimedJob], results: [] });
+    expect(runClaimedBackgroundJob).not.toHaveBeenCalled();
   });
 
   it("rejects invalid signatures before reading jobs", async () => {

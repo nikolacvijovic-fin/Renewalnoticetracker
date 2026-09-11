@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { assertCanUseShippedAction, requireOrganization } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
+import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
 import { createDomainEvent } from "@/lib/events/domain-event-bus";
 import type { DomainEventName } from "@/lib/events/domain-event-types";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -1516,6 +1517,7 @@ export async function activateReviewedContractForSaasClockAction(
     }
   });
 
+  await enforceDesignPartnerBetaMutation({ organizationId: context.organizationId, action: "edit_contract" });
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase.rpc("activate_reviewed_contract_for_saas_clock_v2", {
     p_organization_id: context.organizationId,

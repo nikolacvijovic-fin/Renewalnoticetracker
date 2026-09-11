@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   requireScopedContract: vi.fn(),
   createServerSupabaseClient: vi.fn(),
   rpc: vi.fn(),
+  enforceDesignPartnerBetaMutation: vi.fn(),
   revalidatePath: vi.fn()
 }));
 
@@ -31,6 +32,8 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: mocks.createServerSupabaseClient
 }));
 
+vi.mock("@/lib/billing/design-partner-beta", () => ({ enforceDesignPartnerBetaMutation: mocks.enforceDesignPartnerBetaMutation }));
+
 vi.mock("@/lib/audit", () => ({ createAuditLog: vi.fn() }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 
@@ -41,6 +44,7 @@ function source(relativePath: string) {
 describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.enforceDesignPartnerBetaMutation.mockReset().mockResolvedValue({ allowed: true });
     mocks.requireOrganization.mockResolvedValue({
       organizationId: "11111111-1111-4111-8111-111111111111",
       role: "operator",
@@ -133,6 +137,14 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     });
   });
 
+  it("rejects beta-disabled activation before calling the mutation RPC", async () => {
+    mocks.enforceDesignPartnerBetaMutation.mockRejectedValue(new Error("Design Partner Beta is read-only"));
+    const { activateReviewedContractForSaasClockAction } = await import("@/lib/actions/saas-renewal-defense");
+    await expect(activateReviewedContractForSaasClockAction("contract-1", { createNew: true }))
+      .rejects.toThrow("Design Partner Beta is read-only");
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+
   it("fails before persistence when scoped authorization is denied", async () => {
     mocks.requireScopedContract.mockRejectedValue(new Error("cross organization"));
     const { activateReviewedContractForSaasClockAction } = await import(
@@ -200,6 +212,8 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     const persistenceGuard = source("supabase/migrations/202609040001_saas_pdf_review_persistence_guard.sql");
     const betaStateGuard = source("supabase/migrations/202609050001_saas_pdf_upload_beta_state_guard.sql");
     const activationIdentityLock = source("supabase/migrations/202609060001_saas_clock_activation_identity_lock.sql");
+    const staleRecovery = source("supabase/migrations/202609110002_saas_pdf_stale_intake_recovery.sql");
+    const cleanupRecovery = source("supabase/migrations/202609110003_saas_pdf_cleanup_recovery.sql");
     const extractionWorker = source("lib/contracts/pdf-extraction-job.ts");
     const cleanupRepository = source("lib/contracts/repositories/admin-pdf-upload-repository.ts");
     const queries = source("lib/saas/queries.ts");
@@ -235,12 +249,16 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(migration).toContain("where m.contract_id = v_contract.id and m.reviewed_at is not null");
     expect(migration).toContain("where t.organization_id = p_organization_id and t.contract_id = v_contract.id");
     expect(migration).toContain("f.contract_id = v_contract.id and f.storage_deleted_at is null");
-    expect(cleanupRepository).toContain('status_tag: "terminated"');
-    expect(cleanupRepository).not.toContain('status_tag: "archived"');
+    expect(cleanupRecovery).toContain("status_tag = 'terminated'");
+    expect(cleanupRecovery).toContain("finish_saas_pdf_upload_cleanup");
+    expect(cleanupRecovery).toContain("pdf_upload_cleanup_lease_expires_at = now() + interval '5 minutes'");
+    expect(cleanupRecovery).toContain("p_storage_removed is not true");
+    expect(cleanupRecovery).toContain("pdf_upload_cleanup_token is distinct from p_cleanup_token");
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.failed,pdf_upload_claimed_at.lt.");
     expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.abandoned,pdf_upload_abandoned_at.lt.");
-    expect(cleanupRepository).toContain("and(pdf_upload_attempt_status.eq.cleanup_processing,pdf_upload_cleaned_at.lt.");
+    expect(cleanupRepository).toContain("pdf_upload_cleanup_lease_expires_at.lte.");
     expect(cleanupRepository).toContain('client.rpc("claim_saas_pdf_upload_cleanup"');
+    expect(cleanupRepository).toContain('client.rpc("finish_saas_pdf_upload_cleanup"');
     expect(cleanupRepository).toContain('rpc("persist_saas_pdf_extraction_for_review"');
     expect(extractionWorker).toContain("persistAdminPdfExtractionForReview");
     expect(extractionWorker).not.toContain("upsertAdminPdfContractMetadata");
@@ -259,6 +277,10 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(betaStateGuard).toContain("Design Partner Beta is read-only");
     expect(betaStateGuard).toContain("from public, anon, authenticated, service_role");
     expect(betaStateGuard).toContain("to authenticated");
+    expect(staleRecovery).toContain("create or replace function public.claim_saas_pdf_contract_upload_core");
+    expect(staleRecovery).toContain("v_contract.pdf_upload_attempt_status = 'processing'");
+    expect(staleRecovery).toContain("j.status in ('queued', 'retry_scheduled')");
+    expect(staleRecovery).toContain("j.status = 'processing' and j.lease_expires_at > v_now");
     expect(activationIdentityLock).toContain("saas-clock-product:");
     expect(activationIdentityLock).toContain("p_organization_id::text || ':' || v_title_key || ':' || v_vendor_key");
     expect(activationIdentityLock).toContain("rename to activate_reviewed_contract_for_saas_clock_v2_core");

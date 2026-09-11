@@ -27,7 +27,8 @@ export async function cleanupStalePdfUploadAttempts(input: {
   const staleBeforeIso = new Date(now.getTime() - retentionHours * 60 * 60_000).toISOString();
   const result = await listAdminStalePdfUploadAttempts({
     staleBeforeIso,
-    limit: Math.min(Math.max(input.limit ?? 50, 1), 200)
+    limit: Math.min(Math.max(input.limit ?? 50, 1), 200),
+    nowIso: now.toISOString()
   });
   if (result.error) throw result.error;
 
