@@ -1,6 +1,6 @@
 begin;
 
-select plan(63);
+select plan(65);
 
 insert into auth.users (id, email)
 values
@@ -131,6 +131,22 @@ select is(
   ),
   true,
   'authenticated sessions can reach the hardened role-checked activation boundary'
+);
+
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.activate_reviewed_contract_for_saas_clock_v2_core(uuid,uuid,uuid,boolean)',
+    'execute'
+  ),
+  false,
+  'authenticated sessions cannot bypass the product-identity activation lock'
+);
+
+select alike(
+  pg_get_functiondef('public.activate_reviewed_contract_for_saas_clock_v2(uuid,uuid,uuid,boolean)'::regprocedure),
+  '%saas-clock-product:%',
+  'activation serializes competing contracts by organization and normalized SaaS identity'
 );
 
 select is(

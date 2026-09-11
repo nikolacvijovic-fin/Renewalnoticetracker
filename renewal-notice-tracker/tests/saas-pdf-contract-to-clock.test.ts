@@ -199,6 +199,7 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     const migration = source("supabase/migrations/202609030001_saas_pdf_upload_runtime_hardening.sql");
     const persistenceGuard = source("supabase/migrations/202609040001_saas_pdf_review_persistence_guard.sql");
     const betaStateGuard = source("supabase/migrations/202609050001_saas_pdf_upload_beta_state_guard.sql");
+    const activationIdentityLock = source("supabase/migrations/202609060001_saas_clock_activation_identity_lock.sql");
     const extractionWorker = source("lib/contracts/pdf-extraction-job.ts");
     const cleanupRepository = source("lib/contracts/repositories/admin-pdf-upload-repository.ts");
     const queries = source("lib/saas/queries.ts");
@@ -258,6 +259,11 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(betaStateGuard).toContain("Design Partner Beta is read-only");
     expect(betaStateGuard).toContain("from public, anon, authenticated, service_role");
     expect(betaStateGuard).toContain("to authenticated");
+    expect(activationIdentityLock).toContain("saas-clock-product:");
+    expect(activationIdentityLock).toContain("p_organization_id::text || ':' || v_title_key || ':' || v_vendor_key");
+    expect(activationIdentityLock).toContain("rename to activate_reviewed_contract_for_saas_clock_v2_core");
+    expect(activationIdentityLock).toContain("from public, anon, authenticated, service_role");
+    expect(activationIdentityLock).toContain("to authenticated");
     expect(queries).toContain('.neq("status_tag", "terminated")');
     expect(cleanupRepository).not.toContain("pdf_upload_claimed_at.lt.${input.staleBeforeIso},pdf_upload_abandoned_at.lt.");
     expect(queries).toContain("normalizeSaasActivationMatchKey(candidate.name)");

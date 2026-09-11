@@ -494,6 +494,10 @@ export type Database = {
         Args: { p_organization_id: string; p_contract_id: string; p_software_id?: string | null; p_create_new?: boolean };
         Returns: Json;
       };
+      activate_reviewed_contract_for_saas_clock_v2_core: {
+        Args: { p_organization_id: string; p_contract_id: string; p_software_id?: string | null; p_create_new?: boolean };
+        Returns: Json;
+      };
       create_reviewed_commercial_baseline: {
         Args: { p_organization_id: string; p_contract_id: string; p_source_extraction_run_id: string; p_source_extraction_run_ids: string[]; p_source_file_ids: string[]; p_effective_date: string | null; p_reviewed_by_user_id: string; p_calculation_version: string; p_completeness_status: string; p_missing_data_warnings: string[]; p_evidence_field_ids: string[]; p_evidence_fingerprint: string; p_terms_snapshot: Json; p_line_items: Json };
         Returns: string;
