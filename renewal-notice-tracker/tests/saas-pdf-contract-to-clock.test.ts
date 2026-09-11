@@ -198,6 +198,7 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     const originalMigration = source("supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql");
     const migration = source("supabase/migrations/202609030001_saas_pdf_upload_runtime_hardening.sql");
     const persistenceGuard = source("supabase/migrations/202609040001_saas_pdf_review_persistence_guard.sql");
+    const betaStateGuard = source("supabase/migrations/202609050001_saas_pdf_upload_beta_state_guard.sql");
     const extractionWorker = source("lib/contracts/pdf-extraction-job.ts");
     const cleanupRepository = source("lib/contracts/repositories/admin-pdf-upload-repository.ts");
     const queries = source("lib/saas/queries.ts");
@@ -249,6 +250,14 @@ describe("reviewed PDF contract to SaaS Opt-Out Clock", () => {
     expect(persistenceGuard).toContain("pdf_extraction_job_id is distinct from p_job_id");
     expect(persistenceGuard).toContain("to service_role");
     expect(persistenceGuard).toContain("v_contract.status_tag = 'terminated'");
+    expect(betaStateGuard).toContain("rename to claim_saas_pdf_contract_upload_core");
+    expect(betaStateGuard).toContain("v_control.status <> 'active'");
+    expect(betaStateGuard).toContain("v_control.founder_approved_at is null");
+    expect(betaStateGuard).toContain("v_control.expires_at <= v_now");
+    expect(betaStateGuard).toContain("v_control.grace_ends_at <= v_now");
+    expect(betaStateGuard).toContain("Design Partner Beta is read-only");
+    expect(betaStateGuard).toContain("from public, anon, authenticated, service_role");
+    expect(betaStateGuard).toContain("to authenticated");
     expect(queries).toContain('.neq("status_tag", "terminated")');
     expect(cleanupRepository).not.toContain("pdf_upload_claimed_at.lt.${input.staleBeforeIso},pdf_upload_abandoned_at.lt.");
     expect(queries).toContain("normalizeSaasActivationMatchKey(candidate.name)");

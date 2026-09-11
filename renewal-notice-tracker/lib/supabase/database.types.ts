@@ -466,6 +466,10 @@ export type Database = {
         Args: { p_organization_id: string; p_upload_attempt_id: string; p_contract_title: string; p_owner_user_id?: string | null };
         Returns: Json;
       };
+      claim_saas_pdf_contract_upload_core: {
+        Args: { p_organization_id: string; p_upload_attempt_id: string; p_contract_title: string; p_owner_user_id?: string | null };
+        Returns: Json;
+      };
       claim_saas_pdf_upload_cleanup: {
         Args: { p_organization_id: string; p_contract_id: string; p_contract_file_id: string | null; p_stale_before: string };
         Returns: Json;

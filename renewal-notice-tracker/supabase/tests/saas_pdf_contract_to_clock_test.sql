@@ -1,6 +1,6 @@
 begin;
 
-select plan(56);
+select plan(63);
 
 insert into auth.users (id, email)
 values
@@ -81,6 +81,16 @@ select is(
   ),
   true,
   'authenticated sessions can reach the role-checked upload boundary'
+);
+
+select is(
+  has_function_privilege(
+    'authenticated',
+    'public.claim_saas_pdf_contract_upload_core(uuid,uuid,text,uuid)',
+    'execute'
+  ),
+  false,
+  'authenticated sessions cannot bypass the beta-state upload wrapper'
 );
 
 select is(
@@ -211,6 +221,136 @@ select throws_ok(
   'Only admins or operators can upload contract PDFs.',
   'a non-member cannot claim an upload for another organization'
 );
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+reset role;
+update public.design_partner_beta_controls
+set status = 'pending',
+    founder_approved_at = null,
+    expires_at = null,
+    grace_ends_at = null
+where organization_id = '00000000-0000-4000-8000-00000000d112';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select throws_ok(
+  $$select public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d126',
+    'Pending beta upload',
+    null
+  )$$,
+  '42501',
+  'Design Partner Beta is read-only',
+  'a pending beta control cannot create a PDF upload placeholder'
+);
+
+reset role;
+update public.design_partner_beta_controls
+set status = 'grace',
+    founder_approved_at = timezone('utc', now())
+where organization_id = '00000000-0000-4000-8000-00000000d112';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select throws_ok(
+  $$select public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d127',
+    'Grace beta upload',
+    null
+  )$$,
+  '42501',
+  'Design Partner Beta is read-only',
+  'a grace beta control cannot create a PDF upload placeholder'
+);
+
+reset role;
+update public.design_partner_beta_controls
+set status = 'read_only'
+where organization_id = '00000000-0000-4000-8000-00000000d112';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select throws_ok(
+  $$select public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d128',
+    'Read-only beta upload',
+    null
+  )$$,
+  '42501',
+  'Design Partner Beta is read-only',
+  'a read-only beta control cannot create a PDF upload placeholder'
+);
+
+reset role;
+update public.design_partner_beta_controls
+set status = 'ended'
+where organization_id = '00000000-0000-4000-8000-00000000d112';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select throws_ok(
+  $$select public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d129',
+    'Ended beta upload',
+    null
+  )$$,
+  '42501',
+  'Design Partner Beta is read-only',
+  'an ended beta control cannot create a PDF upload placeholder'
+);
+
+reset role;
+update public.design_partner_beta_controls
+set status = 'active',
+    expires_at = timezone('utc', now()) - interval '1 minute',
+    grace_ends_at = timezone('utc', now()) + interval '7 days'
+where organization_id = '00000000-0000-4000-8000-00000000d112';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d104';
+
+select throws_ok(
+  $$select public.claim_saas_pdf_contract_upload(
+    '00000000-0000-4000-8000-00000000d112',
+    '00000000-0000-4000-8000-00000000d12a',
+    'Expired beta upload',
+    null
+  )$$,
+  '42501',
+  'Design Partner Beta is read-only',
+  'an expired beta control cannot create a PDF upload placeholder during grace'
+);
+
+reset role;
+select is(
+  (
+    select count(*)::integer
+    from public.contracts
+    where pdf_upload_attempt_id in (
+      '00000000-0000-4000-8000-00000000d126',
+      '00000000-0000-4000-8000-00000000d127',
+      '00000000-0000-4000-8000-00000000d128',
+      '00000000-0000-4000-8000-00000000d129',
+      '00000000-0000-4000-8000-00000000d12a'
+    )
+  ),
+  0,
+  'blocked beta states create no contract placeholders'
+);
+
+update public.design_partner_beta_controls
+set status = 'active',
+    founder_approved_at = timezone('utc', now()),
+    expires_at = null,
+    grace_ends_at = null
+where organization_id = '00000000-0000-4000-8000-00000000d112';
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-00000000d101';
 
 select is(
   public.claim_saas_pdf_contract_upload(
