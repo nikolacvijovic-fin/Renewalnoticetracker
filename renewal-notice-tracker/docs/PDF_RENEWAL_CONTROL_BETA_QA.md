@@ -54,7 +54,7 @@ Do not use real customer contracts, private notes, email bodies, provider payloa
 - The database serializes claims and permits one contract for an attempt ID. A different organization cannot inspect or reuse the ID.
 - Completed attempts return their existing contract and review state. Failed or stale processing attempts may be reclaimed without creating another contract.
 - Refresh recovery stores only bounded attempt IDs in browser session storage. Contract content, filenames, organization IDs, storage paths, and provider data are not stored there.
-- PDF extraction is still synchronous in the beta request path. The persisted attempt state prevents duplicate contracts and supports status recovery, but it is not a durable background extraction worker. A production background job remains required before claiming resilient long-running processing.
+- PDF extraction is queued after intake and is performed by the separately supervised `npm run worker:pdf` process. The request returns a durable processing result; it does not wait for OCR or provider extraction. Production must start this worker before enabling customer PDF intake.
 
 ## No-Send Boundary
 

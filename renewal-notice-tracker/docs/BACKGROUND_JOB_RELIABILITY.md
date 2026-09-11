@@ -90,7 +90,7 @@ The existing reminder delivery engine still owns email idempotency, duplicate su
 
 ## Contract PDF Extraction Flow
 
-The SaaS PDF workbench stores the validated file and enqueues one `contract_pdf_extraction` job per upload-attempt ID. The HTTP request returns a durable processing result and never waits for OCR or provider extraction. A signed worker claims the job with a lease, runs page parsing, selective OCR, field extraction, and evidence persistence, then moves the upload attempt to `needs_review`. Provider failures use the bounded queue retry policy; stale leases are rescued before new claims and exhausted attempts become `extraction_failed`.
+The SaaS PDF workbench stores the validated file and enqueues one `contract_pdf_extraction` job per upload-attempt ID. The HTTP request returns a durable processing result and never waits for OCR or provider extraction. The standalone `npm run worker:pdf` process claims the job with a lease, runs page parsing, selective OCR, field extraction, and evidence persistence, then moves the upload attempt to `needs_review`. Provider failures use the bounded queue retry policy; stale leases are rescued before new claims and exhausted attempts become `extraction_failed`.
 
 An Admin or Operator can retry terminal extraction against the existing stored file, or abandon an unreviewed processing/failed attempt. Workers re-check the scoped attempt after provider work so an abandonment cannot be overwritten by late extraction output.
 
@@ -164,7 +164,8 @@ The page shows queued, processing, retry-scheduled, dead-lettered, recent attemp
 
 ## Known Limitations
 
-- The Go worker currently acts as a signed poller and invokes the TypeScript app to process trusted reminder and contract PDF extraction jobs.
+- The Go worker acts as a signed poller for trusted reminder delivery. It does not execute PDF extraction inline through the claim endpoint.
+- Production must supervise `npm run worker:pdf` alongside the web application before SaaS PDF intake is enabled. The repository has no canonical hosting manifest to wire this process automatically.
 - Stale PDF placeholder cleanup requires an external scheduler to call the signed cleanup route; deployment configuration is not created by this code change.
 - Direct provider email delivery stays in the TypeScript app.
 - Full distributed worker leases should be stress-tested against a real Supabase instance.

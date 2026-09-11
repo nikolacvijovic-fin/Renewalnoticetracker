@@ -74,6 +74,15 @@ Release readiness covers:
 
 These checks are designed to prevent unbounded export generation, stranded reminders/OCR jobs, and unauthenticated worker entry points.
 
+## SaaS PDF Worker Rollout
+
+This repository has no canonical hosting or process-manager manifest. Before enabling customer SaaS PDF intake, production must run `npm run worker:pdf` as a continuously supervised process alongside the web application.
+
+- The web application stores the PDF and queues `contract_pdf_extraction`; it does not run parsing, OCR, or provider extraction inside the claim HTTP request.
+- PDFs remain queued until the worker claims them. The worker needs the same application and database configuration used by the background-job runtime.
+- Start and verify the worker before enabling customer PDF intake. If it is not deployed, that is an explicit rollout prerequisite rather than hidden application behavior.
+- The worker has a bounded attempt watchdog; queue leases, retries, and dead-letter transitions remain the durable recovery mechanism.
+
 ## Monitoring And Alert Readiness
 
 Structured logs remain the baseline sink. Optional alert webhooks are allowed only through the configured monitoring sink and must be sanitized before delivery. Production webhook fanout must use HTTPS and a signing secret.
