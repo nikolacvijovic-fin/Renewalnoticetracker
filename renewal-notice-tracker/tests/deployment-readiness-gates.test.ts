@@ -78,6 +78,7 @@ describe("deployment readiness gates", () => {
         "test:scale-readiness",
         "worker:pdf",
         "scheduler",
+        "e2e:saas-pdf-clock:required",
         "release:check"
       ])
     );

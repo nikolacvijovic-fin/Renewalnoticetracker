@@ -61,6 +61,44 @@ Migration checks are static. They enforce:
 
 Future-only contracts such as provider-backed SSO/SCIM, broad public API integrations, and future enterprise retention settings do not require live migrations until they are promoted into runtime scope.
 
+## Migration Rollout Procedure
+
+Published migrations are forward-only. Never delete, edit, or use rollback SQL against a shared or
+production database. The target is explicit through `RELEASE_TARGET_ENV` (`staging` or `production`) and
+`SUPABASE_DB_URL`; the URL is never printed.
+
+1. Run `npm run db:migrations:plan` against staging. It first validates ordering and forward-only
+   migration safety, then asks Supabase for the pending plan and prints a SHA-256 fingerprint of the
+   exact local migration inventory.
+2. Review the plan and record that fingerprint as `MIGRATION_PLAN_REVIEW_SHA256`. The release workflow
+   requires this value and rejects it if the local migration inventory changes.
+3. Deploy and verify staging application, PDF worker, reminder worker, scheduler, authenticated runtime
+   readiness, and the required SaaS PDF journey. The migration plan is evidence; it does not apply a
+   database change.
+4. For an approved target apply, set `CONFIRM_DATABASE_MIGRATION_ROLLOUT` exactly to the target
+   environment and run `npm run db:migrations:apply`. The command rechecks migration safety and the
+   reviewed fingerprint before it can invoke Supabase.
+
+Apply additive, backward-compatible migrations before rolling application and worker processes. Keep old
+and new application versions compatible with the schema throughout the rollout. If migrations succeed but
+the application deployment fails, do not attempt to reverse database history: restore a compatible
+application version only when the additive schema supports it; otherwise ship and validate a forward fix.
+No routine incident procedure may drop tables, columns, or customer data.
+
+## Staging SaaS PDF Release Proof
+
+The manual release workflow creates a deterministic synthetic SaaS PDF at runtime and sets
+`E2E_CONTRACT_INTELLIGENCE_PDF_PATH` explicitly. It verifies authenticated runtime readiness before the
+browser flow, plans and verifies the reviewed migration inventory, then runs `release:strict`. Required
+SaaS PDF acceptance cannot silently skip when cookies, staging URL, or the fixture are unavailable.
+
+The PDF fixture contains only fixed synthetic contract terms: a 2027-12-31 renewal, a 30-day notice
+period, an annual EUR 12,000 value, and no customer data. The browser proof covers asynchronous intake,
+persisted recovery, human review, explicit clock activation, one active clock row, ICS download, and
+cross-organization denial. Retry, abandonment, cleanup, reminder trust gating, and deeper data-integrity
+rules remain covered by the focused release-critical tests rather than duplicated through timing-sensitive
+staging browser setup.
+
 ## Background Worker Readiness
 
 Release readiness covers:

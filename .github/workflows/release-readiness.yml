@@ -21,6 +21,11 @@ on:
         required: true
         type: string
 
+      migration_plan_review_sha256:
+        description: SHA-256 fingerprint printed by the reviewed target migration plan
+        required: true
+        type: string
+
 permissions:
   contents: read
 
@@ -43,9 +48,60 @@ jobs:
       RELEASE_TARGET_ENV: ${{ inputs.target_environment }}
       RELEASE_SMOKE_OWNER: ${{ inputs.smoke_owner }}
       RELEASE_ROLLBACK_OWNER: ${{ inputs.rollback_owner }}
+      MIGRATION_PLAN_REVIEW_SHA256: ${{ inputs.migration_plan_review_sha256 }}
+      NOTICECONTROL_APP_URL: ${{ secrets.E2E_BASE_URL }}
+      NEXT_PUBLIC_APP_URL: ${{ secrets.E2E_BASE_URL }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_STORAGE_BUCKET: ${{ vars.SUPABASE_STORAGE_BUCKET }}
+      SUPABASE_EXPORTS_BUCKET: ${{ vars.SUPABASE_EXPORTS_BUCKET }}
+      BACKGROUND_EXPORT_PAGE_SIZE: ${{ vars.BACKGROUND_EXPORT_PAGE_SIZE || '1000' }}
+      BACKGROUND_EXPORT_JOB_LIMIT: ${{ vars.BACKGROUND_EXPORT_JOB_LIMIT || '3' }}
+      REMINDER_PROCESSING_LEASE_MINUTES: ${{ vars.REMINDER_PROCESSING_LEASE_MINUTES || '15' }}
+      OCR_PROCESSING_LEASE_MINUTES: ${{ vars.OCR_PROCESSING_LEASE_MINUTES || '30' }}
+      PDF_UPLOAD_ATTEMPT_RETENTION_HOURS: ${{ vars.PDF_UPLOAD_ATTEMPT_RETENTION_HOURS || '72' }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OCR_PROVIDER: ${{ vars.OCR_PROVIDER }}
+      OCR_OPENAI_API_KEY: ${{ secrets.OCR_OPENAI_API_KEY }}
+      OCR_OPENAI_MODEL: ${{ vars.OCR_OPENAI_MODEL }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
       RESEND_FROM_EMAIL: ${{ vars.RESEND_FROM_EMAIL }}
       NOTICECONTROL_SENDING_DOMAIN: ${{ vars.NOTICECONTROL_SENDING_DOMAIN }}
       NOTICECONTROL_REPLY_TO_EMAIL: ${{ vars.NOTICECONTROL_REPLY_TO_EMAIL }}
+      RESEND_WEBHOOK_SIGNING_SECRET: ${{ secrets.RESEND_WEBHOOK_SIGNING_SECRET }}
+      NOTICECONTROL_EMAIL_ACTION_SECRET: ${{ secrets.NOTICECONTROL_EMAIL_ACTION_SECRET }}
+      CRON_SHARED_SECRET: ${{ secrets.CRON_SHARED_SECRET }}
+      ADD_ON_INTERNAL_SIGNING_SECRET: ${{ secrets.ADD_ON_INTERNAL_SIGNING_SECRET }}
+      INTERNAL_HEALTH_SECRET: ${{ secrets.INTERNAL_HEALTH_SECRET }}
+      INTERNAL_OCR_JOBS_SECRET: ${{ secrets.INTERNAL_OCR_JOBS_SECRET }}
+      INTERNAL_OPERATIONS_SECRET: ${{ secrets.INTERNAL_OPERATIONS_SECRET }}
+      INTERNAL_DESTRUCTIVE_OPS_SECRET: ${{ secrets.INTERNAL_DESTRUCTIVE_OPS_SECRET }}
+      INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: ${{ secrets.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET }}
+      PADDLE_ENVIRONMENT: ${{ vars.PADDLE_ENVIRONMENT }}
+      PADDLE_API_KEY: ${{ secrets.PADDLE_API_KEY }}
+      PADDLE_WEBHOOK_SECRET: ${{ secrets.PADDLE_WEBHOOK_SECRET }}
+      PADDLE_STARTER_PRICE_ID: ${{ vars.PADDLE_STARTER_PRICE_ID }}
+      PADDLE_GROWTH_PRICE_ID: ${{ vars.PADDLE_GROWTH_PRICE_ID }}
+      MONITORING_EVENT_SINK: ${{ vars.MONITORING_EVENT_SINK || 'structured_log' }}
+      MONITORING_ALERT_WEBHOOK_URL: ${{ secrets.MONITORING_ALERT_WEBHOOK_URL }}
+      MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: ${{ secrets.MONITORING_ALERT_WEBHOOK_SIGNING_SECRET }}
+      MICROSOFT_365_CLIENT_ID: ${{ secrets.MICROSOFT_365_CLIENT_ID }}
+      MICROSOFT_365_CLIENT_SECRET: ${{ secrets.MICROSOFT_365_CLIENT_SECRET }}
+      MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI: ${{ vars.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI }}
+      GOOGLE_WORKSPACE_CLIENT_ID: ${{ secrets.GOOGLE_WORKSPACE_CLIENT_ID }}
+      GOOGLE_WORKSPACE_CLIENT_SECRET: ${{ secrets.GOOGLE_WORKSPACE_CLIENT_SECRET }}
+      GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI: ${{ vars.GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI }}
+      GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY: ${{ secrets.GOOGLE_WORKSPACE_CREDENTIAL_ENCRYPTION_KEY }}
+      E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
+      E2E_AUTH_COOKIE_NAME: ${{ secrets.E2E_AUTH_COOKIE_NAME }}
+      E2E_AUTH_COOKIE_VALUE: ${{ secrets.E2E_AUTH_COOKIE_VALUE }}
+      E2E_SECONDARY_AUTH_COOKIE_VALUE: ${{ secrets.E2E_SECONDARY_AUTH_COOKIE_VALUE }}
+      E2E_MEMBER_AUTH_COOKIE_VALUE: ${{ secrets.E2E_MEMBER_AUTH_COOKIE_VALUE }}
+      E2E_REVIEW_CONTRACT_PATH: ${{ secrets.E2E_REVIEW_CONTRACT_PATH }}
+      E2E_FOREIGN_CONTRACT_PATH: ${{ secrets.E2E_FOREIGN_CONTRACT_PATH }}
+      E2E_CONTRACT_INTELLIGENCE_PDF_PATH: ${{ runner.temp }}/noticecontrol-synthetic-saas-renewal.pdf
 
     steps:
       - name: Check out repository
@@ -61,28 +117,23 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Create deterministic SaaS PDF fixture
+        run: npm run fixture:saas-pdf -- "$E2E_CONTRACT_INTELLIGENCE_PDF_PATH"
+
+      - name: Verify target runtime readiness
+        run: npm run runtime:health
+
+      - name: Plan target database migrations
+        run: npm run db:migrations:plan
+
+      - name: Verify reviewed target migration plan
+        run: npm run db:migrations:verify-reviewed
+
       - name: Run strict release gate
         run: npm run release:strict
-        env:
-          RESEND_WEBHOOK_SIGNING_SECRET: ${{ secrets.RESEND_WEBHOOK_SIGNING_SECRET }}
-          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
-          E2E_AUTH_COOKIE_NAME: ${{ secrets.E2E_AUTH_COOKIE_NAME }}
-          E2E_AUTH_COOKIE_VALUE: ${{ secrets.E2E_AUTH_COOKIE_VALUE }}
-          E2E_SECONDARY_AUTH_COOKIE_VALUE: ${{ secrets.E2E_SECONDARY_AUTH_COOKIE_VALUE }}
-          E2E_MEMBER_AUTH_COOKIE_VALUE: ${{ secrets.E2E_MEMBER_AUTH_COOKIE_VALUE }}
-          E2E_REVIEW_CONTRACT_PATH: ${{ secrets.E2E_REVIEW_CONTRACT_PATH }}
-          E2E_FOREIGN_CONTRACT_PATH: ${{ secrets.E2E_FOREIGN_CONTRACT_PATH }}
 
       - name: Run intelligence release gate
         run: npm run test:intelligence-release-gate
 
       - name: Run target-environment smoke test
         run: npm run smoke:staging
-        env:
-          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
-          E2E_AUTH_COOKIE_NAME: ${{ secrets.E2E_AUTH_COOKIE_NAME }}
-          E2E_AUTH_COOKIE_VALUE: ${{ secrets.E2E_AUTH_COOKIE_VALUE }}
-          E2E_SECONDARY_AUTH_COOKIE_VALUE: ${{ secrets.E2E_SECONDARY_AUTH_COOKIE_VALUE }}
-          E2E_MEMBER_AUTH_COOKIE_VALUE: ${{ secrets.E2E_MEMBER_AUTH_COOKIE_VALUE }}
-          E2E_REVIEW_CONTRACT_PATH: ${{ secrets.E2E_REVIEW_CONTRACT_PATH }}
-          E2E_FOREIGN_CONTRACT_PATH: ${{ secrets.E2E_FOREIGN_CONTRACT_PATH }}

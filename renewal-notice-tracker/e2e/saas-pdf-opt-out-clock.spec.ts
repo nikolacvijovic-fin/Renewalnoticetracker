@@ -39,6 +39,12 @@ test.describe("SaaS PDF upload to Opt-Out Clock", () => {
   }, testInfo) => {
     test.setTimeout(240_000);
     const contractTitle = `SaaS PDF Clock E2E ${Date.now()}`;
+    const sensitiveConsoleMessages: string[] = [];
+    page.on("console", (message) => {
+      if (/service.role|supabase.*key|authorization:\s*bearer|raw contract text/i.test(message.text())) {
+        sensitiveConsoleMessages.push(message.text());
+      }
+    });
 
     await page.goto("/dashboard/saas-opt-out-clock/pdf-upload");
     await expect(page.getByRole("heading", { name: /upload contract pdfs/i })).toBeVisible();
@@ -54,6 +60,7 @@ test.describe("SaaS PDF upload to Opt-Out Clock", () => {
     await page.getByRole("button", { name: /upload 1 pdf/i }).click();
     const uploadResponse = await uploadResponsePromise;
     expect(uploadResponse.status()).toBe(202);
+    expect(uploadResponse.headers()["cache-control"]).toContain("no-store");
     const uploadResult = await uploadResponse.json() as {
       ok: boolean;
       contractId?: string;
@@ -123,6 +130,7 @@ test.describe("SaaS PDF upload to Opt-Out Clock", () => {
     const matchingClockRows = page.locator("tbody tr").filter({ hasText: contractTitle });
     await expect(matchingClockRows).toHaveCount(1);
     await expect(matchingClockRows).toContainText(/EUR|€/);
+    await expect(matchingClockRows).toContainText(/2027-11-30|Nov 30, 2027|30 Nov 2027/);
     await screenshot(page, testInfo, "07-populated-clock-desktop");
     await page.setViewportSize({ width: 390, height: 844 });
     await screenshot(page, testInfo, "08-populated-clock-mobile");
@@ -141,5 +149,6 @@ test.describe("SaaS PDF upload to Opt-Out Clock", () => {
     await secondaryPage.goto(contractPath!);
     await expect(secondaryPage.getByText(/not found|forbidden|unauthorized|could not be found/i)).toBeVisible();
     await secondaryContext.close();
+    expect(sensitiveConsoleMessages).toEqual([]);
   });
 });

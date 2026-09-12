@@ -51,4 +51,6 @@ The staging application must have private storage, `OPENAI_API_KEY`, the configu
 
 `npm run e2e:saas-pdf-clock:required` exercises the durable SaaS PDF path against staging. It requires the full-document variables above plus `E2E_SECONDARY_AUTH_COOKIE_VALUE` for a user in a different organization.
 
-The acceptance test proves the `202 Accepted` processing response, refresh recovery of the same attempt, human review, explicit Admin/Operator activation, exactly one clock row, ICS download, and cross-organization denial. It writes screenshots to Playwright's test output only. The PDF must be synthetic and staging data must be removed through supported application workflows after validation.
+Required mode creates a deterministic synthetic PDF when `E2E_CONTRACT_INTELLIGENCE_PDF_PATH` is unset; the manual release workflow creates the same fixture explicitly at that path. The fixture is fixed to a 2027-12-31 renewal, 30-day notice period, and EUR 12,000 annual value, with no customer data.
+
+The acceptance test proves the `202 Accepted` processing response, no-store intake response, refresh recovery of the same attempt, human review, explicit Admin/Operator activation, one clock row with the expected deadline, ICS download, no sensitive browser-console output, and cross-organization denial. It writes screenshots to Playwright's test output only. Staging data must be removed through supported application workflows after validation.

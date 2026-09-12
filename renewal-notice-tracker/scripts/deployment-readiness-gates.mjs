@@ -13,6 +13,9 @@ export const REQUIRED_DEPLOYMENT_SCRIPTS = [
   "worker:pdf:build",
   "worker:pdf",
   "scheduler",
+  "e2e:saas-pdf-clock:required",
+  "db:migrations:plan",
+  "db:migrations:apply",
   "release:check"
 ];
 
@@ -112,14 +115,16 @@ const REQUIRED_SCRIPT_TEST_FILES = {
     "tests/deployment-readiness-gates.test.ts",
     "tests/market-profiles.test.ts",
     "tests/market-activation-approval.test.ts"
-  ]
+  ],
+  "release:strict": ["e2e:saas-pdf-clock:required"]
 };
 
 export const REQUIRED_RUNTIME_FILES = [
   "Dockerfile",
   "compose.production.yml",
   "scripts/run-maintenance-scheduler.mjs",
-  "scripts/check-runtime-health.mjs"
+  "scripts/check-runtime-health.mjs",
+  "scripts/run-supabase-migrations.mjs"
 ];
 
 function issue(code, message, details = {}) {
