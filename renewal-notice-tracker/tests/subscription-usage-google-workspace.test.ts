@@ -80,7 +80,7 @@ describe("Google Workspace subscription usage connector boundary", () => {
   });
 
   it("keeps connection management role-scoped and sync keys deterministic", () => {
-    expect(canManageSubscriptionUsageConnection("owner")).toBe(true);
+    expect(canManageSubscriptionUsageConnection("owner")).toBe(false);
     expect(canManageSubscriptionUsageConnection("admin")).toBe(true);
     expect(canManageSubscriptionUsageConnection("operator")).toBe(true);
     expect(canManageSubscriptionUsageConnection("reviewer")).toBe(false);
