@@ -34,6 +34,15 @@ describe("subscription usage production repair", () => {
     expect(action).not.toContain(".limit(1000)");
   });
 
+  it("uses the shipped intake authorization boundary before manual import or reconciliation writes", () => {
+    const action = read("lib", "actions", "subscription-usage-optimization.ts");
+    const importAction = action.slice(action.indexOf("export async function commitSubscriptionUsageImportAction"), action.indexOf("async function reconcileAndPersistUsageBatch"));
+    const reconciliationAction = action.slice(action.indexOf("export async function runSubscriptionUsageReconciliationAction"), action.indexOf("export async function reviewSubscriptionUsageFindingAction"));
+    expect(importAction).toContain('assertCanUseShippedAction(context, "upload_import")');
+    expect(reconciliationAction).toContain('assertCanUseShippedAction(context, "upload_import")');
+    expect(importAction.indexOf('assertCanUseShippedAction(context, "upload_import")')).toBeLessThan(importAction.indexOf("createUsageBatchWithRows"));
+  });
+
   it("persists finding revisions transactionally without dynamic not-in filters", () => {
     const migration = read("supabase", "migrations", "202608180001_subscription_usage_production_repair.sql");
     const action = read("lib", "actions", "subscription-usage-optimization.ts");

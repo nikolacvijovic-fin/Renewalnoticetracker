@@ -3,7 +3,7 @@
 import crypto from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireOrganization, type MembershipRole } from "@/lib/auth";
+import { assertCanUseShippedAction, requireOrganization, type MembershipRole } from "@/lib/auth";
 import { createAuditLog } from "@/lib/audit";
 import { enforceFeatureAccess, getBillingSnapshot } from "@/lib/billing/entitlements";
 import { enforceDesignPartnerBetaMutation } from "@/lib/billing/design-partner-beta";
@@ -1560,6 +1560,7 @@ export async function previewSubscriptionUsageImportAction(formData: FormData): 
 
 export async function commitSubscriptionUsageImportAction(formData: FormData) {
   const context = await requireOrganization();
+  await assertCanUseShippedAction(context, "upload_import");
   await enforceFeatureAccess({
     organizationId: context.organizationId,
     actorUserId: context.user.id,
@@ -1885,6 +1886,7 @@ async function persistUsageFindings(input: {
 
 export async function runSubscriptionUsageReconciliationAction(batchId: string) {
   const context = await requireOrganization();
+  await assertCanUseShippedAction(context, "upload_import");
   await enforceFeatureAccess({
     organizationId: context.organizationId,
     actorUserId: context.user.id,

@@ -19,6 +19,8 @@ describe("PDF upload release surface", () => {
     expect(uploadPage).toContain("requireOrganization()");
     expect(uploadPage).toContain("getOrganizationMembers(context.organizationId)");
     expect(uploadPage).toContain("getOrganizationContractCount(context.organizationId)");
+    expect(uploadPage).toContain("canManagePdfUploads");
+    expect(uploadPage).toContain("Only workspace admins and operators can upload contract PDFs.");
     expect(uploadPage).toMatch(/human review/i);
   });
 

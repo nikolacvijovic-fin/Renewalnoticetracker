@@ -10,7 +10,7 @@ translate them into equivalent services without changing the process boundaries.
 | --- | --- | --- | --- | --- |
 | Web | `npm start` / `app-runtime` | Two or more behind a load balancer | Authenticated `/api/internal/health?readiness=1` | HTTP product and internal worker APIs |
 | PDF worker | `npm run worker:pdf` / `app-runtime` | One or more | Fresh heartbeat file | Claim and process PDF extraction jobs |
-| Reminder worker | `/usr/local/bin/noticecontrol-worker` / `go-worker-runtime` | One or more | Worker binary `--health` plus supervisor restart | Claim and process durable reminder delivery jobs |
+| Reminder worker | `/usr/local/bin/noticecontrol-worker` / `go-worker-runtime` | One or more | Fresh polling-loop heartbeat checked by `--health` | Claim and process durable reminder delivery jobs |
 | Maintenance scheduler | `npm run scheduler` / `app-runtime` | Exactly one active replica | Fresh heartbeat file | Enqueue reminders, sync shipped subscription integrations, and clean stale PDF uploads |
 
 Web and queue-worker replicas may scale horizontally because job claims are lease-based. Run exactly

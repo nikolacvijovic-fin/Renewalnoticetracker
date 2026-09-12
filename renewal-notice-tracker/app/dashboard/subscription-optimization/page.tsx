@@ -3,6 +3,7 @@ import { requireOrganization } from "@/lib/auth";
 import { getBillingSnapshot } from "@/lib/billing/entitlements";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { evaluateSubscriptionUsageOptimizationAccess } from "@/lib/subscription-usage/access";
+import { canManageSubscriptionUsageConnection } from "@/lib/subscription-usage/microsoft365";
 import { GOOGLE_WORKSPACE_REQUIRED_SCOPES } from "@/lib/subscription-usage/google-workspace";
 import {
   commitSubscriptionUsageImportAction,
@@ -39,6 +40,7 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
       ])
     : [[] as ConnectionRow[], [] as SyncRunRow[], [] as FindingRow[], [] as FindingRow[], [] as UsageRow[]];
   const visibleFindings = filterFindings(findings, resolvedSearchParams ?? {});
+  const canManageUsage = canManageSubscriptionUsageConnection(context.role);
   const totals = summarizeUsageRows(usageRows);
   const savingsByCurrency = summarizeSavingsByCurrency(visibleFindings);
   const microsoftConnection = connections.find((item) => item.provider === "microsoft_365") ?? null;
@@ -63,10 +65,10 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
       ) : (
         <>
           <section className="grid gap-4 lg:grid-cols-2">
-            <ProviderConnectionCard title="Microsoft 365" connection={microsoftConnection} syncAction={syncMicrosoft365UsageNowFormAction} disconnectAction={disconnectMicrosoft365UsageConnectionAction} permissionCopy="LicenseAssignment.Read.All and Reports.Read.All"
+            <ProviderConnectionCard title="Microsoft 365" connection={microsoftConnection} canManage={canManageUsage} syncAction={syncMicrosoft365UsageNowFormAction} disconnectAction={disconnectMicrosoft365UsageConnectionAction} permissionCopy="LicenseAssignment.Read.All and Reports.Read.All"
               latestSync={latestSyncs.find((sync) => sync.provider === "microsoft_365") ?? null}
               connectControl={<form action={startMicrosoft365ConnectionAction}><button className="inline-flex rounded-lg bg-teal-700 px-4 py-2 text-sm font-semibold text-white">Connect Microsoft 365</button></form>} />
-            <ProviderConnectionCard title="Google Workspace" connection={googleConnection} syncAction={syncGoogleWorkspaceUsageNowFormAction} disconnectAction={disconnectGoogleWorkspaceConnectionAction} permissionCopy={`${GOOGLE_WORKSPACE_REQUIRED_SCOPES.length} scopes; Google licensing permission is read/write by definition, but NoticeControl enforces GET-only requests`}
+            <ProviderConnectionCard title="Google Workspace" connection={googleConnection} canManage={canManageUsage} syncAction={syncGoogleWorkspaceUsageNowFormAction} disconnectAction={disconnectGoogleWorkspaceConnectionAction} permissionCopy={`${GOOGLE_WORKSPACE_REQUIRED_SCOPES.length} scopes; Google licensing permission is read/write by definition, but NoticeControl enforces GET-only requests`}
               latestSync={latestSyncs.find((sync) => sync.provider === "google_workspace") ?? null}
               connectControl={<form action={startGoogleWorkspaceConnectionAction} className="grid gap-3 sm:grid-cols-2">
                 <label className="text-sm font-medium text-slate-700">Customer ID<input name="customerId" required placeholder="C01234567" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></label>
@@ -139,14 +141,14 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
 
           <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <summary className="cursor-pointer text-lg font-semibold text-slate-950">Advanced import fallback</summary>
-            <form action={async (formData) => { "use server"; await commitSubscriptionUsageImportAction(formData); }} className="mt-4">
+            {canManageUsage ? <form action={async (formData) => { "use server"; await commitSubscriptionUsageImportAction(formData); }} className="mt-4">
               <p className="text-sm text-slate-600">Use a bounded CSV/XLSX file only when provider synchronization is unavailable.</p>
               <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="sourceLabel">Source label</label>
               <input id="sourceLabel" name="sourceLabel" required placeholder="Example: reviewed admin usage export" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="file">CSV/XLSX file</label>
               <input id="file" name="file" required type="file" accept=".csv,.xlsx,.xls" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
               <button className="mt-5 rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800">Import fallback file</button>
-            </form>
+            </form> : <p className="mt-3 text-sm text-slate-600">Only workspace admins and operators can connect providers or import usage data.</p>}
           </details>
         </>
       )}
@@ -154,7 +156,7 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
   );
 }
 
-function ProviderConnectionCard({ title, connection, latestSync, syncAction, disconnectAction, connectControl, permissionCopy }: { title: string; connection: ConnectionRow | null; latestSync: SyncRunRow | null; syncAction: (formData: FormData) => Promise<void>; disconnectAction: (formData: FormData) => Promise<void>; connectControl: React.ReactNode; permissionCopy: string }) {
+function ProviderConnectionCard({ title, connection, latestSync, canManage, syncAction, disconnectAction, connectControl, permissionCopy }: { title: string; connection: ConnectionRow | null; latestSync: SyncRunRow | null; canManage: boolean; syncAction: (formData: FormData) => Promise<void>; disconnectAction: (formData: FormData) => Promise<void>; connectControl: React.ReactNode; permissionCopy: string }) {
   const isProcessing = latestSync?.status === "processing";
   const retryReady = !latestSync?.retry_after || new Date(latestSync.retry_after).getTime() <= Date.now();
   const canRetry = connection?.status === "connected" && latestSync?.status === "failed" && retryReady && latestSync.attempt_number < latestSync.maximum_attempts;
@@ -167,8 +169,8 @@ function ProviderConnectionCard({ title, connection, latestSync, syncAction, dis
       {connection.last_error_code ? <p className="text-amber-700"><span className="font-medium">Last error:</span> {connection.last_error_code}</p> : null}
       {latestSync ? <p className="text-xs text-slate-500">Stage: {formatFindingType(latestSync.failure_stage ?? latestSync.current_stage)} · attempt {latestSync.attempt_number} of {latestSync.maximum_attempts}</p> : null}
       {latestSync?.status === "failed" && !retryReady ? <p className="text-xs text-amber-700">Retry available {formatDateTime(latestSync.retry_after)}.</p> : null}
-      <div className="flex flex-wrap gap-3 pt-2"><form action={syncAction}><input type="hidden" name="connectionId" value={connection.id} />{canRetry ? <input type="hidden" name="retryFailed" value="true" /> : null}<button disabled={isProcessing || connection.status !== "connected" || (latestSync?.status === "failed" && !canRetry)} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{isProcessing ? "Syncing…" : reconnectRequired || connection.status !== "connected" ? "Reconnect required" : canRetry ? "Retry sync" : latestSync?.status === "failed" ? "Retry unavailable" : "Sync now"}</button></form><form action={disconnectAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-800">Disconnect</button></form></div>
-    </div> : <div className="mt-4">{connectControl}</div>}
+      {canManage ? <div className="flex flex-wrap gap-3 pt-2"><form action={syncAction}><input type="hidden" name="connectionId" value={connection.id} />{canRetry ? <input type="hidden" name="retryFailed" value="true" /> : null}<button disabled={isProcessing || connection.status !== "connected" || (latestSync?.status === "failed" && !canRetry)} className="rounded-lg bg-teal-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">{isProcessing ? "Syncing…" : reconnectRequired || connection.status !== "connected" ? "Reconnect required" : canRetry ? "Retry sync" : latestSync?.status === "failed" ? "Retry unavailable" : "Sync now"}</button></form><form action={disconnectAction}><input type="hidden" name="connectionId" value={connection.id} /><button className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-800">Disconnect</button></form></div> : <p className="pt-2 text-xs text-slate-500">Only workspace admins and operators can manage provider connections.</p>}
+    </div> : <div className="mt-4">{canManage ? connectControl : <p className="text-sm text-slate-600">Only workspace admins and operators can connect this provider.</p>}</div>}
     <p className="mt-3 text-xs leading-5 text-slate-500">Permissions: {permissionCopy}. Tokens and raw provider responses are never displayed.</p>
   </div>;
 }

@@ -34,7 +34,9 @@ NOTICECONTROL_APP_URL=https://staging.example.com ADD_ON_INTERNAL_SIGNING_SECRET
 
 The default command is a continuous, signal-aware poller. Use `--once` only for diagnostics. Configure
 `NOTICECONTROL_WORKER_POLL_INTERVAL_MS`, `NOTICECONTROL_WORKER_CLAIM_LIMIT`, and
-`NOTICECONTROL_WORKER_MAX_CONSECUTIVE_FAILURES` within the documented production bounds.
+`NOTICECONTROL_WORKER_MAX_CONSECUTIVE_FAILURES` within the documented production bounds. The
+supervisor health command also requires a fresh `NOTICECONTROL_WORKER_HEARTBEAT_FILE`; a stale
+heartbeat means the polling loop is unhealthy even when the executable itself can start.
 
 ## Learning Tasks
 

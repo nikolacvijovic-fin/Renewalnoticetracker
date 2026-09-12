@@ -35,16 +35,32 @@ func main() {
 	once := flag.Bool("once", false, "poll once and exit")
 	flag.Parse()
 
+	workerConfig := config.Load()
 	if *healthOnly {
+		if err := workerConfig.ValidateRuntime(); err != nil {
+			logEvent("error", "reminder_worker_health_config_invalid", map[string]any{"error": err.Error()})
+			os.Exit(1)
+		}
+		if err := health.CheckHeartbeat(workerConfig.HeartbeatFile, workerConfig.HeartbeatMaxAge, time.Now()); err != nil {
+			logEvent("error", "reminder_worker_heartbeat_unhealthy", map[string]any{"reason": err.Error()})
+			os.Exit(1)
+		}
 		fmt.Println(health.Status().Status)
 		return
 	}
 
-	workerConfig := config.Load()
 	if err := workerConfig.ValidateRuntime(); err != nil {
 		logEvent("error", "reminder_worker_config_invalid", map[string]any{"error": err.Error()})
 		os.Exit(1)
 	}
+	writeHeartbeat := func() error {
+		return os.WriteFile(workerConfig.HeartbeatFile, []byte(time.Now().UTC().Format(time.RFC3339Nano)), 0600)
+	}
+	if err := writeHeartbeat(); err != nil {
+		logEvent("error", "reminder_worker_heartbeat_write_failed", map[string]any{"reason": err.Error()})
+		os.Exit(1)
+	}
+	logEvent("info", "reminder_worker_started", map[string]any{"poll_interval_ms": workerConfig.PollInterval.Milliseconds()})
 
 	loop := jobs.WorkerLoop{
 		Client: clients.NoticeControlClient{
@@ -72,6 +88,10 @@ func main() {
 			}
 		} else {
 			consecutiveFailures = 0
+			if err := writeHeartbeat(); err != nil {
+				logEvent("error", "reminder_worker_heartbeat_write_failed", map[string]any{"reason": err.Error()})
+				os.Exit(1)
+			}
 			if len(result.Jobs) > 0 {
 				logEvent("info", "reminder_worker_poll_succeeded", map[string]any{"claimed": len(result.Jobs), "processed": len(result.Results)})
 			}

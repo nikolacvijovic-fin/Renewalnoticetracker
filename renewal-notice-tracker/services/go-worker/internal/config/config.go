@@ -15,6 +15,8 @@ type Config struct {
 	ClaimLimit             int
 	PollInterval           time.Duration
 	MaxConsecutiveFailures int
+	HeartbeatFile          string
+	HeartbeatMaxAge        time.Duration
 	configurationError     error
 }
 
@@ -38,7 +40,8 @@ func Load() Config {
 	limit, limitError := boundedInteger("NOTICECONTROL_WORKER_CLAIM_LIMIT", 5, 1, 50)
 	pollIntervalMilliseconds, pollError := boundedInteger("NOTICECONTROL_WORKER_POLL_INTERVAL_MS", 5000, 500, 60000)
 	maxConsecutiveFailures, failuresError := boundedInteger("NOTICECONTROL_WORKER_MAX_CONSECUTIVE_FAILURES", 5, 1, 100)
-	configurationError := errors.Join(limitError, pollError, failuresError)
+	heartbeatMaxAgeSeconds, heartbeatError := boundedInteger("NOTICECONTROL_WORKER_HEARTBEAT_MAX_AGE_SECONDS", 600, 5, 3600)
+	configurationError := errors.Join(limitError, pollError, failuresError, heartbeatError)
 	workerID := os.Getenv("NOTICECONTROL_WORKER_ID")
 	if workerID == "" {
 		workerID = "go-worker-local"
@@ -51,8 +54,17 @@ func Load() Config {
 		ClaimLimit:             limit,
 		PollInterval:           time.Duration(pollIntervalMilliseconds) * time.Millisecond,
 		MaxConsecutiveFailures: maxConsecutiveFailures,
+		HeartbeatFile:          valueOrDefault("NOTICECONTROL_WORKER_HEARTBEAT_FILE", "/tmp/noticecontrol-reminder-worker.heartbeat"),
+		HeartbeatMaxAge:        time.Duration(heartbeatMaxAgeSeconds) * time.Second,
 		configurationError:     configurationError,
 	}
+}
+
+func valueOrDefault(name string, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
 }
 
 func (config Config) ValidateRuntime() error {
@@ -76,6 +88,12 @@ func (config Config) ValidateRuntime() error {
 	}
 	if config.MaxConsecutiveFailures < 1 {
 		return errors.New("max_consecutive_failures_invalid")
+	}
+	if config.HeartbeatFile == "" {
+		return errors.New("heartbeat_file_required")
+	}
+	if config.HeartbeatMaxAge < 5*time.Second || config.HeartbeatMaxAge > time.Hour {
+		return errors.New("heartbeat_max_age_invalid")
 	}
 	return nil
 }

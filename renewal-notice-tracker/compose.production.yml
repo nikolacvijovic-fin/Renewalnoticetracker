@@ -75,6 +75,8 @@ services:
     environment:
       NOTICECONTROL_WORKER_ENV: production
       NOTICECONTROL_APP_URL: http://web:3000
+      NOTICECONTROL_WORKER_HEARTBEAT_FILE: /tmp/noticecontrol-reminder-worker.heartbeat
+      NOTICECONTROL_WORKER_HEARTBEAT_MAX_AGE_SECONDS: "600"
     restart: unless-stopped
     init: true
     depends_on:
@@ -85,4 +87,4 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 15s
+      start_period: 30s
