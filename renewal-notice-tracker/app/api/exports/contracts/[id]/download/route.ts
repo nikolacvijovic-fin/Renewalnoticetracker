@@ -10,7 +10,7 @@ import {
 } from "@/lib/http";
 
 type ExportDownloadRouteContext = {
-  params: { id?: string } | Promise<{ id?: string }>;
+  params: Promise<{ id?: string }>;
 };
 
 async function getRequestIdFromRouteContext(routeContext: ExportDownloadRouteContext | undefined) {

@@ -1,6 +1,11 @@
 import type { BackgroundJob } from "@/lib/background-jobs/job-types";
 import { completeBackgroundJob, failBackgroundJob } from "@/lib/background-jobs/job-queue";
 import { processTrustedReminderDeliveryBackgroundJob } from "@/lib/background-jobs/trusted-reminder-delivery";
+import {
+  markContractPdfExtractionTerminalFailure,
+  PdfExtractionJobError,
+  processContractPdfExtractionBackgroundJob
+} from "@/lib/contracts/pdf-extraction-job";
 
 export type BackgroundJobRunResult = {
   jobId: string;
@@ -12,6 +17,48 @@ export async function runClaimedBackgroundJob(input: {
   job: BackgroundJob;
   workerId: string;
 }): Promise<BackgroundJobRunResult> {
+  if (input.job.job_type === "contract_pdf_extraction") {
+    try {
+      const result = await processContractPdfExtractionBackgroundJob(input);
+      const completed = await completeBackgroundJob({
+        organizationId: input.job.organization_id,
+        jobId: input.job.id,
+        workerId: input.workerId,
+        metadata: {
+          contract_id: result.contractId,
+          contract_file_id: result.contractFileId,
+          upload_attempt_id: result.uploadAttemptId,
+          status: result.status
+        }
+      });
+      return { jobId: completed.id, status: "completed" };
+    } catch (error) {
+      const retryable = error instanceof PdfExtractionJobError ? error.retryable : true;
+      const code = error instanceof PdfExtractionJobError
+        ? error.code
+        : "ERR_PDF_EXTRACTION_BACKGROUND_001";
+      const failed = await failBackgroundJob({
+        organizationId: input.job.organization_id,
+        jobId: input.job.id,
+        workerId: input.workerId,
+        errorCode: code,
+        errorMessage: error instanceof PdfExtractionJobError
+          ? error.message
+          : "PDF extraction failed before review data was ready.",
+        failureCategory: retryable ? "upstream_provider_failed" : "background_job_failed",
+        retryable
+      });
+      if (["failed", "dead_lettered"].includes(failed.status)) {
+        await markContractPdfExtractionTerminalFailure({ job: input.job, failureCode: code });
+      }
+      return {
+        jobId: failed.id,
+        status: failed.status as BackgroundJobRunResult["status"],
+        code: failed.last_error_code ?? code
+      };
+    }
+  }
+
   if (input.job.job_type !== "trusted_reminder_delivery") {
     const failed = await failBackgroundJob({
       organizationId: input.job.organization_id,

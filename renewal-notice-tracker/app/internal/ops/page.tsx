@@ -47,10 +47,11 @@ function buildBillingSummary(billing: Awaited<ReturnType<typeof getOrganizationB
 export default async function InternalOpsPage({
   searchParams
 }: {
-  searchParams?: { organizationId?: string };
+  searchParams?: Promise<{ organizationId?: string }>;
 }) {
   const { role } = await requireInternalRole(["internal_support", "internal_admin"]);
-  const organizationId = searchParams?.organizationId?.trim() ?? "";
+  const resolvedSearchParams = await searchParams;
+  const organizationId = resolvedSearchParams?.organizationId?.trim() ?? "";
   if (!organizationId) {
     return (
       <section className="space-y-5">

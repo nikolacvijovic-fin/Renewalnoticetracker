@@ -142,7 +142,7 @@ describe("RiskQueuePage", () => {
     ]);
 
     const Page = (await import("@/app/dashboard/risk-queue/page")).default;
-    render(await Page({ searchParams: {} }));
+    render(await Page({ searchParams: Promise.resolve({}) }));
 
     expect(screen.getByRole("heading", { name: "Risk Queue" })).toBeInTheDocument();
     expect(screen.getByText("Contracts in queue")).toBeInTheDocument();
@@ -195,7 +195,9 @@ describe("RiskQueuePage", () => {
 
     const Page = (await import("@/app/dashboard/risk-queue/page")).default;
 
-    await expect(Page({ searchParams: {} })).rejects.toThrow("REDIRECT:/dashboard");
+    await expect(Page({ searchParams: Promise.resolve({}) })).rejects.toThrow(
+      "REDIRECT:/dashboard"
+    );
     expect(getContracts).not.toHaveBeenCalled();
   });
 });

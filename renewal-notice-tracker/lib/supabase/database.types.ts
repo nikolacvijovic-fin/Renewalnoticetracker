@@ -76,8 +76,8 @@ export type Database = {
         Relationships: [];
       };
       contract_metadata: {
-        Row: { id: string; contract_id: string; contract_title: string | null; counterparty_name: string | null; contract_type: string | null; effective_date: string | null; renewal_date: string | null; expiration_date: string | null; auto_renewal: boolean | null; renewal_term: string | null; notice_period_value: number | null; notice_period_unit: string | null; notice_deadline_date: string | null; termination_window: string | null; governing_law: string | null; payment_terms: string | null; contract_value_amount: number | null; contract_value_currency: string | null; contract_value_period: string | null; price_change_trigger: string | null; payment_trigger: string | null; financial_data_trust_status: string | null; extracted_clauses: Json; field_confidence: Json; field_source_snippets: Json; reminder_recommendations: Json; needs_review: boolean; reviewer_notes: string | null; review_mode: string | null; review_reason: string | null; has_conflict: boolean; has_derived_date: boolean; has_weak_evidence: boolean; is_ocr_assisted: boolean; is_manual_without_evidence: boolean; changes_previously_verified_p0: boolean; accepted_unverified_risk_requested: boolean; reviewed_at: string | null; reviewed_by: string | null; financial_terms_reviewed_at: string | null; deadline_verified_at: string | null; deadline_timezone: string | null; created_at: string; updated_at: string; contract_template_key: string | null };
-        Insert: { id?: string; contract_id: string; contract_title?: string | null; counterparty_name?: string | null; contract_type?: string | null; effective_date?: string | null; renewal_date?: string | null; expiration_date?: string | null; auto_renewal?: boolean | null; renewal_term?: string | null; notice_period_value?: number | null; notice_period_unit?: string | null; notice_deadline_date?: string | null; termination_window?: string | null; governing_law?: string | null; payment_terms?: string | null; contract_value_amount?: number | null; contract_value_currency?: string | null; contract_value_period?: string | null; price_change_trigger?: string | null; payment_trigger?: string | null; financial_data_trust_status?: string | null; extracted_clauses?: Json; field_confidence?: Json; field_source_snippets?: Json; reminder_recommendations?: Json; needs_review?: boolean; reviewer_notes?: string | null; review_mode?: string | null; review_reason?: string | null; has_conflict?: boolean; has_derived_date?: boolean; has_weak_evidence?: boolean; is_ocr_assisted?: boolean; is_manual_without_evidence?: boolean; changes_previously_verified_p0?: boolean; accepted_unverified_risk_requested?: boolean; reviewed_at?: string | null; reviewed_by?: string | null; financial_terms_reviewed_at?: string | null; deadline_verified_at?: string | null; deadline_timezone?: string | null; created_at?: string; updated_at?: string; contract_template_key?: string | null };
+        Row: { id: string; contract_id: string; contract_title: string | null; counterparty_name: string | null; contract_type: string | null; effective_date: string | null; renewal_date: string | null; expiration_date: string | null; auto_renewal: boolean | null; renewal_term: string | null; notice_period_value: number | null; notice_period_unit: string | null; notice_deadline_date: string | null; termination_window: string | null; governing_law: string | null; payment_terms: string | null; contract_value_amount: number | null; contract_value_currency: string | null; contract_value_period: string | null; price_change_trigger: string | null; payment_trigger: string | null; financial_data_trust_status: string | null; extracted_clauses: Json; field_confidence: Json; field_source_snippets: Json; reminder_recommendations: Json; needs_review: boolean; reviewer_notes: string | null; review_mode: string | null; review_reason: string | null; pdf_renewal_review_reasons: string[]; has_conflict: boolean; has_derived_date: boolean; has_weak_evidence: boolean; is_ocr_assisted: boolean; is_manual_without_evidence: boolean; changes_previously_verified_p0: boolean; accepted_unverified_risk_requested: boolean; reviewed_at: string | null; reviewed_by: string | null; financial_terms_reviewed_at: string | null; deadline_verified_at: string | null; deadline_timezone: string | null; created_at: string; updated_at: string; contract_template_key: string | null };
+        Insert: { id?: string; contract_id: string; contract_title?: string | null; counterparty_name?: string | null; contract_type?: string | null; effective_date?: string | null; renewal_date?: string | null; expiration_date?: string | null; auto_renewal?: boolean | null; renewal_term?: string | null; notice_period_value?: number | null; notice_period_unit?: string | null; notice_deadline_date?: string | null; termination_window?: string | null; governing_law?: string | null; payment_terms?: string | null; contract_value_amount?: number | null; contract_value_currency?: string | null; contract_value_period?: string | null; price_change_trigger?: string | null; payment_trigger?: string | null; financial_data_trust_status?: string | null; extracted_clauses?: Json; field_confidence?: Json; field_source_snippets?: Json; reminder_recommendations?: Json; needs_review?: boolean; reviewer_notes?: string | null; review_mode?: string | null; review_reason?: string | null; pdf_renewal_review_reasons?: string[]; has_conflict?: boolean; has_derived_date?: boolean; has_weak_evidence?: boolean; is_ocr_assisted?: boolean; is_manual_without_evidence?: boolean; changes_previously_verified_p0?: boolean; accepted_unverified_risk_requested?: boolean; reviewed_at?: string | null; reviewed_by?: string | null; financial_terms_reviewed_at?: string | null; deadline_verified_at?: string | null; deadline_timezone?: string | null; created_at?: string; updated_at?: string; contract_template_key?: string | null };
         Update: Partial<Database["public"]["Tables"]["contract_metadata"]["Insert"]>;
         Relationships: [];
       };
@@ -87,9 +87,9 @@ export type Database = {
         Update: Partial<Database["public"]["Tables"]["extracted_field_evidence"]["Insert"]>;
         Relationships: [];
       };
-      contracts: {
-        Row: { id: string; organization_id: string; created_by: string; status: string; source_type: string; is_sample: boolean; latest_file_id: string | null; created_at: string; updated_at: string; owner_user_id: string | null; owner_confirmed_at: string | null; owner_confirmed_by_user_id: string | null; department: string | null; department_confirmed_at: string | null; status_tag: string; counterparty_id: string | null; renewal_decision_status: string; renewal_decision_date: string | null; cycle_status: string; last_acknowledged_at: string | null; last_acknowledged_by: string | null };
-        Insert: { id?: string; organization_id: string; created_by: string; status?: string; source_type?: string; is_sample?: boolean; latest_file_id?: string | null; created_at?: string; updated_at?: string; owner_user_id?: string | null; owner_confirmed_at?: string | null; owner_confirmed_by_user_id?: string | null; department?: string | null; department_confirmed_at?: string | null; status_tag?: string; counterparty_id?: string | null; renewal_decision_status?: string; renewal_decision_date?: string | null; cycle_status?: string; last_acknowledged_at?: string | null; last_acknowledged_by?: string | null };
+        contracts: {
+          Row: { id: string; organization_id: string; created_by: string; status: string; source_type: string; is_sample: boolean; latest_file_id: string | null; created_at: string; updated_at: string; owner_user_id: string | null; owner_confirmed_at: string | null; owner_confirmed_by_user_id: string | null; department: string | null; department_confirmed_at: string | null; status_tag: string; counterparty_id: string | null; renewal_decision_status: string; renewal_decision_date: string | null; cycle_status: string; last_acknowledged_at: string | null; last_acknowledged_by: string | null; pdf_upload_attempt_id: string | null; pdf_upload_attempt_status: string | null; pdf_upload_claimed_at: string | null; pdf_upload_completed_at: string | null; pdf_upload_failure_code: string | null; pdf_extraction_job_id: string | null; pdf_upload_abandoned_at: string | null; pdf_upload_cleaned_at: string | null; pdf_upload_recovery_count: number };
+          Insert: { id?: string; organization_id: string; created_by: string; status?: string; source_type?: string; is_sample?: boolean; latest_file_id?: string | null; created_at?: string; updated_at?: string; owner_user_id?: string | null; owner_confirmed_at?: string | null; owner_confirmed_by_user_id?: string | null; department?: string | null; department_confirmed_at?: string | null; status_tag?: string; counterparty_id?: string | null; renewal_decision_status?: string; renewal_decision_date?: string | null; cycle_status?: string; last_acknowledged_at?: string | null; last_acknowledged_by?: string | null; pdf_upload_attempt_id?: string | null; pdf_upload_attempt_status?: string | null; pdf_upload_claimed_at?: string | null; pdf_upload_completed_at?: string | null; pdf_upload_failure_code?: string | null; pdf_extraction_job_id?: string | null; pdf_upload_abandoned_at?: string | null; pdf_upload_cleaned_at?: string | null; pdf_upload_recovery_count?: number };
         Update: Partial<Database["public"]["Tables"]["contracts"]["Insert"]>;
         Relationships: [];
       };
@@ -268,8 +268,8 @@ export type Database = {
         Relationships: [];
       };
       saas_opt_out_windows: {
-        Row: { id: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on: string | null; window_closes_on: string | null; status: string; source: string; owner_user_id: string | null; workflow_status: string; next_action: string | null; next_action_due_at: string | null; resolved_at: string | null; accepted_risk_at: string | null; ignored_at: string | null; decision_recorded_at: string | null; created_at: string; updated_at: string };
-        Insert: { id?: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on?: string | null; window_closes_on?: string | null; status?: string; source?: string; owner_user_id?: string | null; workflow_status?: string; next_action?: string | null; next_action_due_at?: string | null; resolved_at?: string | null; accepted_risk_at?: string | null; ignored_at?: string | null; decision_recorded_at?: string | null; created_at?: string; updated_at?: string };
+        Row: { id: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on: string | null; window_closes_on: string | null; status: string; source: string; owner_user_id: string | null; workflow_status: string; next_action: string | null; next_action_due_at: string | null; resolved_at: string | null; accepted_risk_at: string | null; ignored_at: string | null; decision_recorded_at: string | null; deadline_classification: string; created_at: string; updated_at: string };
+        Insert: { id?: string; organization_id: string; software_id: string; contract_term_id: string; opt_out_deadline: string; window_opens_on?: string | null; window_closes_on?: string | null; status?: string; source?: string; owner_user_id?: string | null; workflow_status?: string; next_action?: string | null; next_action_due_at?: string | null; resolved_at?: string | null; accepted_risk_at?: string | null; ignored_at?: string | null; decision_recorded_at?: string | null; deadline_classification?: string; created_at?: string; updated_at?: string };
         Update: Partial<Database["public"]["Tables"]["saas_opt_out_windows"]["Insert"]>;
         Relationships: [];
       };
@@ -462,6 +462,46 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      claim_saas_pdf_contract_upload: {
+        Args: { p_organization_id: string; p_upload_attempt_id: string; p_contract_title: string; p_owner_user_id?: string | null };
+        Returns: Json;
+      };
+      claim_saas_pdf_contract_upload_core: {
+        Args: { p_organization_id: string; p_upload_attempt_id: string; p_contract_title: string; p_owner_user_id?: string | null };
+        Returns: Json;
+      };
+      claim_saas_pdf_upload_cleanup: {
+        Args: { p_organization_id: string; p_contract_id: string; p_contract_file_id: string | null; p_stale_before: string };
+        Returns: Json;
+      };
+      finish_saas_pdf_upload_cleanup: {
+        Args: { p_organization_id: string; p_contract_id: string; p_cleanup_token: string; p_storage_removed: boolean };
+        Returns: Json;
+      };
+      persist_saas_pdf_extraction_for_review: {
+        Args: { p_organization_id: string; p_contract_id: string; p_contract_file_id: string; p_upload_attempt_id: string; p_job_id: string; p_metadata: Json; p_evidence: Json; p_ocr_status: string; p_completed_at: string };
+        Returns: Json;
+      };
+      abandon_saas_pdf_contract_upload: {
+        Args: { p_organization_id: string; p_upload_attempt_id: string };
+        Returns: Json;
+      };
+      rescue_stale_background_jobs: {
+        Args: { p_job_types?: string[] | null; p_now?: string };
+        Returns: Json;
+      };
+      activate_reviewed_contract_for_saas_clock: {
+        Args: { p_organization_id: string; p_contract_id: string };
+        Returns: Json;
+      };
+      activate_reviewed_contract_for_saas_clock_v2: {
+        Args: { p_organization_id: string; p_contract_id: string; p_software_id?: string | null; p_create_new?: boolean };
+        Returns: Json;
+      };
+      activate_reviewed_contract_for_saas_clock_v2_core: {
+        Args: { p_organization_id: string; p_contract_id: string; p_software_id?: string | null; p_create_new?: boolean };
+        Returns: Json;
+      };
       create_reviewed_commercial_baseline: {
         Args: { p_organization_id: string; p_contract_id: string; p_source_extraction_run_id: string; p_source_extraction_run_ids: string[]; p_source_file_ids: string[]; p_effective_date: string | null; p_reviewed_by_user_id: string; p_calculation_version: string; p_completeness_status: string; p_missing_data_warnings: string[]; p_evidence_field_ids: string[]; p_evidence_fingerprint: string; p_terms_snapshot: Json; p_line_items: Json };
         Returns: string;

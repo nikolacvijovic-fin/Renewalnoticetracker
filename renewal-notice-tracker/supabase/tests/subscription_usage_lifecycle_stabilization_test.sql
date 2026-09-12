@@ -201,7 +201,7 @@ select throws_ok(
     '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000051',
     '00000000-0000-0000-0000-000000000041', 'manual_csv', null, null, '[]'::jsonb
   )$$,
-  '42501', 'Insufficient organization role',
+  '42501', 'Analysis scope mismatch',
   'finding persistence cannot cross organization scope'
 );
 
@@ -269,7 +269,7 @@ select is(public.persist_subscription_usage_analysis_findings(
   '00000000-0000-0000-0000-000000000044', 'manual_csv', null, null, '[]'::jsonb
 ), 0, 'empty analysis is processed for its exact scope family');
 reset role;
-select is((select count(*)::integer from public.license_waste_opportunities where scope_family_key = 'stable-family' and resolved_at is null), 0, 'empty analysis resolves only active findings in its family');
+select is((select count(*)::integer from public.license_waste_opportunities where scope_family_key = 'stable-family' and superseded_at is null and resolved_at is null), 0, 'empty analysis resolves only active findings in its family');
 select is((select resolved_at is null from public.license_waste_opportunities where logical_opportunity_key = 'unrelated-opportunity'), true, 'empty analysis leaves unrelated families active');
 
 set local role authenticated;

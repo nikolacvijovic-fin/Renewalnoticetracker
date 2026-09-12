@@ -36,6 +36,8 @@ jobs:
           cache-dependency-path: renewal-notice-tracker/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Build standalone PDF worker
+        run: npm run worker:pdf:build
       - name: Lint
         run: npm run lint
       - name: Typecheck generated database contracts
@@ -116,6 +118,22 @@ jobs:
         working-directory: renewal-notice-tracker/services/java-enterprise-connectors
         run: mvn --batch-mode test
 
+  go-worker-tests:
+    name: Go worker tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: renewal-notice-tracker/services/go-worker/go.mod
+          cache: false
+      - name: Run Go worker tests
+        working-directory: renewal-notice-tracker/services/go-worker
+        run: go test ./...
+
   database-integration:
     name: Disposable Supabase database integration
     runs-on: ubuntu-latest
@@ -133,8 +151,16 @@ jobs:
         run: npm ci
       - name: Start isolated Supabase stack
         run: npx --yes supabase@2.39.2 start
-      - name: Run migration and RPC integration tests
-        run: npm run test:db:subscription-usage
+      - name: Test commercial comparison atomicity
+        run: npx --yes supabase@2.39.2 test db supabase/tests/commercial_comparison_atomicity_test.sql
+      - name: Test evidence readiness persistence
+        run: npx --yes supabase@2.39.2 test db supabase/tests/evidence_readiness_test.sql
+      - name: Test paid design-partner readiness
+        run: npx --yes supabase@2.39.2 test db supabase/tests/paid_design_partner_beta_readiness_test.sql
+      - name: Test subscription usage lifecycle
+        run: npx --yes supabase@2.39.2 test db supabase/tests/subscription_usage_lifecycle_stabilization_test.sql
+      - name: Test SaaS PDF contract to Opt-Out Clock
+        run: npx --yes supabase@2.39.2 test db supabase/tests/saas_pdf_contract_to_clock_test.sql
       - name: Stop isolated Supabase stack
         if: always()
         run: npx --yes supabase@2.39.2 stop --no-backup
@@ -165,20 +191,24 @@ jobs:
       - node-and-schema
       - python
       - java
+      - go-worker-tests
       - database-integration
       - fixture-smoke
     runs-on: ubuntu-latest
     steps:
       - name: Require every readiness job to pass
+        working-directory: .
         env:
           NODE_RESULT: ${{ needs.node-and-schema.result }}
           PYTHON_RESULT: ${{ needs.python.result }}
           JAVA_RESULT: ${{ needs.java.result }}
+          GO_RESULT: ${{ needs.go-worker-tests.result }}
           DATABASE_RESULT: ${{ needs.database-integration.result }}
           FIXTURE_RESULT: ${{ needs.fixture-smoke.result }}
         run: |
           test "$NODE_RESULT" = "success"
           test "$PYTHON_RESULT" = "success"
           test "$JAVA_RESULT" = "success"
+          test "$GO_RESULT" = "success"
           test "$DATABASE_RESULT" = "success"
           test "$FIXTURE_RESULT" = "success"

@@ -1,0 +1,7 @@
+.ci-tools/
+*.exe
+*.tsbuildinfo
+*.zip
+/noticecontrol-ci-repair/
+/noticecontrol-ux-hardening/
+/t run

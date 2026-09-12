@@ -30,6 +30,7 @@ These events are emitted by current audit, analytics, monitoring, or operational
 - `extraction_completed`
 - `extraction_failed`
 - `contract.review_updated`
+- `saas.contract_activated_for_opt_out_clock`
 - `contract_review_completed`
 - `contract_owner_assigned`
 - `reminder.created`

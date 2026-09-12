@@ -140,7 +140,7 @@ public final class Microsoft365UsageInventoryConnector implements UsageInventory
         .setHeader()
         .setSkipHeaderRecord(true)
         .setIgnoreEmptyLines(true)
-        .get()
+        .build()
         .parse(new StringReader(csv))) {
       String productsHeader = findHeader(parser, "Assigned Products");
       String reportDateHeader = findHeader(parser, "Report Refresh Date");

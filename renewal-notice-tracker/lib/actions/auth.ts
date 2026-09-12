@@ -38,7 +38,7 @@ export async function signInAction(formData: FormData) {
   });
   const source = normalizeAttributionValue(formData.get("source"));
   const campaign = normalizeAttributionValue(formData.get("campaign"));
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   if (source) {
     cookieStore.set("marketing_source", source, { path: "/", httpOnly: true, sameSite: "lax" });
   }
@@ -67,7 +67,7 @@ export async function signUpAction(formData: FormData) {
   });
   const source = normalizeAttributionValue(formData.get("source"));
   const campaign = normalizeAttributionValue(formData.get("campaign"));
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   if (source) {
     cookieStore.set("marketing_source", source, { path: "/", httpOnly: true, sameSite: "lax" });
   }

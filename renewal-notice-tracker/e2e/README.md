@@ -46,3 +46,9 @@ For the exact staging fixture contract, see [P0 E2E staging setup](../docs/P0_E2
 - `E2E_CONTRACT_INTELLIGENCE_PDF_PATH` pointing to a synthetic, multi-page SaaS contract fixture
 
 The staging application must have private storage, `OPENAI_API_KEY`, the configured extraction model, and OCR configuration when the fixture includes scanned pages. Required mode fails before Playwright when configuration or the local synthetic fixture is absent. Never use a customer contract as the fixture.
+
+# SaaS PDF Opt-Out Clock acceptance
+
+`npm run e2e:saas-pdf-clock:required` exercises the durable SaaS PDF path against staging. It requires the full-document variables above plus `E2E_SECONDARY_AUTH_COOKIE_VALUE` for a user in a different organization.
+
+The acceptance test proves the `202 Accepted` processing response, refresh recovery of the same attempt, human review, explicit Admin/Operator activation, exactly one clock row, ICS download, and cross-organization denial. It writes screenshots to Playwright's test output only. The PDF must be synthetic and staging data must be removed through supported application workflows after validation.

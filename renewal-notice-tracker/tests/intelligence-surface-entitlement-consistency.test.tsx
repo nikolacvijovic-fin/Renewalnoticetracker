@@ -24,6 +24,7 @@ const auditFinancialIntelligenceViewed = vi.fn();
 const auditProcurementAnalyticsViewed = vi.fn();
 const getSaasOptOutStatusForContract = vi.fn();
 const getSaasOptOutStatusesForContracts = vi.fn();
+const getSaasActivationCandidates = vi.fn();
 const getContractAuditTimeline = vi.fn();
 const listContractExtractionRuns = vi.fn();
 const listContractExtractedFields = vi.fn();
@@ -93,7 +94,8 @@ vi.mock("@/lib/billing/entitlements", async () => {
 
 vi.mock("@/lib/saas/queries", () => ({
   getSaasOptOutStatusForContract,
-  getSaasOptOutStatusesForContracts
+  getSaasOptOutStatusesForContracts,
+  getSaasActivationCandidates
 }));
 
 vi.mock("@/lib/enterprise-audit/audit-queries", () => ({
@@ -618,6 +620,7 @@ beforeEach(() => {
   getProcurementAnalyticsDashboard.mockResolvedValue(makeProcurementDashboard());
   getSaasOptOutStatusForContract.mockResolvedValue(null);
   getSaasOptOutStatusesForContracts.mockResolvedValue({});
+  getSaasActivationCandidates.mockResolvedValue([]);
   getContractAuditTimeline.mockResolvedValue([]);
   listContractExtractionRuns.mockResolvedValue([]);
   listContractExtractedFields.mockResolvedValue([]);
@@ -639,13 +642,13 @@ afterEach(() => {
 async function renderContractDetailForCurrentBilling() {
   cleanup();
   const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
-  render(await Page({ params: { id: "contract-1" } }));
+  render(await Page({ params: Promise.resolve({ id: "contract-1" }) }));
 }
 
 async function renderContractsListForCurrentBilling(searchParams: Record<string, string> = {}) {
   cleanup();
   const Page = (await import("@/app/dashboard/contracts/page")).default;
-  render(await Page({ searchParams }));
+  render(await Page({ searchParams: Promise.resolve(searchParams) }));
 }
 
 async function getSharedContractsListRiskViewerExpectation(input: {

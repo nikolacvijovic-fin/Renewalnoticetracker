@@ -21,7 +21,9 @@ describe("admin background jobs page", () => {
     requireInternalRole.mockRejectedValue(new Error("REDIRECT:/dashboard"));
     const Page = (await import("@/app/admin/background-jobs/page")).default;
 
-    await expect(Page({ searchParams: { organizationId: "org-1" } })).rejects.toThrow("REDIRECT:/dashboard");
+    await expect(
+      Page({ searchParams: Promise.resolve({ organizationId: "org-1" }) })
+    ).rejects.toThrow("REDIRECT:/dashboard");
     expect(getAdminBackgroundJobHealthSnapshot).not.toHaveBeenCalled();
   });
 
@@ -61,7 +63,11 @@ describe("admin background jobs page", () => {
     });
     const Page = (await import("@/app/admin/background-jobs/page")).default;
 
-    render(await Page({ searchParams: { organizationId: "org-1" } }));
+    render(
+      await Page({
+        searchParams: Promise.resolve({ organizationId: "org-1" })
+      })
+    );
 
     expect(screen.getByText("Background Jobs")).toBeInTheDocument();
     expect(screen.getByText("Queued")).toBeInTheDocument();

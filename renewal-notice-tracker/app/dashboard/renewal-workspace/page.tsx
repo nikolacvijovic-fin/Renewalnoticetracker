@@ -20,8 +20,9 @@ function title(input: string) {
 export default async function RenewalWorkspacePortfolioPage({
   searchParams
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const resolvedSearchParams = await searchParams;
   const context = await requireOrganization();
   const [rows, members, readinessAssessments] = await Promise.all([
     listRenewalWorkspacePortfolio({ organizationId: context.organizationId, limit: 200 }),
@@ -30,16 +31,16 @@ export default async function RenewalWorkspacePortfolioPage({
   ]);
   const allItems = attachEvidenceReadinessToPortfolio(normalizeRenewalPortfolioRows(rows), readinessAssessments);
   const items = filterRenewalPortfolio(allItems, {
-    owner: value(searchParams.owner),
-    vendor: value(searchParams.vendor),
-    decisionType: value(searchParams.decisionType),
-    approvalState: value(searchParams.approvalState),
-    risk: value(searchParams.risk),
-    currency: value(searchParams.currency),
-    department: value(searchParams.department),
-    readinessState: value(searchParams.readinessState),
-    missingEvidenceCategory: value(searchParams.missingEvidenceCategory),
-    portfolioState: value(searchParams.portfolioState)
+    owner: value(resolvedSearchParams.owner),
+    vendor: value(resolvedSearchParams.vendor),
+    decisionType: value(resolvedSearchParams.decisionType),
+    approvalState: value(resolvedSearchParams.approvalState),
+    risk: value(resolvedSearchParams.risk),
+    currency: value(resolvedSearchParams.currency),
+    department: value(resolvedSearchParams.department),
+    readinessState: value(resolvedSearchParams.readinessState),
+    missingEvidenceCategory: value(resolvedSearchParams.missingEvidenceCategory),
+    portfolioState: value(resolvedSearchParams.portfolioState)
   });
   const totals = (field: "expectedSavings" | "confirmedSavings") => items.reduce<Record<string, number>>((result, item) => {
     if (!item.currency || item[field] === null) return result;
@@ -74,15 +75,15 @@ export default async function RenewalWorkspacePortfolioPage({
       </header>
 
       <form className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-4 xl:grid-cols-10">
-        <input name="vendor" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Vendor" defaultValue={value(searchParams.vendor)} />
-        <select name="owner" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.owner)}><option value="">All owners</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{memberLabel.get(member.user_id)}</option>)}</select>
-        <select name="decisionType" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.decisionType)}><option value="">All decisions</option>{RENEWAL_DECISION_TYPES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
-        <select name="approvalState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.approvalState)}><option value="">All states</option>{["draft", "evidence_pending", "ready_for_review", "in_approval", "approved", "returned_for_changes", "outcome_confirmed"].map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
-        <select name="department" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.department)}><option value="">All departments</option>{departments.map((entry) => <option key={entry}>{entry}</option>)}</select>
-        <select name="currency" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.currency)}><option value="">All currencies</option>{currencies.map((entry) => <option key={entry}>{entry}</option>)}</select>
-        <select name="readinessState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.readinessState)}><option value="">All readiness states</option>{EVIDENCE_READINESS_STATES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
-        <select name="missingEvidenceCategory" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.missingEvidenceCategory)}><option value="">All missing categories</option>{EVIDENCE_CATEGORIES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
-        <select name="portfolioState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(searchParams.portfolioState)}><option value="">All operating states</option>{["decision_not_started", "deadline_needs_review", "deadline_passed", "evidence_blocked", "approval_blocked", "outcome_confirmed"].map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
+        <input name="vendor" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" placeholder="Vendor" defaultValue={value(resolvedSearchParams.vendor)} />
+        <select name="owner" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.owner)}><option value="">All owners</option>{members.map((member) => <option key={member.user_id} value={member.user_id}>{memberLabel.get(member.user_id)}</option>)}</select>
+        <select name="decisionType" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.decisionType)}><option value="">All decisions</option>{RENEWAL_DECISION_TYPES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
+        <select name="approvalState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.approvalState)}><option value="">All states</option>{["draft", "evidence_pending", "ready_for_review", "in_approval", "approved", "returned_for_changes", "outcome_confirmed"].map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
+        <select name="department" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.department)}><option value="">All departments</option>{departments.map((entry) => <option key={entry}>{entry}</option>)}</select>
+        <select name="currency" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.currency)}><option value="">All currencies</option>{currencies.map((entry) => <option key={entry}>{entry}</option>)}</select>
+        <select name="readinessState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.readinessState)}><option value="">All readiness states</option>{EVIDENCE_READINESS_STATES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
+        <select name="missingEvidenceCategory" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.missingEvidenceCategory)}><option value="">All missing categories</option>{EVIDENCE_CATEGORIES.map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
+        <select name="portfolioState" className="rounded-lg border border-slate-300 px-3 py-2 text-sm" defaultValue={value(resolvedSearchParams.portfolioState)}><option value="">All operating states</option>{["decision_not_started", "deadline_needs_review", "deadline_passed", "evidence_blocked", "approval_blocked", "outcome_confirmed"].map((entry) => <option key={entry} value={entry}>{title(entry)}</option>)}</select>
         <Button type="submit">Apply filters</Button>
       </form>
 

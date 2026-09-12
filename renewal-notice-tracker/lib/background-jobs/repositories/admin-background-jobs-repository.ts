@@ -73,11 +73,22 @@ export async function listAdminClaimableBackgroundJobs(input: {
   return query as unknown as Promise<{ data: BackgroundJob[] | null; error: Error | null }>;
 }
 
+export async function rescueStaleAdminBackgroundJobs(input: {
+  jobTypes?: BackgroundJobType[];
+  nowIso: string;
+}) {
+  return admin().rpc("rescue_stale_background_jobs", {
+    p_job_types: input.jobTypes ?? null,
+    p_now: input.nowIso
+  } as never) as unknown as Promise<{ data: BackgroundJob[] | null; error: Error | null }>;
+}
+
 export async function claimAdminBackgroundJob(input: {
   organizationId: string;
   jobId: string;
   workerId: string;
   nowIso: string;
+  leaseExpiresAt: string;
 }) {
   return admin()
     .from("background_jobs")
@@ -85,6 +96,7 @@ export async function claimAdminBackgroundJob(input: {
       status: "processing",
       locked_at: input.nowIso,
       locked_by: input.workerId,
+      lease_expires_at: input.leaseExpiresAt,
       updated_at: input.nowIso
     } as never)
     .eq("organization_id", input.organizationId)
@@ -121,6 +133,7 @@ export async function completeAdminBackgroundJob(input: {
       completed_at: input.nowIso,
       locked_at: null,
       locked_by: null,
+      lease_expires_at: null,
       last_error_code: null,
       last_error_message: null,
       updated_at: input.nowIso
@@ -203,6 +216,34 @@ export async function getAdminBackgroundJobById(input: {
     .select("*")
     .eq("organization_id", input.organizationId)
     .eq("id", input.jobId)
+    .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
+}
+
+export async function requeueAdminContractPdfExtractionJob(input: {
+  organizationId: string;
+  jobId: string;
+  scheduledFor: string;
+}) {
+  return admin()
+    .from("background_jobs")
+    .update({
+      status: "queued",
+      attempts: 0,
+      scheduled_for: input.scheduledFor,
+      locked_at: null,
+      locked_by: null,
+      lease_expires_at: null,
+      completed_at: null,
+      dead_lettered_at: null,
+      last_error_code: null,
+      last_error_message: null,
+      updated_at: input.scheduledFor
+    } as never)
+    .eq("organization_id", input.organizationId)
+    .eq("id", input.jobId)
+    .eq("job_type", "contract_pdf_extraction")
+    .in("status", ["failed", "dead_lettered", "cancelled"])
+    .select("*")
     .maybeSingle() as unknown as Promise<{ data: BackgroundJob | null; error: Error | null }>;
 }
 

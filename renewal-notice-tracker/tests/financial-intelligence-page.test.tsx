@@ -221,10 +221,10 @@ describe("ContractsPage financial drilldowns", () => {
     const Page = (await import("@/app/dashboard/contracts/page")).default;
     render(
       await Page({
-        searchParams: {
+        searchParams: Promise.resolve({
           financialView: "renewal_exposure",
           counterpartyName: "Acme"
-        }
+        })
       })
     );
 

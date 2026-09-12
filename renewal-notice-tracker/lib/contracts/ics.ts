@@ -165,6 +165,7 @@ function buildSafeDescription(input: {
   date: string;
   href: string;
   reviewNeeded?: boolean;
+  deadlineClassification?: "auto_renewal" | "notice_only";
 }) {
   return [
     "NoticeControl calendar export.",
@@ -173,6 +174,9 @@ function buildSafeDescription(input: {
     `Vendor/counterparty: ${input.counterpartyName}.`,
     `Date: ${input.date}.`,
     input.reviewNeeded ? "Trust status: Needs review before this date should be treated as operational truth." : null,
+    input.deadlineClassification
+      ? `Deadline classification: ${input.deadlineClassification === "notice_only" ? "Notice only" : "Auto-renewal"}.`
+      : null,
     `Open in NoticeControl: ${input.href}.`
   ]
     .filter(Boolean)
@@ -191,11 +195,14 @@ function buildDateEvent(input: {
   appUrl: string;
   href?: string;
   reviewNeeded?: boolean;
+  deadlineClassification?: "auto_renewal" | "notice_only";
 }): IcsEvent | null {
   const date = parseDateOnly(input.date);
   if (!date) return null;
 
-  const label = eventTypeLabel(input.type);
+  const label = input.type === "opt_out_deadline" && input.deadlineClassification === "notice_only"
+    ? "Notice-only deadline"
+    : eventTypeLabel(input.type);
   const safeTitle = cleanText(input.contractTitle, "Untitled contract");
   const safeCounterparty = cleanText(input.counterpartyName, "Unknown vendor");
   const href = input.href ?? `${normalizeAppUrl(input.appUrl)}/dashboard/contracts/${input.contractId}`;
@@ -214,7 +221,8 @@ function buildDateEvent(input: {
       counterpartyName: safeCounterparty,
       date,
       href,
-      reviewNeeded: input.reviewNeeded
+      reviewNeeded: input.reviewNeeded,
+      deadlineClassification: input.deadlineClassification
     }),
     alarms: ICS_REMINDER_ALARM_OFFSETS_DAYS
   };
@@ -345,7 +353,8 @@ export function buildSaasOptOutCalendarEvents(input: {
       href: `${normalizeAppUrl(input.appUrl)}/dashboard/saas-opt-out-clock`,
       type: "opt_out_deadline",
       date: item.effectiveOptOutDeadline,
-      reviewNeeded: item.metadataConflicts.length > 0
+      reviewNeeded: item.metadataConflicts.length > 0,
+      deadlineClassification: item.deadlineClassification
     });
     return event ? [event] : [];
   });

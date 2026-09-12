@@ -63,10 +63,11 @@ function buildFilterLink(
 export default async function AdminEnterpriseAuditPage({
   searchParams
 }: {
-  searchParams?: Record<string, string | undefined>;
+  searchParams?: Promise<Record<string, string | undefined>>;
 }) {
   await requireInternalRole(["internal_admin", "internal_support"]);
-  const organizationId = searchParams?.organizationId?.trim() ?? "";
+  const resolvedSearchParams = await searchParams;
+  const organizationId = resolvedSearchParams?.organizationId?.trim() ?? "";
 
   if (!organizationId) {
     return (
@@ -87,21 +88,21 @@ export default async function AdminEnterpriseAuditPage({
 
   const filters: EnterpriseAuditQueryFilters = {
     organizationId,
-    category: parseCategory(searchParams?.category),
-    severity: parseSeverity(searchParams?.severity),
-    actorUserId: searchParams?.actorUserId?.trim() || null,
-    contractId: searchParams?.contractId?.trim() || null,
-    dateFrom: searchParams?.dateFrom?.trim() || null,
-    dateTo: searchParams?.dateTo?.trim() || null,
-    trustSensitiveOnly: searchParams?.trustSensitiveOnly === "true",
-    securitySensitiveOnly: searchParams?.securitySensitiveOnly === "true",
+    category: parseCategory(resolvedSearchParams?.category),
+    severity: parseSeverity(resolvedSearchParams?.severity),
+    actorUserId: resolvedSearchParams?.actorUserId?.trim() || null,
+    contractId: resolvedSearchParams?.contractId?.trim() || null,
+    dateFrom: resolvedSearchParams?.dateFrom?.trim() || null,
+    dateTo: resolvedSearchParams?.dateTo?.trim() || null,
+    trustSensitiveOnly: resolvedSearchParams?.trustSensitiveOnly === "true",
+    securitySensitiveOnly: resolvedSearchParams?.securitySensitiveOnly === "true",
     limit: 100
   };
   const [{ events, hasMore }, countsByCategory] = await Promise.all([
     getEnterpriseAuditEvents(filters),
     getAuditEventCountsByCategory({ organizationId })
   ]);
-  const safeSearchParams = searchParams ?? {};
+  const safeSearchParams = resolvedSearchParams ?? {};
 
   return (
     <main className="mx-auto max-w-7xl space-y-6 p-8">

@@ -7,7 +7,7 @@ import {
 import { getBackgroundContractExportRequestStatus } from "@/lib/contracts/background-exports";
 
 type ExportStatusRouteContext = {
-  params: { id?: string } | Promise<{ id?: string }>;
+  params: Promise<{ id?: string }>;
 };
 
 async function getRequestIdFromRouteContext(routeContext: ExportStatusRouteContext | undefined) {

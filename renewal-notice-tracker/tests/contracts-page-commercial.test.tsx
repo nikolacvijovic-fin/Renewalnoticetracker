@@ -80,9 +80,9 @@ describe("ContractsPage commercial UX", () => {
       const Page = (await import("@/app/dashboard/contracts/page")).default;
       render(
         await Page({
-          searchParams: {
+          searchParams: Promise.resolve({
             commercial: "billing.export_upgrade_required"
-          }
+          })
         })
       );
 

@@ -25,6 +25,7 @@ const listQuoteComparisons = vi.fn();
 const listQuoteFindings = vi.fn();
 const listSavingsOpportunities = vi.fn();
 const getSaasOptOutStatusForContract = vi.fn();
+const getSaasActivationCandidates = vi.fn();
 
 vi.mock("next/navigation", () => ({
   notFound: vi.fn(() => {
@@ -121,7 +122,8 @@ vi.mock("@/lib/quote-comparison/quote-comparison", () => ({
 }));
 
 vi.mock("@/lib/saas/queries", () => ({
-  getSaasOptOutStatusForContract
+  getSaasOptOutStatusForContract,
+  getSaasActivationCandidates
 }));
 
 vi.mock("@/lib/utils", async (importOriginal) => {
@@ -346,6 +348,7 @@ beforeEach(() => {
   listQuoteFindings.mockResolvedValue([]);
   listSavingsOpportunities.mockResolvedValue([]);
   getSaasOptOutStatusForContract.mockResolvedValue(null);
+  getSaasActivationCandidates.mockResolvedValue([]);
   buildRiskQueueRow.mockReturnValue(makeRiskExplanation());
   getIntelligenceSurfaceAccessMap.mockResolvedValue({
     billingSnapshot: {
@@ -377,7 +380,7 @@ describe("Contract detail intelligence audit semantics", () => {
     });
 
     const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
-    render(await Page({ params: { id: "contract-1" } }));
+    render(await Page({ params: Promise.resolve({ id: "contract-1" }) }));
 
     expect(auditRiskBadgeViewed).toHaveBeenCalledWith({
       organizationId: "org-1",
@@ -408,7 +411,7 @@ describe("Contract detail intelligence audit semantics", () => {
     });
 
     const Page = (await import("@/app/dashboard/contracts/[id]/page")).default;
-    render(await Page({ params: { id: "contract-1" } }));
+    render(await Page({ params: Promise.resolve({ id: "contract-1" }) }));
 
     expect(auditRiskBadgeViewed).toHaveBeenCalledWith(
       expect.objectContaining({

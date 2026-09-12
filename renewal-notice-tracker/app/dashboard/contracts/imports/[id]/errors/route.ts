@@ -13,10 +13,11 @@ function toCsvValue(value: string | number | null | undefined) {
 
 export async function GET(
   _request: Request,
-  context: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await context.params;
   const { organizationId } = await requireOrganization();
-  const report = await getScopedImportJobErrorReport(context.params.id, organizationId);
+  const report = await getScopedImportJobErrorReport(id, organizationId);
   const rows = [
     ["row", "status", "contract_title", "counterparty_name", "owner_email", "field", "error", "warnings"].join(","),
     ...report.errors.map((error) =>

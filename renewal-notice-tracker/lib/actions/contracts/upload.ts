@@ -1,4 +1,6 @@
 export {
   createContractAction,
-  createManualContractAction
+  createManualContractAction,
+  retrySaasOptOutClockPdfExtractionAction,
+  uploadSaasOptOutClockPdfAction
 } from "@/lib/actions/contracts/legacy";

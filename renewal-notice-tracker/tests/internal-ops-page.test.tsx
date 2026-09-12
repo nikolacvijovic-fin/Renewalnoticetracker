@@ -32,7 +32,9 @@ describe("internal ops page", () => {
     requireInternalRole.mockRejectedValue(new Error("REDIRECT:/dashboard"));
     const Page = (await import("@/app/internal/ops/page")).default;
 
-    await expect(Page({ searchParams: { organizationId: "org-1" } })).rejects.toThrow("REDIRECT:/dashboard");
+    await expect(
+      Page({ searchParams: Promise.resolve({ organizationId: "org-1" }) })
+    ).rejects.toThrow("REDIRECT:/dashboard");
     expect(getAdminOperationalSnapshot).not.toHaveBeenCalled();
     expect(getAdminDebugData).not.toHaveBeenCalled();
     expect(getOrganizationBilling).not.toHaveBeenCalled();
@@ -83,7 +85,11 @@ describe("internal ops page", () => {
     });
 
     const Page = (await import("@/app/internal/ops/page")).default;
-    render(await Page({ searchParams: { organizationId: "org-1" } }));
+    render(
+      await Page({
+        searchParams: Promise.resolve({ organizationId: "org-1" })
+      })
+    );
 
     expect(getAdminOperationalSnapshot).toHaveBeenCalledWith("org-1");
     expect(getAdminDebugData).toHaveBeenCalledWith("org-1");

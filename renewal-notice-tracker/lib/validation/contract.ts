@@ -13,6 +13,7 @@ import {
 import { INTELLIGENCE_TRUST_LEVELS } from "@/lib/intelligence/shared/types";
 import { splitEmails } from "@/lib/utils";
 import { isValidReminderOffset } from "@/lib/contracts/templates";
+import { MAX_CONTRACT_UPLOAD_BYTES } from "@/lib/contracts/pdf-upload";
 
 export const extractedFieldSchema = z.object({
   contract_title: z.string().nullable(),
@@ -62,7 +63,7 @@ export const uploadContractSchema = z.object({
   ], {
     errorMap: () => ({ message: "Unsupported file type. Upload a contract PDF or DOCX." })
   }),
-  sizeBytes: z.number().max(15 * 1024 * 1024)
+  sizeBytes: z.number().max(MAX_CONTRACT_UPLOAD_BYTES)
 });
 
 const reviewContractShape = extractedFieldSchema.extend({

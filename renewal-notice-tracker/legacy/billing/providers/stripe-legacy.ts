@@ -128,8 +128,9 @@ async function createStripeManagementSession(
 }
 
 async function handleStripeWebhook(params: BillingWebhookParams): Promise<BillingWebhookResult> {
+  const requestHeaders = await headers();
   const signature =
-    params.headers.get("stripe-signature") ?? headers().get("stripe-signature") ?? null;
+    params.headers.get("stripe-signature") ?? requestHeaders.get("stripe-signature") ?? null;
   if (!signature) {
     throw new Error("Missing Stripe signature.");
   }

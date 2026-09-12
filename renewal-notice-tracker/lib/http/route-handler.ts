@@ -425,10 +425,17 @@ export function requireCronSecretRouteAuth<TRouteContext>(
   };
 }
 
+type EmptyRouteContext = { params: Promise<Record<never, never>> };
+
+type CompatibleRouteHandler<TRouteContext> = {
+  (request: Request): Promise<Response>;
+  (request: Request, routeContext: TRouteContext): Promise<Response>;
+};
+
 export function createRouteHandler<
   TAuth = unknown,
   TInput = unknown,
-  TRouteContext = void
+  TRouteContext = EmptyRouteContext
 >(
   options: {
     auth?: RouteAuthResolver<TAuth, TRouteContext>;
@@ -449,7 +456,7 @@ export function createRouteHandler<
     audit: typeof createAuditLog;
   }) => Promise<Response> | Response
 ) {
-  return async (request: Request, routeContext?: TRouteContext) => {
+  const routeHandler = async (request: Request, routeContext?: TRouteContext) => {
     const requestId =
       request.headers.get(ROUTE_REQUEST_ID_HEADER)?.trim() || randomUUID();
     const url = new URL(request.url);
@@ -535,4 +542,8 @@ export function createRouteHandler<
       return buildErrorResponse(normalizedError, requestId);
     }
   };
+
+  // Next 15 requires a concrete second route-handler argument. The one-argument
+  // overload remains available for framework-independent unit tests.
+  return routeHandler as CompatibleRouteHandler<TRouteContext>;
 }

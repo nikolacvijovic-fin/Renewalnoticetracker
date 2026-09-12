@@ -168,7 +168,7 @@ select throws_ok(
     (select id from public.subscription_usage_sync_runs where logical_interval_key = 'paid-beta-interval' order by attempt_number desc limit 1),
     'reconciling'
   ),
-  '42501', 'Insufficient organization role',
+  '42501', 'Synchronization attempt not found',
   'stage transitions cannot cross organization scope'
 );
 

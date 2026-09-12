@@ -25,7 +25,8 @@ type PageSearchParams = { provider?: string; capability?: string; confidence?: s
 async function syncMicrosoft365UsageNowFormAction(formData: FormData) { "use server"; await syncMicrosoft365UsageNowAction(formData); }
 async function syncGoogleWorkspaceUsageNowFormAction(formData: FormData) { "use server"; await syncGoogleWorkspaceUsageNowAction(formData); }
 
-export default async function SubscriptionOptimizationPage({ searchParams }: { searchParams?: PageSearchParams }) {
+export default async function SubscriptionOptimizationPage({ searchParams }: { searchParams?: Promise<PageSearchParams> }) {
+  const resolvedSearchParams = await searchParams;
   const context = await requireOrganization();
   const access = await evaluateSubscriptionUsageOptimizationAccess(await getBillingSnapshot(context.organizationId));
   const [connections, latestSyncs, findings, history, usageRows] = access.allowed
@@ -37,7 +38,7 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
         listLatestUsageRows(context.organizationId)
       ])
     : [[] as ConnectionRow[], [] as SyncRunRow[], [] as FindingRow[], [] as FindingRow[], [] as UsageRow[]];
-  const visibleFindings = filterFindings(findings, searchParams ?? {});
+  const visibleFindings = filterFindings(findings, resolvedSearchParams ?? {});
   const totals = summarizeUsageRows(usageRows);
   const savingsByCurrency = summarizeSavingsByCurrency(visibleFindings);
   const microsoftConnection = connections.find((item) => item.provider === "microsoft_365") ?? null;
@@ -98,11 +99,11 @@ export default async function SubscriptionOptimizationPage({ searchParams }: { s
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div><h2 className="text-lg font-semibold text-slate-950">Reviewable recommendations</h2><p className="mt-1 text-sm text-slate-600">Weak, stale, partial, or ambiguous evidence lowers confidence.</p></div>
               <form className="grid gap-2 sm:grid-cols-2 lg:grid-cols-6" method="get">
-                <FilterSelect name="provider" value={searchParams?.provider} options={["all", "microsoft_365", "google_workspace"]} />
-                <FilterSelect name="capability" value={searchParams?.capability} options={["all", "email_calendar", "video_meetings", "team_chat", "file_collaboration", "office_editing", "identity_access", "device_management", "security_compliance"]} />
-                <FilterSelect name="confidence" value={searchParams?.confidence} options={["all", "high", "medium", "low"]} />
-                <FilterSelect name="renewalWindow" value={searchParams?.renewalWindow} options={["all", "30_days", "90_days", "no_linked_deadline"]} />
-                <FilterSelect name="reviewState" value={searchParams?.reviewState} options={["all", "open", "accepted", "rejected", "deferred", "action_planned"]} />
+                <FilterSelect name="provider" value={resolvedSearchParams?.provider} options={["all", "microsoft_365", "google_workspace"]} />
+                <FilterSelect name="capability" value={resolvedSearchParams?.capability} options={["all", "email_calendar", "video_meetings", "team_chat", "file_collaboration", "office_editing", "identity_access", "device_management", "security_compliance"]} />
+                <FilterSelect name="confidence" value={resolvedSearchParams?.confidence} options={["all", "high", "medium", "low"]} />
+                <FilterSelect name="renewalWindow" value={resolvedSearchParams?.renewalWindow} options={["all", "30_days", "90_days", "no_linked_deadline"]} />
+                <FilterSelect name="reviewState" value={resolvedSearchParams?.reviewState} options={["all", "open", "accepted", "rejected", "deferred", "action_planned"]} />
                 <button className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800">Apply filters</button>
               </form>
             </div>

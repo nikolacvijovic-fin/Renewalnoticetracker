@@ -412,6 +412,26 @@ export const PRODUCT_EVENT_TAXONOMY = {
     owningProductModule: "core_renewal_control_kernel",
     relatedOnboardingMilestones: ["first_contract_reviewed"]
   }),
+  "saas.contract_activated_for_opt_out_clock": taxonomyEvent({
+    name: "saas.contract_activated_for_opt_out_clock",
+    type: "audit",
+    emittedToday: true,
+    source:
+      "lib/actions/saas-renewal-defense.ts; emitted transactionally by supabase/migrations/202609020001_saas_pdf_contract_to_clock.sql",
+    privacySensitivity: "medium",
+    safeMetadataFields: [
+      "organizationId",
+      "contractId",
+      "softwareId",
+      "saasTermId",
+      "optOutWindowId",
+      "deadlineWindow",
+      "createdSoftware",
+      "createdTerm",
+      "createdWindow"
+    ],
+    owningProductModule: "core_renewal_control_kernel"
+  }),
   contract_review_completed: taxonomyEvent({
     name: "contract_review_completed",
     type: "analytics",

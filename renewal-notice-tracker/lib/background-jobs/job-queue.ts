@@ -24,7 +24,9 @@ import {
   getAdminBackgroundJobById,
   insertAdminBackgroundJob,
   insertAdminBackgroundJobAttempt,
-  listAdminClaimableBackgroundJobs
+  listAdminClaimableBackgroundJobs,
+  requeueAdminContractPdfExtractionJob,
+  rescueStaleAdminBackgroundJobs
 } from "@/lib/background-jobs/repositories/admin-background-jobs-repository";
 import {
   classifyJobFailure,
@@ -36,6 +38,7 @@ const DEFAULT_PRIORITY = 100;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_CLAIM_LIMIT = 10;
 const DEFAULT_CANCELLATION_REASON_CODE = "ERR_BACKGROUND_JOB_CANCELLED_001";
+const DEFAULT_JOB_LEASE_MS = 10 * 60_000;
 
 type SupabaseErrorLike = Error & { code?: string };
 
@@ -157,9 +160,58 @@ export function enqueueTrustedReminderDeliveryJob(input: {
   });
 }
 
+export async function enqueueContractPdfExtractionJob(input: {
+  organizationId: string;
+  contractId: string;
+  contractFileId: string;
+  uploadAttemptId: string;
+  requestedByUserId: string;
+}) {
+  const job = await enqueueBackgroundJob({
+    organizationId: input.organizationId,
+    contractId: input.contractId,
+    jobType: "contract_pdf_extraction",
+    idempotencyKey: `contract_pdf_extraction:${input.uploadAttemptId}`,
+    payload: {
+      contract_file_id: input.contractFileId,
+      upload_attempt_id: input.uploadAttemptId,
+      requested_by_user_id: input.requestedByUserId
+    },
+    maxAttempts: 3
+  });
+
+  if (!["failed", "dead_lettered", "cancelled"].includes(job.status)) {
+    return job;
+  }
+
+  const scheduledFor = new Date().toISOString();
+  const retried = await requeueAdminContractPdfExtractionJob({
+    organizationId: input.organizationId,
+    jobId: job.id,
+    scheduledFor
+  });
+  if (retried.error) throw retried.error;
+  if (retried.data) return retried.data;
+
+  const concurrent = await getAdminBackgroundJobById({
+    organizationId: input.organizationId,
+    jobId: job.id
+  });
+  if (concurrent.error) throw concurrent.error;
+  if (concurrent.data && ["queued", "retry_scheduled", "processing"].includes(concurrent.data.status)) {
+    return concurrent.data;
+  }
+  throw new JobStateConflictError("PDF extraction retry could not be scheduled safely.");
+}
+
 export async function claimBackgroundJobs(input: ClaimBackgroundJobsInput) {
   const workerId = requireNonEmpty(input.workerId, "workerId");
   const nowIso = iso(input.now);
+  const rescued = await rescueStaleAdminBackgroundJobs({
+    jobTypes: input.jobTypes,
+    nowIso
+  });
+  if (rescued.error) throw rescued.error;
   const { data, error } = await listAdminClaimableBackgroundJobs({
     jobTypes: input.jobTypes,
     limit: Math.min(Math.max(input.limit ?? DEFAULT_CLAIM_LIMIT, 1), 50),
@@ -173,7 +225,8 @@ export async function claimBackgroundJobs(input: ClaimBackgroundJobsInput) {
       organizationId: job.organization_id,
       jobId: job.id,
       workerId,
-      nowIso
+      nowIso,
+      leaseExpiresAt: new Date(new Date(nowIso).getTime() + DEFAULT_JOB_LEASE_MS).toISOString()
     });
     if (result.error) throw result.error;
     if (!result.data) continue;
@@ -253,6 +306,7 @@ export async function failBackgroundJob(input: FailBackgroundJobInput) {
       scheduled_for: nextRetryAt ?? current.scheduled_for,
       locked_at: null,
       locked_by: null,
+      lease_expires_at: null,
       last_error_code: classified.code,
       last_error_message: safeErrorMessage,
       dead_lettered_at: status === "dead_lettered" ? nowIso : current.dead_lettered_at,
@@ -327,6 +381,7 @@ export async function cancelBackgroundJob(input: CancelBackgroundJobInput) {
       status: "cancelled",
       locked_at: null,
       locked_by: null,
+      lease_expires_at: null,
       last_error_code: reasonCode,
       last_error_message: "Background job was cancelled.",
       updated_at: nowIso

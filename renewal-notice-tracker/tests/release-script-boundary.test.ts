@@ -17,6 +17,7 @@ describe("release script boundary", () => {
     const intelligenceReleaseGate = packageJson.scripts?.["test:intelligence-release-gate"] ?? "";
     const futureReference = packageJson.scripts?.["test:future-reference"] ?? "";
 
+    expect(releaseCritical).toContain("test:security-hotfix");
     expect(releaseCritical).toContain("test:release-critical:session-org");
     expect(releaseCritical).toContain("test:release-critical:authz");
     expect(releaseCritical).toContain("test:release-critical:intake-review");

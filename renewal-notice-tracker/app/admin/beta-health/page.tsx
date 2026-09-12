@@ -132,7 +132,7 @@ function OrganizationHealthRow({ organization }: { organization: BetaOrganizatio
 }
 
 type FounderBetaHealthPageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>> | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export default async function FounderBetaHealthPage({ searchParams }: FounderBetaHealthPageProps) {

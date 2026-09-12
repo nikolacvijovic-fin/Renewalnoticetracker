@@ -2,6 +2,49 @@
 
 These runbooks are for production support of the shipped renewal-control kernel. They intentionally use IDs, status, counts, failure codes, categories, and audit records. Do not paste raw contract text, full notes, OCR output, extracted evidence, billing provider payloads, storage paths, tokens, cookies, or secrets into alerts, tickets, logs, or incident notes.
 
+## Supabase API Gateway, Auth, Or Storage Degradation
+
+Runbook ID: `runbook_supabase_platform_degradation`
+
+Severity:
+- P1 while repeated 401, 525, timeout, Data API latency, or storage failures affect customer workflows.
+- P0 if tenant isolation, authorization, or durable write state cannot be established.
+
+Signals:
+- Supabase status reports an active API Gateway, Auth, Data API, or Storage incident.
+- Safe operational logs show clustered `permission_denied`, `timeout`, or `upstream_provider_failed` categories.
+- Contract uploads, extraction state changes, session refresh, or reminder state transitions fail repeatedly.
+
+Operator actions:
+- Confirm the project region and platform version, then correlate safe request IDs and timestamps with Supabase logs.
+- Test session refresh, one organization-scoped contract read, one controlled upload, extraction enqueueing, and reminder-state persistence.
+- Retry safe reads with bounded exponential backoff. Do not blindly retry writes unless the path has a durable idempotency or delivery key.
+- Do not treat an intermittent 401 as authorization success; fail closed and require a fresh verified session.
+- Restart a project only when Supabase recommends it for the active incident and a controlled interruption is approved.
+- Preserve organization IDs, request IDs, safe failure codes, retry counts, and timestamps. Never copy JWTs, storage paths, document contents, provider payloads, or secrets into incident notes.
+
+Recovery proof:
+- Supabase reports recovery or the affected project is confirmed healthy.
+- Session refresh and the controlled read/write/upload checks pass without duplicate jobs or notifications.
+- Retry and stale-job queues return to normal bounds.
+
+## Next.js Runtime Security Release
+
+Runbook ID: `runbook_nextjs_runtime_security_release`
+
+Severity:
+- P0 when the installed Next.js version is inside a published critical affected range.
+
+Operator actions:
+- Pin a patched maintenance or active LTS release; do not rely on host operating system assumptions.
+- Review `next.config.*` for AVIF, custom image loaders, and attacker-controlled remote image patterns.
+- Run the security hotfix gate, lint, typecheck, production build, and auth/upload/route/Server Action regression suites.
+- Roll back application code only to another patched release. Never restore an affected Next.js version.
+
+Current boundary:
+- NoticeControl pins Next.js `15.5.24` and does not enable AVIF, custom loaders, or remote image optimization patterns.
+- Runtime source must not use the retired OpenAI Assistants, Threads, or Runs APIs; extraction remains on supported request paths.
+
 ## First Response Rules
 
 - Confirm severity from `docs/OPERATIONAL_EVENT_INVENTORY.md`: P0, P1, P2, or P3.
