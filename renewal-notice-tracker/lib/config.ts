@@ -283,6 +283,30 @@ const rawEnvSchema = rawEnvBaseSchema.superRefine((value, context) => {
     "INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET",
     value.INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET
   );
+  validateProductionSecret(context, "ADD_ON_INTERNAL_SIGNING_SECRET", value.ADD_ON_INTERNAL_SIGNING_SECRET);
+
+  const validateProviderCallback = (key: string, configured: string | undefined, pathname: string) => {
+    if (!configured) return;
+    const expected = new URL(pathname, value.NEXT_PUBLIC_APP_URL);
+    const actual = new URL(configured);
+    if (actual.origin !== expected.origin || actual.pathname !== expected.pathname) {
+      addSafeProductionIssue(
+        context,
+        key,
+        `${key} must use the production app origin and the canonical ${pathname} callback path.`
+      );
+    }
+  };
+  validateProviderCallback(
+    "MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI",
+    value.MICROSOFT_365_ADMIN_CONSENT_REDIRECT_URI,
+    "/api/subscription-usage/microsoft365/callback"
+  );
+  validateProviderCallback(
+    "GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI",
+    value.GOOGLE_WORKSPACE_OAUTH_REDIRECT_URI,
+    "/api/subscription-usage/google-workspace/callback"
+  );
 
   if (value.SUPABASE_EXPORTS_BUCKET === "export-artifacts" || value.SUPABASE_STORAGE_BUCKET === "contract-files") {
     addSafeProductionIssue(

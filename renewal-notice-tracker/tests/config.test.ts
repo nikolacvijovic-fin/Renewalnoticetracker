@@ -149,7 +149,8 @@ describe("runtime configuration", () => {
     expect(() =>
       parseAppConfig(
         makeValidEnv({
-          PYTHON_INTELLIGENCE_URL: "https://python.example.com"
+          PYTHON_INTELLIGENCE_URL: "https://python.example.com",
+          ADD_ON_INTERNAL_SIGNING_SECRET: ""
         })
       )
     ).toThrow(/ADD_ON_INTERNAL_SIGNING_SECRET/i);
@@ -423,6 +424,7 @@ describe("runtime configuration", () => {
         INTERNAL_OPERATIONS_SECRET: "operations_live_secret_123456789",
         INTERNAL_DESTRUCTIVE_OPS_SECRET: "destructive_live_secret_123456789",
         INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: "destructive_signing_live_secret_123456789",
+        ADD_ON_INTERNAL_SIGNING_SECRET: "worker_signing_live_secret_123456789",
         MONITORING_EVENT_SINK: "structured_log_and_webhook",
         MONITORING_ALERT_WEBHOOK_URL: "https://alerts.noticecontrol.example/events",
         MONITORING_ALERT_WEBHOOK_SIGNING_SECRET: "monitoring_live_signing_secret_123456789"
