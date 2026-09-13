@@ -77,6 +77,13 @@ The verifier rejects malformed cookie names, unsafe cookie values, non-HTTP base
 
 The release-readiness workflow expects the required values as environment secrets/variables. `npm run release:strict` runs lint, typecheck, release-critical tests, release metadata validation, and required P0 E2E.
 
-## Current Manual Step
+## Fixture Preparation
 
-There is not yet a committed staging seed automation script for these users and contracts. Until that exists, staging fixture creation and cookie refresh are an explicit release operation. The verifier confirms that the manually seeded staging state is usable before Playwright starts.
+`npm run staging:fixtures:prepare` is staging-only and requires an explicit confirmation flag internally. It
+creates only the deterministic synthetic SaaS PDF and prints its safe local path; it refuses production and
+never reads, stores, or prints credentials. It does not create users, sessions, organizations, or contracts.
+
+Creating staging auth users or extracting session cookies safely would require Supabase Admin access and is
+therefore intentionally not automated. The primary and secondary users, their organizations, the review
+contract, foreign contract, and refreshed cookies remain manual prerequisites. Store cookies only in release
+environment secrets. Use `npm run e2e:p0:verify` after that setup to confirm the state is usable.

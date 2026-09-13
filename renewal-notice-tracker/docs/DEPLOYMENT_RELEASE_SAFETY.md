@@ -114,11 +114,15 @@ These checks are designed to prevent unbounded export generation, stranded remin
 
 ## SaaS PDF Worker Rollout
 
-This repository has no canonical hosting or process-manager manifest. Before enabling customer SaaS PDF intake, production must run `npm run worker:pdf` as a continuously supervised process alongside the web application.
+The provider-neutral reference runtime is defined by `Dockerfile`, `compose.production.yml`, and
+[PRODUCTION_RUNTIME.md](PRODUCTION_RUNTIME.md). Run web, PDF worker, reminder worker, and exactly one
+maintenance scheduler as independently supervised processes with automatic restart and heartbeat/readiness
+alerts. No hosting vendor is implied or configured by these reference definitions.
 
 - The web application stores the PDF and queues `contract_pdf_extraction`; it does not run parsing, OCR, or provider extraction inside the claim HTTP request.
-- PDFs remain queued until the worker claims them. The worker needs the same application and database configuration used by the background-job runtime.
-- Start and verify the worker before enabling customer PDF intake. If it is not deployed, that is an explicit rollout prerequisite rather than hidden application behavior.
+- PDFs remain queued until the supervised PDF worker claims them. The worker needs the same application and database configuration used by the background-job runtime.
+- The reminder worker and scheduler must remain continuously supervised; a stale heartbeat or non-zero exit is unhealthy even when queues are idle.
+- The scheduler has exactly one active replica. Web and workers may scale under their documented lease rules.
 - The worker has a bounded attempt watchdog; queue leases, retries, and dead-letter transitions remain the durable recovery mechanism.
 
 ## Monitoring And Alert Readiness
