@@ -101,7 +101,6 @@ jobs:
       E2E_MEMBER_AUTH_COOKIE_VALUE: ${{ secrets.E2E_MEMBER_AUTH_COOKIE_VALUE }}
       E2E_REVIEW_CONTRACT_PATH: ${{ secrets.E2E_REVIEW_CONTRACT_PATH }}
       E2E_FOREIGN_CONTRACT_PATH: ${{ secrets.E2E_FOREIGN_CONTRACT_PATH }}
-      E2E_CONTRACT_INTELLIGENCE_PDF_PATH: ${{ runner.temp }}/noticecontrol-synthetic-saas-renewal.pdf
 
     steps:
       - name: Check out repository
@@ -116,6 +115,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Set deterministic SaaS PDF fixture path
+        run: echo "E2E_CONTRACT_INTELLIGENCE_PDF_PATH=${RUNNER_TEMP}/noticecontrol-synthetic-saas-renewal.pdf" >> "$GITHUB_ENV"
 
       - name: Create deterministic SaaS PDF fixture
         run: npm run fixture:saas-pdf -- "$E2E_CONTRACT_INTELLIGENCE_PDF_PATH"
