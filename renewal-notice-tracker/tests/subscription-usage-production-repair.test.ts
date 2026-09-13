@@ -34,6 +34,30 @@ describe("subscription usage production repair", () => {
     expect(action).not.toContain(".limit(1000)");
   });
 
+  it("uses the shipped intake authorization boundary before manual import or reconciliation writes", () => {
+    const action = read("lib", "actions", "subscription-usage-optimization.ts");
+    const importAction = action.slice(action.indexOf("export async function commitSubscriptionUsageImportAction"), action.indexOf("async function reconcileAndPersistUsageBatch"));
+    const reconciliationAction = action.slice(action.indexOf("export async function runSubscriptionUsageReconciliationAction"), action.indexOf("export async function reviewSubscriptionUsageFindingAction"));
+    expect(importAction).toContain('assertCanUseShippedAction(context, "upload_import")');
+    expect(reconciliationAction).toContain('assertCanUseShippedAction(context, "upload_import")');
+    expect(importAction.indexOf('assertCanUseShippedAction(context, "upload_import")')).toBeLessThan(importAction.indexOf("createUsageBatchWithRows"));
+  });
+
+  it("aligns effective database mutation policies and public RPCs to admin/operator roles", () => {
+    const migration = read("supabase", "migrations", "202609130001_subscription_usage_mutation_role_alignment.sql");
+    const proof = read("supabase", "tests", "subscription_usage_mutation_role_alignment_test.sql");
+    expect(migration).toContain("admin operator can manage subscription usage provider connections");
+    expect(migration).toContain("admin operator can manage subscription usage sync runs");
+    expect(migration).toContain("m.role in ('admin', 'operator')");
+    expect(migration).toContain("create_subscription_usage_batch_with_rows_core");
+    expect(migration).toContain("persist_subscription_usage_analysis_findings_core");
+    expect(migration).toContain("begin_manual_subscription_usage_sync_attempt_core");
+    expect(migration).toContain("to authenticated, service_role");
+    expect(proof).toContain("owner cannot bypass intake RPC authorization");
+    expect(proof).toContain("reviewer cannot invoke reconciliation persistence");
+    expect(proof).toContain("admin cannot mutate a foreign organization through the RPC");
+  });
+
   it("persists finding revisions transactionally without dynamic not-in filters", () => {
     const migration = read("supabase", "migrations", "202608180001_subscription_usage_production_repair.sql");
     const action = read("lib", "actions", "subscription-usage-optimization.ts");

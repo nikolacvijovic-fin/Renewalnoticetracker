@@ -1,5 +1,7 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const root = process.cwd();
@@ -17,6 +19,8 @@ describe("PDF upload release surface", () => {
     expect(uploadPage).toContain("requireOrganization()");
     expect(uploadPage).toContain("getOrganizationMembers(context.organizationId)");
     expect(uploadPage).toContain("getOrganizationContractCount(context.organizationId)");
+    expect(uploadPage).toContain("canManagePdfUploads");
+    expect(uploadPage).toContain("Only workspace admins and operators can upload contract PDFs.");
     expect(uploadPage).toMatch(/human review/i);
   });
 
@@ -54,5 +58,22 @@ describe("PDF upload release surface", () => {
     expect(spec).toContain("activate for opt-out clock");
     expect(spec).toContain("toHaveCount(1)");
     expect(spec).toContain("noticecontrol-saas-opt-out-deadlines.ics");
+    expect(spec).toContain("cache-control");
+    expect(spec).toContain("sensitiveConsoleMessages");
+  });
+
+  it("generates a deterministic synthetic SaaS PDF fixture without customer data", () => {
+    const fixturePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "noticecontrol-pdf-fixture-")), "fixture.pdf");
+    const result = spawnSync(process.execPath, ["scripts/synthetic-saas-pdf-fixture.mjs", fixturePath], {
+      cwd: root,
+      encoding: "utf8"
+    });
+    const fixtureSource = read("scripts/synthetic-saas-pdf-fixture.mjs");
+
+    expect(result.status).toBe(0);
+    expect(fs.readFileSync(fixturePath).subarray(0, 4).toString()).toBe("%PDF");
+    expect(fixtureSource).toContain("December 31, 2027");
+    expect(fixtureSource).toContain("30 days before renewal");
+    expect(fixtureSource).toContain("no customer or production data");
   });
 });

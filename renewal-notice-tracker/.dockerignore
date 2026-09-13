@@ -1,0 +1,12 @@
+.git
+.github
+.next
+dist
+node_modules
+.env*
+!.env.example
+coverage
+test-results
+services/python-intelligence/pytest-cache-files-*
+services/python-intelligence/.pytest_cache
+services/python-intelligence/__pycache__

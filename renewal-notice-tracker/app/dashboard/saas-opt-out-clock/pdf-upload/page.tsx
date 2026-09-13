@@ -27,6 +27,7 @@ export default async function SaasOptOutClockPdfUploadPage() {
     billing_provider: billing.billing_provider
   });
   const contractTrackingAccess = getContractTrackingLimitResult(billingSnapshot, contractCount);
+  const canManagePdfUploads = ["admin", "operator"].includes(context.role);
   const memberOptions = members.map((member) => ({
     userId: member.user_id,
     label: member.user?.full_name ?? member.user?.notification_email ?? member.user_id
@@ -68,8 +69,8 @@ export default async function SaasOptOutClockPdfUploadPage() {
       <PdfUploadWorkbench
         members={memberOptions}
         defaultOwnerUserId={currentUserIsMember ? context.user.id : ""}
-        canUpload={contractTrackingAccess.allowed}
-        capacityMessage={contractTrackingAccess.message}
+        canUpload={canManagePdfUploads && contractTrackingAccess.allowed}
+        capacityMessage={canManagePdfUploads ? contractTrackingAccess.message : "Only workspace admins and operators can upload contract PDFs."}
       />
     </section>
   );

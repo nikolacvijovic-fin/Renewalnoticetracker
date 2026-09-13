@@ -45,10 +45,12 @@ function makeProductionEnv(overrides: Record<string, string | undefined> = {}) {
     INTERNAL_OPERATIONS_SECRET: "operations_live_secret_123456789",
     INTERNAL_DESTRUCTIVE_OPS_SECRET: "destructive_live_secret_123456789",
     INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET: "destructive_signing_live_secret_123456789",
+    ADD_ON_INTERNAL_SIGNING_SECRET: "worker_signing_live_secret_123456789",
     BACKGROUND_EXPORT_PAGE_SIZE: "1000",
     BACKGROUND_EXPORT_JOB_LIMIT: "3",
     REMINDER_PROCESSING_LEASE_MINUTES: "15",
     OCR_PROCESSING_LEASE_MINUTES: "30",
+    PDF_UPLOAD_ATTEMPT_RETENTION_HOURS: "72",
     MONITORING_EVENT_SINK: "structured_log",
     ...overrides
   };
@@ -74,11 +76,15 @@ describe("deployment readiness gates", () => {
         "test:monitoring-readiness",
         "test:privacy-ops",
         "test:scale-readiness",
+        "worker:pdf",
+        "scheduler",
+        "e2e:saas-pdf-clock:required",
         "release:check"
       ])
     );
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/DEPLOYMENT_RELEASE_SAFETY.md");
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/MARKET_EXPANSION_BOUNDARY.md");
+    expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/PRODUCTION_RUNTIME.md");
     expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-profiles.ts");
     expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-activation-approval.ts");
     expect(REQUIRED_OPERATIONAL_CONTRACTS).toEqual(

@@ -54,7 +54,7 @@
     "test:release-critical:ci": "npm run lint && npm run typecheck && npm run test:release-critical && npm run e2e:p0:required",
     "test:future-reference": "vitest run tests/monthly-digest-route.test.ts tests/support-economics.test.ts tests/conversion-strategy.test.ts tests/red-team-strategy.test.ts tests/unified-blueprint.test.ts tests/add-on-architecture.test.ts tests/add-on-clients.test.ts --config vitest.config.mjs",
     "release:check": "node scripts/release-readiness-check.mjs",
-    "release:strict": "npm run lint && npm run typecheck && npm run test:release-critical && npm run release:check && npm run e2e:p0:required",
+    "release:strict": "npm run lint && npm run typecheck && npm run test:release-critical && npm run release:check && npm run db:migrations:verify-reviewed && npm run e2e:p0:required && npm run e2e:saas-pdf-clock:required",
     "e2e": "playwright test",
     "e2e:p0": "node scripts/run-p0-e2e.mjs",
     "e2e:p0:verify": "node scripts/verify-p0-e2e-fixtures.mjs --required",
@@ -66,7 +66,14 @@
     "smoke:staging": "node scripts/run-staging-smoke.mjs",
     "load:staging:k6": "k6 run scripts/load/noticecontrol-staging-smoke.k6.js",
     "worker:pdf:build": "node scripts/build-pdf-worker.mjs",
-    "worker:pdf": "node scripts/run-pdf-worker.mjs"
+    "worker:pdf": "node scripts/run-pdf-worker.mjs",
+    "scheduler": "node scripts/run-maintenance-scheduler.mjs",
+    "scheduler:once": "node scripts/run-maintenance-scheduler.mjs --once",
+    "db:migrations:plan": "node scripts/run-supabase-migrations.mjs --plan",
+    "db:migrations:verify-reviewed": "node scripts/run-supabase-migrations.mjs --verify-reviewed-plan",
+    "db:migrations:apply": "node scripts/run-supabase-migrations.mjs --apply",
+    "fixture:saas-pdf": "node scripts/synthetic-saas-pdf-fixture.mjs",
+    "runtime:health": "node scripts/check-runtime-health.mjs web"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

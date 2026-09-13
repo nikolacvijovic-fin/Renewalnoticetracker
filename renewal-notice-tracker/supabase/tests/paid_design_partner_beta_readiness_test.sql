@@ -1,11 +1,12 @@
 begin;
 
-select plan(15);
+select plan(16);
 
 insert into auth.users (id, email)
 values
-  ('00000000-0000-0000-0000-000000000081', 'paid-beta-owner@example.test'),
-  ('00000000-0000-0000-0000-000000000082', 'paid-beta-member@example.test')
+  ('00000000-0000-0000-0000-000000000081', 'paid-beta-admin@example.test'),
+  ('00000000-0000-0000-0000-000000000082', 'paid-beta-reviewer@example.test'),
+  ('00000000-0000-0000-0000-000000000083', 'paid-beta-owner@example.test')
 on conflict (id) do nothing;
 
 insert into public.organizations (id, name, slug, created_by)
@@ -16,8 +17,9 @@ on conflict (id) do nothing;
 
 insert into public.memberships (organization_id, user_id, role)
 values
-  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000081', 'owner'),
-  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000082', 'reviewer')
+  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000081', 'admin'),
+  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000082', 'reviewer'),
+  ('00000000-0000-0000-0000-000000000091', '00000000-0000-0000-0000-000000000083', 'owner')
 on conflict do nothing;
 
 insert into public.subscription_usage_provider_connections (
@@ -59,6 +61,18 @@ select throws_ok(
   'reviewers cannot begin privileged manual synchronization'
 );
 
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000083';
+
+select throws_ok(
+  $$select public.begin_manual_subscription_usage_sync_attempt(
+    '00000000-0000-0000-0000-000000000091',
+    '00000000-0000-0000-0000-000000000093',
+    'microsoft_365', 'paid-beta-interval', false
+  )$$,
+  '42501', 'Insufficient organization role',
+  'owners cannot begin privileged manual synchronization'
+);
+
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000081';
 
 select is(
@@ -68,7 +82,7 @@ select is(
     'microsoft_365', 'paid-beta-interval', false
   )->>'currentStage',
   'created',
-  'owner starts a synchronization at the created stage'
+  'admin starts a synchronization at the created stage'
 );
 
 select throws_ok(
@@ -168,7 +182,7 @@ select throws_ok(
     (select id from public.subscription_usage_sync_runs where logical_interval_key = 'paid-beta-interval' order by attempt_number desc limit 1),
     'reconciling'
   ),
-  '42501', 'Synchronization attempt not found',
+  '42501', 'Insufficient organization role',
   'stage transitions cannot cross organization scope'
 );
 

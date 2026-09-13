@@ -100,9 +100,9 @@ export default async function SaasOptOutClockPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button asChild>
+          {canWrite ? <Button asChild>
             <Link href="/dashboard/saas-opt-out-clock/pdf-upload">Upload contract PDFs</Link>
-          </Button>
+          </Button> : null}
           <Button asChild variant="secondary">
             <Link href="/dashboard/saas-opt-out-clock/ics">Download opt-out calendar</Link>
           </Button>

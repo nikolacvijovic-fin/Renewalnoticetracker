@@ -107,6 +107,19 @@ describe("PDF upload route", () => {
     expect(mocks.uploadSaasOptOutClockPdfAction).not.toHaveBeenCalled();
   });
 
+  it("rejects an owner even when the general intake gate has already allowed the request", async () => {
+    mocks.getOrganizationContextOrNull.mockResolvedValue({
+      organizationId: "org-1",
+      role: "owner",
+      user: { id: "user-1" }
+    });
+
+    const response = await POST(requestWithPdf());
+
+    expect(response.status).toBe(403);
+    expect(mocks.uploadSaasOptOutClockPdfAction).not.toHaveBeenCalled();
+  });
+
   it("returns only the scoped action result and does not trust caller organization fields", async () => {
     mocks.uploadSaasOptOutClockPdfAction.mockResolvedValue({
       ok: true,

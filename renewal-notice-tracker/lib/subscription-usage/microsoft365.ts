@@ -67,7 +67,10 @@ export type Microsoft365ConnectionRecord = Microsoft365ConnectionInput & {
 };
 
 export function canManageSubscriptionUsageConnection(role: MembershipRole) {
-  return ["owner", "admin", "operator"].includes(role);
+  // Provider credentials and usage imports share the shipped intake boundary.
+  // Keep this aligned with `upload_import`; owners can administer billing but
+  // cannot mutate provider-backed operational data by virtue of ownership alone.
+  return ["admin", "operator"].includes(role);
 }
 
 export function buildMicrosoft365AdminConsentUrl(input: {

@@ -20,6 +20,7 @@ export const APPROVED_DIRECT_ADMIN_SUPABASE_IMPORTERS = [
   "lib/email/actions.ts",
   "lib/internal/repositories/admin-beta-reliability-repository.ts",
   "lib/internal/repositories/admin-ops-evidence-repository.ts",
+  "lib/internal/repositories/admin-runtime-health-repository.ts",
   "lib/notifications/reminders.ts",
   "lib/notifications/repositories/admin-renewal-action-notification-payloads-repository.ts",
   "lib/notifications/repositories/admin-renewal-action-notifications-repository.ts",

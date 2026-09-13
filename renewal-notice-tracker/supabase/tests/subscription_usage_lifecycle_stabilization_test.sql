@@ -4,7 +4,7 @@ select plan(43);
 
 insert into auth.users (id, email)
 values
-  ('00000000-0000-0000-0000-000000000001', 'usage-owner@example.test'),
+  ('00000000-0000-0000-0000-000000000001', 'usage-admin@example.test'),
   ('00000000-0000-0000-0000-000000000002', 'usage-member@example.test')
 on conflict (id) do nothing;
 
@@ -16,7 +16,7 @@ on conflict (id) do nothing;
 
 insert into public.memberships (organization_id, user_id, role)
 values
-  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'owner'),
+  ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000001', 'admin'),
   ('00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000002', 'reviewer')
 on conflict do nothing;
 
@@ -201,7 +201,7 @@ select throws_ok(
     '00000000-0000-0000-0000-000000000012', '00000000-0000-0000-0000-000000000051',
     '00000000-0000-0000-0000-000000000041', 'manual_csv', null, null, '[]'::jsonb
   )$$,
-  '42501', 'Analysis scope mismatch',
+  '42501', 'Insufficient organization role',
   'finding persistence cannot cross organization scope'
 );
 

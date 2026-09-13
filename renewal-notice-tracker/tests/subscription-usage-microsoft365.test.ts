@@ -6,6 +6,7 @@ import {
   buildMicrosoft365AdminConsentUrl,
   buildMicrosoft365ConnectionRecord,
   clearMicrosoft365TokenCacheForTests,
+  canManageSubscriptionUsageConnection,
   hashMicrosoft365ConsentNonce,
   mapMicrosoft365SnapshotToImportRows,
   MICROSOFT_365_REQUIRED_GRAPH_PERMISSIONS,
@@ -16,6 +17,13 @@ import {
 
 describe("Microsoft 365 subscription usage connector boundary", () => {
   beforeEach(() => clearMicrosoft365TokenCacheForTests());
+
+  it("limits provider and import mutations to the shipped intake roles", () => {
+    expect(canManageSubscriptionUsageConnection("admin")).toBe(true);
+    expect(canManageSubscriptionUsageConnection("operator")).toBe(true);
+    expect(canManageSubscriptionUsageConnection("owner")).toBe(false);
+    expect(canManageSubscriptionUsageConnection("reviewer")).toBe(false);
+  });
 
   it("builds signed admin-consent URLs and rejects tampered state", () => {
     const state = {

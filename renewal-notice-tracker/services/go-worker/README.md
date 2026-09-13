@@ -32,6 +32,12 @@ go run ./cmd/worker --health
 NOTICECONTROL_APP_URL=https://staging.example.com ADD_ON_INTERNAL_SIGNING_SECRET=... go run ./cmd/worker
 ```
 
+The default command is a continuous, signal-aware poller. Use `--once` only for diagnostics. Configure
+`NOTICECONTROL_WORKER_POLL_INTERVAL_MS`, `NOTICECONTROL_WORKER_CLAIM_LIMIT`, and
+`NOTICECONTROL_WORKER_MAX_CONSECUTIVE_FAILURES` within the documented production bounds. The
+supervisor health command also requires a fresh `NOTICECONTROL_WORKER_HEARTBEAT_FILE`; a stale
+heartbeat means the polling loop is unhealthy even when the executable itself can start.
+
 ## Learning Tasks
 
 Beginner:
@@ -58,7 +64,7 @@ The Next.js app owns internal route contracts, job records, reminder delivery, a
 - `NOTICECONTROL_WORKER_ID`
 - `NOTICECONTROL_WORKER_CLAIM_LIMIT`
 
-The current loop calls `/api/internal/background-jobs/claim` with `processClaimedJobs=true` for trusted reminder delivery and contract PDF extraction jobs. Provider secrets, extraction data, and delivery truth remain in the app; the Go process is only the signed durable poller.
+The current loop calls `/api/internal/background-jobs/claim` for trusted reminder delivery jobs. PDF extraction is owned by the separately supervised Node PDF worker. Provider secrets, extraction data, and delivery truth remain in the app; the Go process is only the signed durable poller.
 
 ## Scaffolded vs Production-Ready
 

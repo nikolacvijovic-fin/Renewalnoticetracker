@@ -10,6 +10,12 @@ export const REQUIRED_DEPLOYMENT_SCRIPTS = [
   "test:privacy-ops",
   "test:scale-readiness",
   "test:background-exports",
+  "worker:pdf:build",
+  "worker:pdf",
+  "scheduler",
+  "e2e:saas-pdf-clock:required",
+  "db:migrations:plan",
+  "db:migrations:apply",
   "release:check"
 ];
 
@@ -26,7 +32,8 @@ export const REQUIRED_DEPLOYMENT_DOCS = [
   "docs/ENTERPRISE_IDENTITY_RBAC_BOUNDARY.md",
   "docs/API_AND_INTEGRATION_BOUNDARY.md",
   "docs/MARKET_EXPANSION_BOUNDARY.md",
-  "docs/PLATFORM_MODULE_REGISTRY.md"
+  "docs/PLATFORM_MODULE_REGISTRY.md",
+  "docs/PRODUCTION_RUNTIME.md"
 ];
 
 export const REQUIRED_PRODUCT_POLICY_CONTRACTS = [
@@ -87,7 +94,8 @@ const productionSecrets = [
   "INTERNAL_OCR_JOBS_SECRET",
   "INTERNAL_OPERATIONS_SECRET",
   "INTERNAL_DESTRUCTIVE_OPS_SECRET",
-  "INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET"
+  "INTERNAL_DESTRUCTIVE_OPS_SIGNING_SECRET",
+  "ADD_ON_INTERNAL_SIGNING_SECRET"
 ];
 
 const productionBuckets = ["SUPABASE_STORAGE_BUCKET", "SUPABASE_EXPORTS_BUCKET"];
@@ -107,8 +115,17 @@ const REQUIRED_SCRIPT_TEST_FILES = {
     "tests/deployment-readiness-gates.test.ts",
     "tests/market-profiles.test.ts",
     "tests/market-activation-approval.test.ts"
-  ]
+  ],
+  "release:strict": ["e2e:saas-pdf-clock:required"]
 };
+
+export const REQUIRED_RUNTIME_FILES = [
+  "Dockerfile",
+  "compose.production.yml",
+  "scripts/run-maintenance-scheduler.mjs",
+  "scripts/check-runtime-health.mjs",
+  "scripts/run-supabase-migrations.mjs"
+];
 
 function issue(code, message, details = {}) {
   return { code, message, details };
@@ -281,7 +298,8 @@ export function getBackgroundJobConfigIssues(env = process.env) {
     validateBoundedInteger(env, "BACKGROUND_EXPORT_PAGE_SIZE", 100, 5000),
     validateBoundedInteger(env, "BACKGROUND_EXPORT_JOB_LIMIT", 1, 10),
     validateBoundedInteger(env, "REMINDER_PROCESSING_LEASE_MINUTES", 1, 120),
-    validateBoundedInteger(env, "OCR_PROCESSING_LEASE_MINUTES", 1, 120)
+    validateBoundedInteger(env, "OCR_PROCESSING_LEASE_MINUTES", 1, 120),
+    validateBoundedInteger(env, "PDF_UPLOAD_ATTEMPT_RETENTION_HOURS", 1, 720)
   ].filter(Boolean);
 }
 
@@ -336,6 +354,16 @@ export function getRepoStructureIssues(repoRoot) {
       issues.push(
         issue("ERR_DEPLOY_PRODUCT_POLICY_CONTRACT_MISSING", `Missing product policy contract module: ${contractPath}.`, {
           path: contractPath
+        })
+      );
+    }
+  }
+
+  for (const runtimePath of REQUIRED_RUNTIME_FILES) {
+    if (!exists(repoRoot, runtimePath)) {
+      issues.push(
+        issue("ERR_DEPLOY_RUNTIME_MANIFEST_MISSING", `Missing production runtime file: ${runtimePath}.`, {
+          path: runtimePath
         })
       );
     }
