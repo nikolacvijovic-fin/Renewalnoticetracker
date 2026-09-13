@@ -43,6 +43,10 @@ secret as a coordinated deployment because signed internal requests cannot cross
    process failure, not a healthy idle state.
 5. Complete staging smoke and required end-to-end gates before shifting production traffic.
 
+For a staging release, run `npm run release:staging-preflight` before the manual Release Readiness
+workflow. It validates configuration names only and requires the staging runtime, integration, and E2E
+inputs without treating production-only values as a staging requirement.
+
 The reference Compose health check reads `INTERNAL_HEALTH_SECRET` only inside the workload. Do not
 publish the internal readiness endpoint or its credential through a public monitoring URL.
 

@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "release:staging-preflight": "node scripts/staging-release-preflight.mjs",
+    "staging:fixtures:prepare": "node scripts/staging-fixtures.mjs --confirm-staging-fixtures",
     "lint": "next lint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --config vitest.config.mjs",

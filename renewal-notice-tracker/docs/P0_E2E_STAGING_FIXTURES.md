@@ -10,4 +10,5 @@ Current policy:
 - `npm run e2e:p0:required` runs the verifier before Playwright starts.
 - Cookie values and auth secrets must be provided through local environment variables or CI secrets and must never be committed.
 - The verifier rejects malformed cookie/header configuration and cross-origin contract paths before any browser run.
-- Automated staging fixture seeding remains a future ticket; until then, fixture creation and cookie rotation are explicit release operations.
+- `npm run staging:fixtures:prepare` creates only the deterministic synthetic PDF. Auth-user/session and
+  seeded-contract setup remain explicit release operations; cookie rotation is always manual.

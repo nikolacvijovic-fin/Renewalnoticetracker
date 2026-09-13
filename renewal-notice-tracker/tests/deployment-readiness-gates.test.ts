@@ -85,6 +85,7 @@ describe("deployment readiness gates", () => {
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/DEPLOYMENT_RELEASE_SAFETY.md");
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/MARKET_EXPANSION_BOUNDARY.md");
     expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/PRODUCTION_RUNTIME.md");
+    expect(REQUIRED_DEPLOYMENT_DOCS).toContain("docs/FIRST_LAUNCH_CHECKLIST.md");
     expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-profiles.ts");
     expect(REQUIRED_PRODUCT_POLICY_CONTRACTS).toContain("lib/product/market-activation-approval.ts");
     expect(REQUIRED_OPERATIONAL_CONTRACTS).toEqual(

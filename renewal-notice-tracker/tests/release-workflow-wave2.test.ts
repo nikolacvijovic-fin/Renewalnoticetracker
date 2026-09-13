@@ -15,6 +15,7 @@ describe("Wave 2 release workflow", () => {
     expect(workflow).toContain("RUNNER_TEMP");
     expect(workflow).toContain("GITHUB_ENV");
     expect(workflow).not.toContain("${{ runner.temp }}");
+    expect(workflow).toContain("npm run release:staging-preflight");
     expect(workflow).toContain("npm run runtime:health");
     expect(workflow).toContain("npm run db:migrations:plan");
     expect(workflow).toContain("npm run db:migrations:verify-reviewed");

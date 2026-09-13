@@ -116,6 +116,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate staging release configuration
+        if: inputs.target_environment == 'staging'
+        run: npm run release:staging-preflight
+
       - name: Set deterministic SaaS PDF fixture path
         run: echo "E2E_CONTRACT_INTELLIGENCE_PDF_PATH=${RUNNER_TEMP}/noticecontrol-synthetic-saas-renewal.pdf" >> "$GITHUB_ENV"
 
