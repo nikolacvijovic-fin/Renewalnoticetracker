@@ -89,6 +89,13 @@ describe("staging launch preflight", () => {
     expect(result.invalidUrls).toEqual(["E2E_BASE_URL"]);
   });
 
+  it("rejects non-local HTTP staging release URLs", () => {
+    const result = getStagingReleasePreflightIssues(
+      stagingEnv({ E2E_BASE_URL: "http://staging.noticecontrol.example" })
+    );
+    expect(result.invalidUrls).toEqual(["E2E_BASE_URL"]);
+  });
+
   it("fails closed for production fixture preparation and requires explicit confirmation", async () => {
     await expect(prepareStagingFixtures({ env: stagingEnv({ RELEASE_TARGET_ENV: "production" }), confirmed: true })).rejects.toThrow(
       "RELEASE_TARGET_ENV=staging"

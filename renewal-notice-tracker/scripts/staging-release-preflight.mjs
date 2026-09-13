@@ -54,7 +54,7 @@ function invalidStagingUrl(env) {
   try {
     const url = new URL(value);
     if (
-      !["http:", "https:"].includes(url.protocol) ||
+      url.protocol !== "https:" ||
       ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"].includes(url.hostname) ||
       url.hostname.endsWith(".local")
     ) {
